@@ -21,7 +21,6 @@
 @import "components/ic-forms";
 @import "components/buttons";
 @import "components/show_hide_opacity";
-@import "pages/login/registration_dialog.scss";
 
 * {
   margin: 0px;
@@ -36,7 +35,6 @@ html, body {
   font-weight: normal;
   @include fontSize(16px);
   font-family: $ic-font-family !important;
-  min-width: auto !important;
 }
 
 #f1_container {
@@ -52,10 +50,11 @@ html, body {
 
 .mobileLogin-Header {
   z-index: 1;
-  background-image: url("/images/mobile_login/canvas_logo_login.svg");
+  background-image: url("/images/mobile_login/logo-box-gray.png");
   background-position: center;
   background-repeat: no-repeat;
-  background-size: 156px 108px;
+  background-size: contain;
+  //background-size: 156px 108px;
   min-height: 156px;
 }
 .face {
@@ -104,8 +103,9 @@ input::-webkit-input-placeholder {
   display: none;
 }
 .button_box .Button {
-  padding-bottom: $ic-sp/2;
+  padding-bottom: $ic-sp/2;  
 }
+<<<<<<< Updated upstream
 
 .enrollment_link {
   bottom: 10px;
@@ -122,3 +122,5 @@ input::-webkit-input-placeholder {
   font-size: .95em;
   font-weight: 600;
 }
+=======
+>>>>>>> Stashed changes
