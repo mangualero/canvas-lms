@@ -30,11 +30,26 @@ class AccessToken < ActiveRecord::Base
   has_one :account, through: :developer_key
 
   serialize :scopes, Array
-  validate :must_only_include_valid_scopes
+  validate :must_only_include_valid_scopes, unless: :deleted?
 
   has_many :notification_endpoints, -> { where(:workflow_state => "active") }, dependent: :destroy
 
   before_validation -> { self.developer_key ||= DeveloperKey.default }
+
+  has_a_broadcast_policy
+
+  set_broadcast_policy do |p|
+    p.dispatch :manually_created_access_token_created
+    p.to(&:user)
+    p.whenever do |access_token|
+      # Rescuse here to get past places where unit tests have the Features
+      # mocked out but are still creating an access token to make api calls
+      # with which triggers this block. This whole line can be removed when
+      # we remove the release flag.
+      next false unless Account.site_admin.feature_enabled?(:notify_for_manually_created_access_tokens) rescue false
+      access_token.crypted_token_previously_changed? && access_token.manually_created?
+    end
+  end
 
   # For user-generated tokens, purpose can be manually set.
   # For app-generated tokens, this should be generated based
@@ -86,15 +101,19 @@ class AccessToken < ActiveRecord::Base
     Canvas::Security.encryption_keys.map { |key| Canvas::Security.hmac_sha1(token, key) }
   end
 
+  def self.visible_tokens(tokens)
+    tokens.reject { |token| token.developer_key&.internal_service }
+  end
+
   def usable?(token_key = :crypted_token)
     # true if
-    # developer key is active AND
+    # developer key is usable AND
     # there is a user id AND
     # its not expired OR Its a refresh token
     # since you need a refresh token to
     # refresh expired tokens
 
-    if !developer_key_id || cached_developer_key.try(:active?)
+    if !developer_key_id || cached_developer_key.try(:usable?)
       # we are a stand alone token, or a token with an active developer key
       # make sure we
       #   - have a user id
@@ -201,6 +220,12 @@ class AccessToken < ActiveRecord::Base
     end
   end
 
+  def self.always_allowed_scopes
+    [
+      "/login/oauth2/token"
+    ].map{ |path| Regexp.new("^#{path}$")}
+  end
+
   def url_scopes_for_method(method)
     re = /^url:#{method}\|/
     scopes.select { |scope| re =~ scope }.map do |scope|
@@ -229,11 +254,8 @@ class AccessToken < ActiveRecord::Base
   end
 
   def must_only_include_valid_scopes
-    return true if scopes.nil?
-    errors.add(:scopes, "must match accepted scopes") unless scopes.all? {|scope| TokenScopes.all_scopes.include?(scope)}
-    if developer_key.owner_account.feature_enabled?(:api_token_scoping) && developer_key.require_scopes?
-      errors.add(:scopes, 'requested scopes must match scopes on developer key') unless scopes.all? { |scope| developer_key.scopes.include?(scope) }
-    end
+    return true if scopes.nil? || !developer_key.require_scopes?
+    errors.add(:scopes, 'requested scopes must match scopes on developer key') unless scopes.all? { |scope| developer_key.scopes.include?(scope) }
   end
 
   # It's encrypted, but end users still shouldn't see this.
@@ -244,6 +266,10 @@ class AccessToken < ActiveRecord::Base
 
   def dev_key_account_id
     cached_developer_key.account_id
+  end
+
+  def manually_created?
+    cached_developer_key == DeveloperKey.default
   end
 
   private

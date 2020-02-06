@@ -15,92 +15,113 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import moment from 'moment-timezone';
-import _ from 'lodash';
-import { makeEndOfDayIfMidnight } from './dateUtils';
+import moment from 'moment-timezone'
+import _ from 'lodash'
+import parseLinkHeader from 'parse-link-header'
 
 const getItemDetailsFromPlannable = (apiResponse, timeZone) => {
-  let { plannable, plannable_type, planner_override } = apiResponse;
-  const plannableId = plannable.id || plannable.page_id;
-  const markedComplete = planner_override;
+  const {plannable, plannable_type, planner_override} = apiResponse
+  const plannableId = plannable.id || plannable.page_id
 
   const details = {
-    course_id: plannable.course_id,
-    title: plannable.name || plannable.title,
-    completed: (markedComplete != null) ? markedComplete.marked_complete : (apiResponse.submissions
-      && (apiResponse.submissions.submitted
-      || apiResponse.submissions.excused
-      || apiResponse.submissions.graded)
-    ),
+    course_id: plannable.course_id || apiResponse.course_id,
+    title: plannable.title,
+    completed: isComplete(apiResponse),
     points: plannable.points_possible,
-    html_url: plannable.html_url,
+    html_url: apiResponse.html_url || plannable.html_url,
     overrideId: planner_override && planner_override.id,
     overrideAssignId: plannable.assignment_id,
     id: plannableId,
     uniqueId: `${plannable_type}-${plannableId}`,
-  };
+    location: plannable.location_name || null,
+    address: plannable.location_address || null,
+    dateStyle: plannable.todo_date ? 'todo' : 'due'
+  }
+  details.originallyCompleted = details.completed
+  details.feedback = apiResponse.submissions ? apiResponse.submissions.feedback : undefined
+
   if (plannable_type === 'discussion_topic' || plannable_type === 'announcement') {
-    details.unread_count = plannable.unread_count;
+    details.unread_count = plannable.unread_count
   }
 
   if (plannable_type === 'planner_note') {
-    details.details = plannable.details;
+    details.details = plannable.details
   }
 
   if (plannable_type === 'calendar_event') {
+    details.details = plannable.description
     details.allDay = plannable.all_day
+    if (!details.allDay && plannable.end_at && plannable.end_at !== apiResponse.plannable_date) {
+      details.endTime = moment(plannable.end_at)
+    }
   }
 
-  return details;
-};
+  return details
+}
 
 const TYPE_MAPPING = {
-  quiz: "Quiz",
-  discussion_topic: "Discussion",
-  assignment: "Assignment",
-  wiki_page: "Page",
-  announcement: "Announcement",
-  planner_note: "To Do",
-  calendar_event: "Calendar Event",
-};
+  quiz: 'Quiz',
+  discussion_topic: 'Discussion',
+  assignment: 'Assignment',
+  wiki_page: 'Page',
+  announcement: 'Announcement',
+  planner_note: 'To Do',
+  calendar_event: 'Calendar Event',
+  assessment_request: 'Peer Review'
+}
 
-const getItemType = (plannableType) => {
-  return TYPE_MAPPING[plannableType];
-};
+const getItemType = plannableType => {
+  return TYPE_MAPPING[plannableType]
+}
 
-const getApiItemType = (overrideType) => {
-  return _.findKey(TYPE_MAPPING, _.partial(_.isEqual, overrideType));
-};
+const getApiItemType = overrideType => {
+  return _.findKey(TYPE_MAPPING, _.partial(_.isEqual, overrideType))
+}
+
+export function findNextLink(response) {
+  const linkHeader = response.headers.link
+  if (linkHeader == null) return null
+
+  const parsedLinks = parseLinkHeader(linkHeader)
+  if (parsedLinks == null) return null
+
+  if (parsedLinks.next == null) return null
+  return parsedLinks.next.url
+}
 
 /**
-* Translates the API data to the format the planner expects
-**/
-export function transformApiToInternalItem (apiResponse, courses, groups, timeZone) {
-  if (timeZone == null) throw new Error('timezone is required when interpreting api data in transformApiToInternalItem');
+ * Translates the API data to the format the planner expects
+ * */
+export function transformApiToInternalItem(apiResponse, courses, groups, timeZone) {
+  if (timeZone == null)
+    throw new Error('timezone is required when interpreting api data in transformApiToInternalItem')
 
-  const contextInfo = {};
-  const context_type = apiResponse.context_type + '';
-  const contextId = apiResponse[`${context_type.toLowerCase()}_id`];
+  const contextInfo = {}
+  const context_type = apiResponse.context_type + ''
+  const contextId = apiResponse[`${context_type.toLowerCase()}_id`]
   if (context_type === 'Course') {
-    const course = courses.find(c => c.id === contextId);
-    contextInfo.context = getCourseContext(course);
+    const course = courses.find(c => c.id === contextId)
+    contextInfo.context = getCourseContext(course)
   } else if (context_type === 'Group') {
-    const group = groups.find(g => g.id === contextId) || {name: "Unknown Group", color: "#666666", url: undefined};
-    contextInfo.context = getGroupContext(apiResponse, group);
+    const group = groups.find(g => g.id === contextId) || {
+      name: 'Unknown Group',
+      color: '#666666',
+      url: undefined
+    }
+    contextInfo.context = getGroupContext(apiResponse, group)
   }
-  const details = getItemDetailsFromPlannable(apiResponse, timeZone);
+  const details = getItemDetailsFromPlannable(apiResponse, timeZone)
 
-  // Standardize 00:00:00 date to 11:59PM on the current day to make due date less confusing
-  const plannableDate = makeEndOfDayIfMidnight(apiResponse.plannable_date, timeZone);
+  const plannableDate = moment.tz(apiResponse.plannable_date, timeZone)
 
-  if ((!contextInfo.context) && apiResponse.plannable_type === 'planner_note' && (details.course_id)) {
-    const course = courses.find(c => c.id === details.course_id);
-    contextInfo.context = getCourseContext(course);
+  if (!contextInfo.context && apiResponse.plannable_type === 'planner_note' && details.course_id) {
+    const course = courses.find(c => c.id === details.course_id)
+    contextInfo.context = getCourseContext(course)
   }
 
   if (details.unread_count) {
-    apiResponse.submissions = apiResponse.submissions || {};
-    apiResponse.submissions.unread_count = details.unread_count;
+    apiResponse.submissions = apiResponse.submissions || {}
+    apiResponse.submissions.unread_count = details.unread_count
   }
   return {
     ...contextInfo,
@@ -108,23 +129,25 @@ export function transformApiToInternalItem (apiResponse, courses, groups, timeZo
     dateBucketMoment: moment.tz(plannableDate, timeZone).startOf('day'),
     type: getItemType(apiResponse.plannable_type),
     status: apiResponse.submissions,
-    newActivity: apiResponse.new_activity,
+    newActivity:
+      apiResponse.new_activity &&
+      (apiResponse.plannable_type !== 'discussion_topic' || details.unread_count > 0),
     toggleAPIPending: false,
     date: plannableDate,
     ...details
-  };
+  }
 }
 
 /**
  * This takes the response from creating a new planner note aka To Do and puts it in the internal
  * format.
  */
-export function transformPlannerNoteApiToInternalItem (plannerItemApiResponse, courses, timeZone) {
-  const plannerNote = plannerItemApiResponse;
-  let context = {};
+export function transformPlannerNoteApiToInternalItem(plannerItemApiResponse, courses, timeZone) {
+  const plannerNote = plannerItemApiResponse
+  let context = {}
   if (plannerNote.course_id) {
-    const course = courses.find(c => c.id === plannerNote.course_id);
-    context = getCourseContext(course);
+    const course = courses.find(c => c.id === plannerNote.course_id)
+    context = getCourseContext(course)
   }
   return {
     id: plannerNote.id,
@@ -133,38 +156,38 @@ export function transformPlannerNoteApiToInternalItem (plannerItemApiResponse, c
     type: 'To Do',
     status: false,
     course_id: plannerNote.course_id,
-    context: context,
+    context,
     title: plannerNote.title,
     date: moment.tz(plannerNote.todo_date, timeZone),
     details: plannerNote.details,
     completed: false
-  };
+  }
 }
 
 /**
-* Turn internal item format into data the API can consume for save actions
-*/
-export function transformInternalToApiItem (internalItem) {
-  const contextInfo = {};
+ * Turn internal item format into data the API can consume for save actions
+ */
+export function transformInternalToApiItem(internalItem) {
+  const contextInfo = {}
   if (internalItem.context) {
-    contextInfo.context_type = internalItem.context.type || 'Course';
-    contextInfo[`${contextInfo.context_type.toLowerCase()}_id`] = internalItem.context.id;
+    contextInfo.context_type = internalItem.context.type || 'Course'
+    contextInfo[`${contextInfo.context_type.toLowerCase()}_id`] = internalItem.context.id
   }
   return {
     id: internalItem.id,
     ...contextInfo,
     todo_date: internalItem.date,
     title: internalItem.title,
-    details: internalItem.details,
-  };
+    details: internalItem.details
+  }
 }
 
-export function transformInternalToApiOverride (internalItem, userId) {
-  let type = getApiItemType(internalItem.type);
-  let id = internalItem.id;
+export function transformInternalToApiOverride(internalItem, userId) {
+  let type = getApiItemType(internalItem.type)
+  let id = internalItem.id
   if (internalItem.overrideAssignId) {
-    type = 'assignment';
-    id = internalItem.overrideAssignId;
+    type = 'assignment'
+    id = internalItem.overrideAssignId
   }
   return {
     id: internalItem.overrideId,
@@ -172,47 +195,61 @@ export function transformInternalToApiOverride (internalItem, userId) {
     plannable_type: type,
     user_id: userId,
     marked_complete: internalItem.completed
-  };
+  }
 }
 
-export function transformApiToInternalGrade (apiResult) {
+export function transformApiToInternalGrade(apiResult) {
   // Grades are the same across all enrollments, just look at first one
-  const courseId = apiResult.id;
-  const hasGradingPeriods = apiResult.has_grading_periods;
-  const enrollment = apiResult.enrollments[0];
-  let score = enrollment.computed_current_score;
-  let grade = enrollment.computed_current_grade;
+  const courseId = apiResult.id
+  const hasGradingPeriods = apiResult.has_grading_periods
+  const enrollment = apiResult.enrollments[0]
+  let score = enrollment.computed_current_score
+  let grade = enrollment.computed_current_grade
   if (hasGradingPeriods) {
-    score = enrollment.current_period_computed_current_score;
-    grade = enrollment.current_period_computed_current_grade;
+    score = enrollment.current_period_computed_current_score
+    grade = enrollment.current_period_computed_current_grade
   }
-  return {courseId, hasGradingPeriods, grade, score};
+  return {courseId, hasGradingPeriods, grade, score}
 }
 
 function getCourseContext(course) {
   // shouldn't happen, but if the course data is missing, skip it.
   // this has the effect of a planner note showing up as a vanilla todo not associated with a course
-  if (!course) return undefined;
+  if (!course) return undefined
   return {
     type: 'Course',
     id: course.id,
     title: course.shortName,
     image_url: course.image,
-    inform_students_of_overdue_submissions: course.informStudentsOfOverdueSubmissions,
     color: course.color,
     url: course.href
-  };
+  }
 }
 
 function getGroupContext(apiResponse, group) {
-  if (!group) return undefined;
+  if (!group) return undefined
   return {
     type: apiResponse.context_type,
     id: group.id,
     title: group.name,
     image_url: undefined,
-    inform_students_of_overdue_submissions: false,  // group items don't have submissions
     color: group.color,
     url: group.url
-  };
+  }
+}
+
+// is the item complete?
+// either marked as complete by the user, or because the work was completed.
+function isComplete(apiResponse) {
+  const {plannable, plannable_type, planner_override, submissions} = apiResponse
+
+  let complete = false
+  if (planner_override) {
+    complete = planner_override.marked_complete
+  } else if (plannable_type === 'assessment_request') {
+    complete = plannable.workflow_state === 'completed'
+  } else if (submissions) {
+    complete = submissions.submitted
+  }
+  return complete
 }

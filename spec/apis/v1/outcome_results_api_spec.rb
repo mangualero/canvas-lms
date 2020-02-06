@@ -20,7 +20,6 @@ require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
 require File.expand_path(File.dirname(__FILE__) + '/../../sharding_spec_helper')
 
 describe "Outcome Results API", type: :request do
-
   let_once(:outcome_course) do
     course_factory(active_all: true)
     @course
@@ -248,7 +247,7 @@ describe "Outcome Results API", type: :request do
           expect(rollup['links']['user']).to eq outcome_student.id.to_s
           expect(rollup['scores'].size).to eq 1
           rollup['scores'].each do |score|
-            expect(score.keys.sort).to eq %w(count links score submitted_at title)
+            expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
             expect(score['count']).to eq 1
             expect(score['score']).to eq first_outcome_rating[:points]
             expect(score['links'].keys.sort).to eq %w(outcome)
@@ -257,13 +256,32 @@ describe "Outcome Results API", type: :request do
         end
       end
 
-      it "returns a csv file" do
-        outcome_result
-        user_session @user
-        get "/courses/#{@course.id}/outcome_rollups.csv"
-        expect(response).to be_success
-        expect(response.body).to eq "Student name,Student ID,new outcome result,new outcome mastery points\n"+
-          "User,#{outcome_student.id},3.0,3.0\n"
+      context "csv" do
+        it "returns a csv file" do
+          outcome_result
+          user_session @user
+          get "/courses/#{@course.id}/outcome_rollups.csv"
+          expect(response).to be_successful
+          expect(response.body).to eq <<~END
+            Student name,Student ID,new outcome result,new outcome mastery points
+            User,#{outcome_student.id},3.0,3.0
+          END
+        end
+
+        it "obeys csv i18n flags" do
+          outcome_course.root_account.enable_feature! :enable_i18n_features_in_outcomes_exports
+          @user.enable_feature! :include_byte_order_mark_in_gradebook_exports
+          @user.enable_feature! :use_semi_colon_field_separators_in_gradebook_exports
+
+          outcome_result
+          user_session @user
+          get "/courses/#{@course.id}/outcome_rollups.csv"
+          expect(response).to be_successful
+          expect(response.body).to eq <<~END
+            \xEF\xBB\xBFStudent name;Student ID;new outcome result;new outcome mastery points
+            User;#{outcome_student.id};3.0;3.0
+          END
+        end
       end
 
       describe "user_ids parameter" do
@@ -283,7 +301,7 @@ describe "Outcome Results API", type: :request do
             expect(student_ids).to be_include(rollup['links']['user'])
             expect(rollup['scores'].size).to eq 1
             rollup['scores'].each do |score|
-              expect(score.keys.sort).to eq %w(count links score submitted_at title)
+              expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
               expect(score['count']).to eq 1
               expect([0,1]).to be_include(score['score'])
               expect(score['links'].keys.sort).to eq %w(outcome)
@@ -342,7 +360,7 @@ describe "Outcome Results API", type: :request do
             expect(outcome_course_sections[0].student_ids.map(&:to_s)).to be_include(rollup['links']['user'])
             expect(rollup['scores'].size).to eq 1
             rollup['scores'].each do |score|
-              expect(score.keys.sort).to eq %w(count links score submitted_at title)
+              expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
               expect(score['count']).to eq 1
               expect([0,2]).to be_include(score['score'])
               expect(score['links'].keys.sort).to eq %w(outcome)
@@ -491,7 +509,7 @@ describe "Outcome Results API", type: :request do
           rollup['links']['course'] == @course.id.to_s
           expect(rollup['scores'].size).to eq 1
           rollup['scores'].each do |score|
-            expect(score.keys.sort).to eq %w(count links score submitted_at title)
+            expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
             expect(score['count']).to eq 1
             expect(score['score']).to eq first_outcome_rating[:points]
             expect(score['links'].keys.sort).to eq %w(outcome)
@@ -516,7 +534,7 @@ describe "Outcome Results API", type: :request do
             expect(rollup['links']['course']).to eq @course.id.to_s
             expect(rollup['scores'].size).to eq 1
             rollup['scores'].each do |score|
-              expect(score.keys.sort).to eq %w(count links score submitted_at title)
+              expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
               expect(score['count']).to eq 2
               expect(score['score']).to eq 0.5
               expect(score['links'].keys.sort).to eq %w(outcome)
@@ -541,7 +559,7 @@ describe "Outcome Results API", type: :request do
             expect(rollup['links']['course']).to eq outcome_course.id.to_s
             expect(rollup['scores'].size).to eq 1
             rollup['scores'].each do |score|
-              expect(score.keys.sort).to eq %w(count links score submitted_at title)
+              expect(score.keys.sort).to eq %w(count hide_points links score submitted_at title)
               expect(score['count']).to eq outcome_course_sections[0].enrollments.count
               expect(score['score']).to eq 1
               expect(score['links'].keys.sort).to eq %w(outcome)

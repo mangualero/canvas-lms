@@ -45,9 +45,7 @@ describe "student groups" do
 
       f('#edit_group').click
       set_value f('#group_name'), "new group name"
-      f('#ui-id-2').find_element(:css, 'button[type=submit]').click
-      wait_for_ajaximations
-
+      expect_new_page_load {f('#ui-id-2').find_element(:css, 'button[type=submit]').click}
       expect(g1.reload.name).to include("new group name")
     end
 
@@ -287,8 +285,7 @@ describe "student groups" do
       end
 
       it "add/remove plurality to the word 'student' if one student", priority: "2", test_id: 180723 do
-        expect(f(".student-group-students")).to include_text("1 student")
-
+        skip('KNO-183')
         fln('Manage').click
         wait_for_ajaximations
 

@@ -155,7 +155,7 @@ describe IncomingMailProcessor::IncomingMessageProcessor do
 
     it "should convert another charset to UTF-8" do
       IncomingMessageProcessor.new(message_handler, error_reporter).process_single(Mail.new {
-          content_type 'text/plain; charset=Shift-JIS'
+          content_type 'text/plain; charset=Shift_JIS'
           body "\x83\x40".force_encoding(Encoding::BINARY)
         }, '')
 
@@ -237,20 +237,23 @@ describe IncomingMailProcessor::IncomingMessageProcessor do
       let (:message) { Mail.new(content_type: 'text/plain; charset=UTF-8', body: "hello") }
 
       it "increments the processed count" do
-        expect(CanvasStatsd::Statsd).to receive(:increment).with("incoming_mail_processor.incoming_message_processed.").once
+        expect(InstStatsd::Statsd).to receive(:increment).with("incoming_mail_processor.incoming_message_processed.",
+                                                               {short_stat: "incoming_mail_processor.incoming_message_processed", tags: {mailbox: nil}}).once
         IncomingMessageProcessor.new(message_handler, error_reporter).process_single(message, '')
       end
 
       it "reports the age based on the date header" do
         Timecop.freeze do
           message.date = 10.minutes.ago
-          expect(CanvasStatsd::Statsd).to receive(:timing).once.with("incoming_mail_processor.message_age.", 10*60*1000)
+          expect(InstStatsd::Statsd).to receive(:timing).once.with("incoming_mail_processor.message_age.", 10*60*1000,
+                                                                   {short_stat: "incoming_mail_processor.message_age",
+                                                                    tags: {mailbox: nil}})
           IncomingMessageProcessor.new(message_handler, error_reporter).process_single(message, '')
         end
       end
 
       it "does not report the age if there is no date header" do
-        expect(CanvasStatsd::Statsd).to receive(:timing).never
+        expect(InstStatsd::Statsd).to receive(:timing).never
         IncomingMessageProcessor.new(message_handler, error_reporter).process_single(message, '')
       end
     end

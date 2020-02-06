@@ -17,38 +17,39 @@
  */
 
 import React from 'react'
-import { string, func, shape } from 'prop-types'
-import ApplyTheme from '@instructure/ui-themeable/lib/components/ApplyTheme'
-import Tooltip from '@instructure/ui-overlays/lib/components/Tooltip'
-import IconMiniArrowUp from '@instructure/ui-icons/lib/Solid/IconMiniArrowUp'
-import IconMiniArrowDown from '@instructure/ui-icons/lib/Solid/IconMiniArrowDown'
-import Link from '@instructure/ui-elements/lib/components/Link'
+import {string, func, shape} from 'prop-types'
+import {Tooltip} from '@instructure/ui-overlays'
+import {IconMiniArrowUpSolid, IconMiniArrowDownSolid} from '@instructure/ui-icons'
+import {Button} from '@instructure/ui-buttons'
 import preventDefault from 'compiled/fn/preventDefault'
 
 export default function UsersListHeader(props) {
-  const {id, tipAsc, tipDesc, label, onUpdateFilters} = props;
+  const {id, tipAsc, tipDesc, label, onUpdateFilters} = props
   const {sort, order, search_term, role_filter_id} = props.searchFilter
-  const newOrder = (sort === id && order === 'asc') || (!sort && id === 'username')
-    ? 'desc'
-    : 'asc'
+  const newOrder = (sort === id && order === 'asc') || (!sort && id === 'username') ? 'desc' : 'asc'
 
   return (
     <th scope="col">
-      <ApplyTheme theme={{[Link.theme]: {fontWeight: 'bold'}}}>
-        <Tooltip
-          as={Link}
-          tip={(sort === id && order === 'asc') ? tipAsc : tipDesc}
+      <Tooltip tip={sort === id && order === 'asc' ? tipAsc : tipDesc}>
+        <Button
           onClick={preventDefault(() => {
             onUpdateFilters({search_term, sort: id, order: newOrder, role_filter_id})
           })}
+          variant="link"
+          theme={{fontWeight: '700', mediumPadding: '0', mediumHeight: '1.5rem'}}
         >
           {label}
-          {sort === id ?
-            (order === 'asc' ? <IconMiniArrowDown /> : <IconMiniArrowUp />) :
+          {sort === id ? (
+            order === 'asc' ? (
+              <IconMiniArrowUpSolid />
+            ) : (
+              <IconMiniArrowDownSolid />
+            )
+          ) : (
             ''
-          }
-        </Tooltip>
-      </ApplyTheme>
+          )}
+        </Button>
+      </Tooltip>
     </th>
   )
 }

@@ -62,28 +62,9 @@ test('renders', () => {
   ok(view.$('.header-bar-right').length > 0, 'header bar is rendered')
 })
 
-test('renders the moderated grading form field group if Moderated Grading is enabled', () => {
-  ENV.MODERATED_GRADING_ENABLED = true
-  function beforeRender(editView) {
-    sinon.stub(editView.model, 'renderModeratedGradingFormFieldGroup')
-  }
-  const view = editHeaderView({}, {}, beforeRender)
-  strictEqual(view.model.renderModeratedGradingFormFieldGroup.callCount, 1)
-  view.model.renderModeratedGradingFormFieldGroup.restore()
-})
-
-test('does not render the moderated grading form field group if Moderated Grading is disabled', () => {
-  function beforeRender(editView) {
-    sinon.stub(editView.model, 'renderModeratedGradingFormFieldGroup')
-  }
-  const view = editHeaderView({}, {}, beforeRender)
-  strictEqual(view.model.renderModeratedGradingFormFieldGroup.callCount, 0)
-  view.model.renderModeratedGradingFormFieldGroup.restore()
-})
-
-test('delete works for an un-saved assignment', function() {
+test('delete works for an un-saved assignment', () => {
   const view = editHeaderView()
-  const cb = this.stub(view, 'onDeleteSuccess')
+  const cb = sandbox.stub(view, 'onDeleteSuccess')
   view.delete()
   equal(cb.called, true, 'onDeleteSuccess was called')
 })
@@ -116,10 +97,10 @@ test('allows deleting assignments due in closed grading periods for admins', () 
   ok(view.$('.delete_assignment_link:not(.disabled)').length)
 })
 
-test('does not attempt to delete an assignment due in a closed grading period', function() {
+test('does not attempt to delete an assignment due in a closed grading period', () => {
   const view = editHeaderView({in_closed_grading_period: true})
-  this.stub(window, 'confirm').returns(true)
-  this.spy(view, 'delete')
+  sandbox.stub(window, 'confirm').returns(true)
+  sandbox.spy(view, 'delete')
   view.$('.delete_assignment_link').click()
   ok(window.confirm.notCalled)
   ok(view.delete.notCalled)
@@ -140,10 +121,10 @@ QUnit.module('EditHeaderView - try deleting assignment', {
   }
 })
 
-test('attempt to delete an assignment, but clicked Cancel on confirmation box', function() {
+test('attempt to delete an assignment, but clicked Cancel on confirmation box', () => {
   const view = editHeaderView({in_closed_grading_period: false})
-  this.stub(window, 'confirm').returns(false)
-  this.spy(view, 'delete')
+  sandbox.stub(window, 'confirm').returns(false)
+  sandbox.spy(view, 'delete')
   const setFocusStub = sinon.stub()
   sinon
     .stub(window, '$')

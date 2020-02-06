@@ -15,65 +15,69 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+import React from 'react'
+import ReactDOM from 'react-dom'
+import TestUtils from 'react-dom/test-utils'
+import DeleteConfirmation from 'jsx/collaborations/DeleteConfirmation'
 
-define([
-  'react',
-  'react-addons-test-utils',
-  'jsx/collaborations/DeleteConfirmation'
-], (React, TestUtils, DeleteConfirmation) => {
+QUnit.module('DeleteConfirmation')
 
-  QUnit.module('DeleteConfirmation');
+const props = {
+  collaboration: {
+    title: 'Hello there',
+    description: 'Im here to describe stuff',
+    user_id: 1,
+    user_name: 'Say my name',
+    updated_at: new Date(0).toString()
+  },
+  onDelete: () => {},
+  onCancel: () => {}
+}
 
-  let props = {
-    collaboration: {
-      title: 'Hello there',
-      description: 'Im here to describe stuff',
-      user_id: 1,
-      user_name: 'Say my name',
-      updated_at: (new Date(0)).toString()
-    },
-    onDelete: () => {},
-    onCancel: () => {}
+test('renders the message and action buttons', () => {
+  const component = TestUtils.renderIntoDocument(<DeleteConfirmation {...props} />)
+  const message = TestUtils.findRenderedDOMComponentWithClass(
+    component,
+    'DeleteConfirmation-message'
+  )
+  const buttons = TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button')
+
+  equal(ReactDOM.findDOMNode(message).innerText, 'Remove "Hello there"?')
+  equal(buttons.length, 2)
+  equal(ReactDOM.findDOMNode(buttons[0]).innerText, 'Yes, remove')
+  equal(ReactDOM.findDOMNode(buttons[1]).innerText, 'Cancel')
+})
+
+test('Clicking on the confirmation button calls onDelete', () => {
+  let onDeleteCalled = false
+  const newProps = {
+    ...props,
+    onDelete: () => {
+      onDeleteCalled = true
+    }
   }
 
-  test('renders the message and action buttons', () => {
-    let component = TestUtils.renderIntoDocument(<DeleteConfirmation {...props} />);
-    let message = TestUtils.findRenderedDOMComponentWithClass(component, 'DeleteConfirmation-message');
-    let buttons = TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button');
+  const component = TestUtils.renderIntoDocument(<DeleteConfirmation {...newProps} />)
+  const confirmButton = ReactDOM.findDOMNode(
+    TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button')[0]
+  )
+  TestUtils.Simulate.click(confirmButton)
+  ok(onDeleteCalled)
+})
 
-    equal(message.getDOMNode().innerText, 'Remove "Hello there"?');
-    equal(buttons.length, 2);
-    equal(buttons[0].getDOMNode().innerText, 'Yes, remove');
-    equal(buttons[1].getDOMNode().innerText, 'Cancel');
-  });
-
-  test('Clicking on the confirmation button calls onDelete', () => {
-    let onDeleteCalled = false
-    let newProps = {
-      ...props,
-      onDelete: () => {
-        onDeleteCalled = true
-      }
+test('Clicking on the cancel button calls onCancel', () => {
+  let onCancelCalled = false
+  const newProps = {
+    ...props,
+    onCancel: () => {
+      onCancelCalled = true
     }
+  }
 
-    let component = TestUtils.renderIntoDocument(<DeleteConfirmation {...newProps} />);
-    let confirmButton = TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button')[0].getDOMNode();
-    TestUtils.Simulate.click(confirmButton);
-    ok(onDeleteCalled);
-  });
-
-  test('Clicking on the cancel button calls onCancel', () => {
-    let onCancelCalled = false
-    let newProps = {
-      ...props,
-      onCancel: () => {
-        onCancelCalled = true
-      }
-    }
-
-    let component = TestUtils.renderIntoDocument(<DeleteConfirmation {...newProps} />);
-    let cancelButton = TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button')[1].getDOMNode();
-    TestUtils.Simulate.click(cancelButton);
-    ok(onCancelCalled);
-  })
+  const component = TestUtils.renderIntoDocument(<DeleteConfirmation {...newProps} />)
+  const cancelButton = ReactDOM.findDOMNode(
+    TestUtils.scryRenderedDOMComponentsWithClass(component, 'Button')[1]
+  )
+  TestUtils.Simulate.click(cancelButton)
+  ok(onCancelCalled)
 })

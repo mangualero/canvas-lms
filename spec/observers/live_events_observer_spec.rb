@@ -194,6 +194,20 @@ describe LiveEventsObserver do
     end
   end
 
+  describe "assignment overrides" do
+    it "posts create events" do
+      expect(Canvas::LiveEvents).to receive(:assignment_override_created).once
+      assignment_override_model
+    end
+
+    it "posts update events" do
+      expect(Canvas::LiveEvents).to receive(:assignment_override_updated).once
+      assignment_override_model(:title => "original")
+      @override.title = "new title"
+      @override.save
+    end
+  end
+
   describe "submission" do
     it "posts create events" do
       expect(Canvas::LiveEvents).to receive(:submission_created).once
@@ -363,7 +377,29 @@ describe LiveEventsObserver do
       end
     end
 
-    context "the tag_type is not context_module" do
+    context "the tag_type is context_module_progression" do
+      let(:context_module) { course.context_modules.create! }
+      let(:context_module_progression) { context_module.context_module_progressions.create!(user_id: user_model.id) }
+
+      it "posts update events if module and course are complete" do
+        expect(Canvas::LiveEvents).to receive(:course_completed).with(anything)
+        expect_any_instance_of(CourseProgress).to receive(:completed?).and_return(true)
+        context_module_progression.update_attribute(:workflow_state, 'completed')
+      end
+
+      it "does not post update events if module is not complete" do
+        expect(Canvas::LiveEvents).not_to receive(:course_completed).with(anything)
+        context_module_progression.update_attribute(:workflow_state, 'in_progress')
+      end
+
+      it "does not post update events if course is not complete" do
+        expect(Canvas::LiveEvents).not_to receive(:course_completed).with(anything)
+        expect_any_instance_of(CourseProgress).to receive(:completed?).and_return(false)
+        context_module_progression.update_attribute(:workflow_state, 'completed')
+      end
+    end
+
+    context "the tag_type is not context_module or context_module_progression" do
       it "does nothing" do
         expect(Canvas::LiveEvents).not_to receive(:module_item_created)
         expect(Canvas::LiveEvents).not_to receive(:module_item_updated)
@@ -376,6 +412,62 @@ describe LiveEventsObserver do
         )
         content_tag.update_attribute(:position, 11)
       end
+    end
+  end
+
+  describe "learning_outcomes" do
+    before do
+      @context = course_model
+    end
+
+    it "posts create events" do
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_created).with(anything)
+      outcome_model
+    end
+
+    it "posts update events" do
+      outcome = outcome_model
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_updated).with(outcome)
+      outcome.update_attribute(:short_description, 'this is new')
+    end
+  end
+
+  describe "learning_outcome_groups" do
+    before do
+      @context = course_model
+      @context.root_outcome_group
+    end
+
+    it "posts create events" do
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_group_created).with(anything)
+      outcome_group_model
+    end
+
+    it "posts update events" do
+      group = outcome_group_model
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_group_updated).with(group)
+      group.update_attribute(:description, 'this is new')
+    end
+  end
+
+  describe "learning_outcome_links" do
+    before do
+      @context = course_model
+    end
+
+    it "posts create events" do
+      outcome = outcome_model
+      group = outcome_group_model
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_link_created).with(anything)
+      group.add_outcome(outcome)
+    end
+
+    it "posts updated events" do
+      outcome = outcome_model
+      group = outcome_group_model
+      link = group.add_outcome(outcome)
+      expect(Canvas::LiveEvents).to receive(:learning_outcome_link_updated).with(link)
+      link.destroy!
     end
   end
 end

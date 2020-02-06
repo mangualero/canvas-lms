@@ -146,7 +146,7 @@ class MediaObject < ActiveRecord::Base
     client = CanvasKaltura::ClientV3.new
     client.startSession(CanvasKaltura::SessionType::ADMIN)
     info = client.mediaGet(media_id)
-    return !!info[:id]
+    return !!info&.dig(:id)
   end
 
   def self.ensure_media_object(media_id, create_opts = {})
@@ -199,18 +199,14 @@ class MediaObject < ActiveRecord::Base
     self.title
   end
 
-  def retrieve_details
-    return unless self.media_id
-    # From Kaltura, retrieve the title (if it's not already set)
-    # and the list of valid flavors along with their id's.
-    # Might as well confirm the media type while you're at it.
-    client = CanvasKaltura::ClientV3.new
-    client.startSession(CanvasKaltura::SessionType::ADMIN)
-    self.data ||= {}
-    entry = client.mediaGet(self.media_id)
+  def guaranteed_title
+    self.user_entered_title.presence || self.title.presence || I18n.t("Untitled")
+  end
+
+  def process_retrieved_details(entry, media_type, assets)
     if entry
-      self.title = entry[:name]
-      self.media_type = client.mediaTypeToSymbol(entry[:mediaType]).to_s
+      self.title = self.title.presence || entry[:name]
+      self.media_type = media_type
       self.duration = entry[:duration].to_i
       self.data[:plays] = entry[:plays].to_i
       self.data[:download_url] = entry[:downloadUrl]
@@ -218,7 +214,6 @@ class MediaObject < ActiveRecord::Base
       old_id = tags.detect{|t| t.match(/old_id_/) }
       self.old_media_id = old_id.sub(/old_id_/, '') if old_id
     end
-    assets = client.flavorAssetGetByEntryId(self.media_id) || []
     self.data[:extensions] ||= {}
     assets.each do |asset|
       asset[:fileExt] = "none" if asset[:fileExt].blank?
@@ -230,6 +225,23 @@ class MediaObject < ActiveRecord::Base
     self.total_size = [self.max_size || 0, assets.map{|a| (a[:size] || 0).to_i }.sum].max
     self.save
     self.data
+  end
+
+  def retrieve_details
+    return unless self.media_id
+    # From Kaltura, retrieve the title (if it's not already set)
+    # and the list of valid flavors along with their id's.
+    # Might as well confirm the media type while you're at it.
+    client = CanvasKaltura::ClientV3.new
+    client.startSession(CanvasKaltura::SessionType::ADMIN)
+    self.data ||= {}
+
+    entry = client.mediaGet(self.media_id)
+    media_type = client.mediaTypeToSymbol(entry[:mediaType]).to_s if entry
+    # attachment#build_content_types_sql assumes the content_type has a "/"
+    media_type = "#{media_type}/*" unless media_type.blank? || media_type.include?("/")
+    assets = client.flavorAssetGetByEntryId(self.media_id) || []
+    process_retrieved_details(entry, media_type, assets)
   end
 
   def podcast_format_details
@@ -284,7 +296,7 @@ class MediaObject < ActiveRecord::Base
 
   scope :active, -> { where("media_objects.workflow_state<>'deleted'") }
 
-  scope :by_media_id, lambda { |media_id| where("media_objects.media_id=? OR media_objects.old_media_id=?", media_id, media_id) }
+  scope :by_media_id, lambda { |media_id| where(:media_id => media_id).or(where(:old_media_id => media_id)) }
 
   scope :by_media_type, lambda { |media_type| where(:media_type => media_type) }
 

@@ -17,27 +17,29 @@
  */
 
 import React from 'react'
-import { shallow } from 'enzyme'
+import {shallow} from 'enzyme'
+import sinon from 'sinon'
 import ImportOutcomesModal from '../ImportOutcomesModal'
 
+const element = () => sinon.createStubInstance(Element)
 it('renders the ConfirmOutcomeEditModal component', () => {
-  const modal = shallow(<ImportOutcomesModal />)
+  const modal = shallow(<ImportOutcomesModal toolbar={element()} />)
   expect(modal.exists()).toBe(true)
 })
 
 it('renders the invalid file error message if a file is rejected', () => {
-  const modal = shallow(<ImportOutcomesModal />)
-  modal.instance().onSelection([],[{file: 'foo'}],{})
+  const modal = shallow(<ImportOutcomesModal toolbar={element()} />)
+  modal.instance().onSelection([], [{file: 'foo'}], {})
   expect(modal.instance().state.messages).toEqual([{text: 'Invalid file type', type: 'error'}])
 })
 
 it('triggers sync and hides if a file is accepted', () => {
   const trigger = jest.fn()
-  const toolbar = shallow(<div/>)
+  const toolbar = element()
   const dummyFile = {file: 'foo'}
   toolbar.trigger = trigger
-  const modal = shallow(<ImportOutcomesModal toolbar={toolbar}/>)
-  modal.instance().onSelection([dummyFile],[],{})
-  expect(trigger).toBeCalledWith('start_sync', dummyFile)
+  const modal = shallow(<ImportOutcomesModal toolbar={toolbar} />)
+  modal.instance().onSelection([dummyFile], [], {})
+  expect(trigger).toHaveBeenCalledWith('start_sync', dummyFile)
   expect(modal.instance().state.show).toEqual(false)
 })

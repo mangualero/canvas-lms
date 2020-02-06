@@ -64,12 +64,12 @@
   border: 1px solid #c1c7cf;
   border-radius: 3px;
   .student-group-header {
-    @include clearfix;
-    padding: 16px 16px 16px 10px;
+    padding: direction-sides(16px 16px 16px 10px);
+    display: flex;
+    align-items: center;
   }
   .icon-mini-arrow-right, .icon-mini-arrow-down {
-    float: direction(left);
-    order: 1;
+    order: -1;
   }
   .icon-mini-arrow-down {
     display: none;
@@ -89,15 +89,17 @@
     }
   }
   .student-group-title {
-    float: direction(left);
     display: inline-flex;
-    h3 {
-      margin: 0 7px 0 5px;
+    align-items: center;
+    flex-grow: 1;
+    max-width: 70%;
+    h2 {
+      margin: direction-sides(0 7px 0 5px);
       font-weight: bold;
       @include fontSize($ic-font-size--small);
-      float: direction(left);
       line-height: 18px;
-      order: 2;
+      text-overflow: ellipsis;
+      overflow: hidden;
       small {
         @include fontSize($ic-font-size--xsmall);
       }
@@ -106,30 +108,25 @@
       }
     }
     a {
-      position: relative;
-      top: -1px;
       padding-#{direction(right)}: 5px;
-      order: 2;
     }
   }
   .student-group-students {
     i {
       padding-#{direction(right)}: 5px;
     }
-    position: absolute;
-    #{direction(right)}: 175px;
     color: #555;
     font-weight: normal;
+    flex-basis: 10rem;
   }
   .student-group-join {
-    position: absolute;
     text-transform: uppercase;
     font-weight: bold;
-    #{direction(right)}: 10px;
     text-align: direction(right);
+    flex-basis: 2rem;
   }
   .student-group-body {
-    padding: 16px 16px 16px 36px;
+    padding: direction-sides(16px 16px 16px 36px);
     &:last-child {
       border-bottom: 0;
     }
@@ -164,11 +161,11 @@
 #group_categories_tabs {
   margin: 0 -1em -1em;
   > .collectionViewItems {
-    padding: 10px 130px 0 1em;
+    padding: direction-sides(10px 130px 0 1em);
   }
   > .roster-tab {
-    padding-left: 1em;
-    padding-right: 1em;
+    padding-#{direction(left)}: 1em;
+    padding-#{direction(right)}: 1em;
   }
 }
 
@@ -181,7 +178,7 @@
 }
 // group switcher within left sub-nav
 .al-trigger--within-left-menu {
-  margin: 0 0 $ic-sp $ic-sp/2;
+  margin: direction-sides(0 0 $ic-sp $ic-sp/2);
 
   &.ui-menu-item {
     max-width: 200px; //override the kyle menu width for this instance
@@ -220,5 +217,24 @@
 .active-selection.ui-menu-item:first-of-type {
   & .ui-corner-all.ui-state-focus {
     background: $ic-color-medium;
+  }
+}
+
+.roster-empty-state {
+  max-width: 400px;
+  margin: auto;
+  text-align: center;
+  font-size: $ic-font-size;
+
+  .empty-state-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+
+    .empty-state-list-item {
+      display: inline;
+      margin-inline-start: 0.5rem;
+      margin-inline-end: 0.5rem;
+    }
   }
 }

@@ -74,12 +74,13 @@ describe 'quizzes stats' do
           expect(fj(".report-generator:contains('#{report_type}')")).not_to include_text('Report has been generated')
 
           # move mouse over button
-          driver.mouse.move_to f('#header')
+          driver.action.move_to(f('#header')).perform
           wait_for_ajaximations
           expect(fj(".report-generator:contains('#{report_type}')")).to include_text("Generate #{report_type.downcase} report")
         end
 
         it 'should download a csv when pressing #{report_type} button ', priority: "1", test_id: 270039 do
+          skip("QUIZ-5120")
           button = fj(".generate-report:contains('#{report_type}')")
           button.click
           wait_for_ajaximations
@@ -87,11 +88,11 @@ describe 'quizzes stats' do
           # our env never creates a csv so the best we can do is check for it attempting to download it
 
           # move away so the tooltip can be recreated
-          driver.mouse.move_to f('#header')
+          driver.action.move_to(f('#header')).perform
           wait_for_ajaximations
 
           # move mouse back over button
-          driver.mouse.move_to button
+          driver.action.move_to(button).perform
           wait_for_ajaximations
           expect(fj('.quiz-report-status:contains("Report is being generated")')).to be_present
         end

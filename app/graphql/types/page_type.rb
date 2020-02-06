@@ -17,15 +17,16 @@
 #
 
 module Types
-  PageType = GraphQL::ObjectType.define do
-    name "Page"
+  class PageType < ApplicationObjectType
+    graphql_name "Page"
 
-    implements GraphQL::Relay::Node.interface
-    interfaces [Interfaces::TimestampInterface]
+    implements GraphQL::Types::Relay::Node
+    implements Interfaces::TimestampInterface
+    implements Interfaces::ModuleItemInterface
+    implements Interfaces::LegacyIDInterface
 
     global_id_field :id
-    field :_id, !types.ID, "legacy canvas id", property: :id
 
-    field :title, types.String
+    field :title, String, null: true
   end
 end

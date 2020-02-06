@@ -17,6 +17,7 @@
 #
 
 class ProvisionalGradesBaseController < ApplicationController
+  include GradebookSettingsHelpers
   include Api::V1::Submission
 
   before_action :require_user
@@ -33,9 +34,7 @@ class ProvisionalGradesBaseController < ApplicationController
       return render json: { message: "Assignment grades have already been published" }, status: :bad_request
     end
 
-    # in theory we could apply visibility here, but for now we would rather be performant
-    # e.g. @assignment.students_with_visibility(@context.students_visible_to(@current_user)).find(params[:student_id])
-    json = {needs_provisional_grade: @assignment.student_needs_provisional_grade?(@student)}
+    json = {needs_provisional_grade: @assignment.can_be_moderated_grader?(@current_user)}
 
     return render json: json unless submission_updated?
 
@@ -44,15 +43,28 @@ class ProvisionalGradesBaseController < ApplicationController
     submission = @assignment.submissions.where(user_id: @student).first
 
     return render json: json if submission&.updated_at.to_i == last_updated.to_i
-    return render_unauthorized_action unless @context.grants_right?(@current_user, session, :moderate_grades)
+    return render_unauthorized_action unless @assignment.permits_moderation?(@current_user)
 
     selection = @assignment.moderated_grading_selections.where(student_id: @student).first
 
+    include_scorer_names = @assignment.can_view_other_grader_identities?(@current_user)
+    provisional_grades = submission.provisional_grades
+    provisional_grades = provisional_grades.preload(:scorer) if include_scorer_names
+
     json[:provisional_grades] = []
-    submission.provisional_grades.order(:id).each do |pg|
-      pg_json = provisional_grade_json(pg, submission, @assignment, @current_user, %w(submission_comments rubric_assessment))
+    provisional_grades.order(:id).each do |pg|
+      pg_json = provisional_grade_json(
+        course: @context,
+        assignment: @assignment,
+        submission: submission,
+        provisional_grade: pg,
+        current_user: @current_user,
+        avatars: service_enabled?(:avatars) && !@assignment.grade_as_group?,
+        includes: %w(submission_comments rubric_assessment)
+      )
       pg_json[:selected] = !!(selection && selection.selected_provisional_grade_id == pg.id)
       pg_json[:readonly] = !pg.final && (pg.scorer_id != @current_user.id)
+      pg_json[:scorer_name] = pg.scorer.name if include_scorer_names
 
       if pg.final
         json[:final_provisional_grade] = pg_json

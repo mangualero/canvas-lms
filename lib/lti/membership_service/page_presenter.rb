@@ -45,7 +45,7 @@ module Lti
       def next_page_query_params
         query = {}
         query[:role] = @membership_collator.role if @membership_collator.role
-        query[:page] = @membership_collator.page + 2
+        query[:page] = @membership_collator.next_page
         query[:per_page] = @membership_collator.per_page
         query
       end
@@ -59,7 +59,7 @@ module Lti
       def context
         IMS::LTI::Models::MembershipService::Context.new(
           name: @membership_collator.context.name,
-          membership: @membership_collator.memberships,
+          membership: @membership_collator.memberships(context: @membership_collator.context),
           context_id: Lti::Asset.opaque_identifier_for(@membership_collator.context)
         )
       end

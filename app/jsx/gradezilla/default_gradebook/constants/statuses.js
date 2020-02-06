@@ -16,26 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import I18n from 'i18n!gradebook';
+import I18n from 'i18n!gradezilla'
 
-const statuses = [
-  'late',
-  'missing',
-  'resubmitted',
-  'dropped',
-  'excused'
-];
+export const statuses = ['late', 'missing', 'resubmitted', 'dropped', 'excused']
 
-const statusesTitleMap = {
+export const statusesTitleMap = {
   late: I18n.t('Late'),
   missing: I18n.t('Missing'),
   resubmitted: I18n.t('Resubmitted'),
   dropped: I18n.t('Dropped'),
   excused: I18n.t('Excused')
-};
-
-
-export default {
-  statuses,
-  statusesTitleMap
-};
+}

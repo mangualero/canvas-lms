@@ -28,16 +28,16 @@ test('#constructor: it sets up the proper context', () => {
   equal(tracker.priority, K.EVT_PRIORITY_LOW)
 })
 
-test('capturing: it works', function() {
+test('capturing: it works', () => {
   const tracker = new Subject()
-  const capture = this.stub()
+  const capture = sinon.stub()
   tracker.install(capture)
   $(window).focus()
   ok(capture.called, 'it captures page focus')
 })
 
-test('capturing: it throttles captures', function() {
-  const capture = this.spy()
+test('capturing: it throttles captures', () => {
+  const capture = sinon.spy()
   const tracker = new Subject()
   tracker.install(capture)
   $(window).focus()

@@ -72,28 +72,41 @@ module StreamItemsHelper
     # need to store stream item id relative to the user's shard, since we'll
     # use it later to look up the user's StreamItemInstances for deletion
     presenter.stream_item_id = user.shard.activate{ item.id }
-    presenter.updated_at = item.data.respond_to?(:updated_at) ? item.data.updated_at : nil
+    presenter.updated_at = extract_updated_at(category, item, user)
     presenter.updated_at ||= item.updated_at
     presenter.unread = item.unread
-    presenter.path = extract_path(category, item)
+    presenter.path = extract_path(category, item, user)
     presenter.context = extract_context(category, item)
     presenter.summary = extract_summary(category, item, user)
     presenter
   end
 
-  def extract_path(category, item)
+  def extract_updated_at(category, item, user)
+    case category
+    when "Conversation"
+      item.data.conversation_participants.find_by(user: user)&.last_message_at
+    else
+      item.data.respond_to?(:updated_at) ? item.data.updated_at : nil
+    end
+  end
+
+  def extract_path(category, item, user)
     case category
     when "Announcement", "DiscussionTopic"
-      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id" => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.asset_id))
+      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id"\
+                       => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.asset_id))
     when "Conversation"
       conversation_path(Shard.short_id_for(item.asset_id))
     when "Assignment"
-      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id" => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.data.context_id))
+      polymorphic_path([item.context_type.underscore, category.underscore], :"#{item.context_type.underscore}_id"\
+                       => Shard.short_id_for(item.context_id), :id => Shard.short_id_for(item.data.context_id))
     when "AssessmentRequest"
-      submission = item.data.assessor_asset
-      course_assignment_submission_path(item.context_id, submission.assignment_id, Shard.short_id_for(item.data.user_id))
-    else
-      nil
+      submission = item.data.asset
+      Submission::ShowPresenter.new(
+        submission: submission,
+        current_user: user,
+        assessment_request: item.data
+      ).submission_data_url
     end
   end
 

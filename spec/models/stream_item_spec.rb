@@ -142,4 +142,40 @@ describe StreamItem do
       end
     end
   end
+
+  it "should return a title for a Conversation" do
+    user_factory
+    convo = Conversation.create!(:subject => "meow")
+    convo.generate_stream_items([@user])
+    si = @user.stream_item_instances.first.stream_item
+    data = si.data(@user.id)
+    expect(data).to be_a Conversation
+    expect(data.title).to eql("meow")
+  end
+
+  it "should not unhide stream item instances when someone 'deletes' a message" do
+    users = (0..2).map{|x| user_factory }
+    user1, user2, user3 = users
+    convo = Conversation.initiate(users, false)
+    message = convo.add_message(user3, "hello")
+    si = StreamItem.where(:asset_type => "Conversation", :asset_id => convo).first
+    instance1, instance2 = [user1, user2].map{|u| si.stream_item_instances.where(:user_id => u).first }
+    instance1.update_attribute(:hidden, true) # hide on user1's instance
+    convo.conversation_participants.where(:user_id => user2).first.remove_messages(:all) # remove on user2's side
+    expect(instance1.reload).to be_hidden # should leave user1's instance alone
+
+    # should remove the messages from user2's view after post_process
+    expect(StreamItem.find(si.id).data(user2.id).latest_messages_from_stream_item).to be_empty
+  end
+
+    it "should return a description for a Collaboration" do
+      user_factory
+      context = Course.create!
+      collab = Collaboration.create!(:context => context, :description => "meow", :title => "kitty")
+      collab.generate_stream_items([@user])
+      si = @user.stream_item_instances.first.stream_item
+      data = si.data(@user.id)
+      expect(data).to be_a Collaboration
+      expect(data.description).to eql("meow")
+    end
 end

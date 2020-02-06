@@ -19,11 +19,12 @@
 class GradingStandard < ActiveRecord::Base
   include Workflow
 
-  belongs_to :context, polymorphic: [:account, :course]
+  belongs_to :context, polymorphic: [:account, :course], required: true
   belongs_to :user
   has_many :assignments
 
-  validates :context_id, :context_type, :workflow_state, :data, presence: true
+  validates :workflow_state, presence: true
+  validates :data, presence: true
   validate :valid_grading_scheme_data
   validate :full_range_scheme
 
@@ -58,7 +59,7 @@ class GradingStandard < ActiveRecord::Base
   end
 
   scope :active, -> { where("grading_standards.workflow_state<>'deleted'") }
-  scope :sorted, -> { order("usage_count >= 3 DESC").order(nulls(:last, best_unicode_collation_key('title'))) }
+  scope :sorted, -> { order(Arel.sql("usage_count >= 3 DESC")).order(nulls(:last, best_unicode_collation_key('title'))) }
 
   VERSION = 2
 
@@ -80,7 +81,7 @@ class GradingStandard < ActiveRecord::Base
   def ordered_scheme
     # Convert to BigDecimal so we don't get weird float behavior: 0.545 * 100 (gives 54.50000000000001 with floats)
     @ordered_scheme ||= grading_scheme.to_a.
-        map { |grade_letter, percent| [grade_letter, BigDecimal.new(percent.to_s)] }.
+        map { |grade_letter, percent| [grade_letter, BigDecimal(percent.to_s)] }.
         sort_by { |_, percent| -percent }
   end
 
@@ -120,7 +121,7 @@ class GradingStandard < ActiveRecord::Base
     score = 0 if score < 0
     # assign the highest grade whose min cutoff is less than the score
     # if score is less than all scheme cutoffs, assign the lowest grade
-    score = BigDecimal.new(score.to_s) # Cast this to a BigDecimal too or comparisons get wonky
+    score = BigDecimal(score.to_s) # Cast this to a BigDecimal too or comparisons get wonky
     ordered_scheme.max_by {|_, lower_bound| score >= lower_bound * 100 ? lower_bound : -lower_bound }[0]
   end
 
@@ -129,7 +130,9 @@ class GradingStandard < ActiveRecord::Base
     # round values to the nearest 0.01 (0.0001 since e.g. 78 is stored as .78)
     # and dup the data while we're at it. (new_val.dup only dups one level, the
     # elements of new_val.dup are the same objects as the elements of new_val)
-    new_val = new_val.map{ |grade_name, lower_bound| [ grade_name, lower_bound.round(4) ] } unless new_val.nil?
+    if new_val.respond_to?(:map)
+      new_val = new_val.map{ |grade_name, lower_bound| [ grade_name, lower_bound.round(4) ] }
+    end
     write_attribute(:data, new_val)
     @ordered_scheme = nil
   end

@@ -72,6 +72,8 @@ describe "assignments" do
         before do
           @assignment = @course.assignments.create({name: "Test Moderated Assignment"})
           @assignment.update_attribute(:moderated_grading, true)
+          @assignment.update_attribute(:grader_count, 1)
+          @assignment.update_attribute(:final_grader, @teacher)
           @assignment.unpublish
         end
 
@@ -93,6 +95,7 @@ describe "assignments" do
     end
 
     it "should insert a file using RCE in the assignment", priority: "1", test_id: 126671 do
+      stub_rcs_config
       @assignment = @course.assignments.create(name: 'Test Assignment')
       file = @course.attachments.create!(display_name: 'some test file', uploaded_data: default_uploaded_data)
       file.context = @course
@@ -166,7 +169,7 @@ describe "assignments" do
       expect(driver.title).to include(assignment_name + ' edit')
     end
 
-    it "should create an assignment using main add button", priority: "1", test_id: 132582 do
+    it "should create an assignment using main add button", :xbrowser, priority: "1", test_id: 132582 do
       assignment_name = 'first assignment'
       # freeze for a certain time, so we don't get unexpected ui complications
       time = DateTime.new(Time.now.year,1,7,2,13)
@@ -174,10 +177,8 @@ describe "assignments" do
         due_at = format_time_for_view(time)
 
         get "/courses/#{@course.id}/assignments"
-        wait_for_ajaximations
-        #create assignment
-        f(".new_assignment").click
-        wait_for_ajaximations
+        # create assignment
+        wait_for_new_page_load { f(".new_assignment").click }
         f('#assignment_name').send_keys(assignment_name)
         f('#assignment_points_possible').send_keys('10')
         ['#assignment_text_entry', '#assignment_online_url', '#assignment_online_upload'].each do |element|
@@ -186,10 +187,9 @@ describe "assignments" do
         f('.DueDateInput').send_keys(due_at)
 
         submit_assignment_form
-        #confirm all our settings were saved and are now displayed
-        wait_for_ajaximations
+        # confirm all our settings were saved and are now displayed
         expect(f('h1.title')).to include_text(assignment_name)
-        expect(fj('#assignment_show .points_possible')).to include_text('10')
+        expect(f('#assignment_show .points_possible')).to include_text('10')
         expect(f('#assignment_show fieldset')).to include_text('a text entry box, a website url, or a file upload')
 
         expect(f('.assignment_dates')).to include_text(due_at)
@@ -251,8 +251,8 @@ describe "assignments" do
       let(:valid_name) { "Name" }
       let(:points) { "10" }
       let(:differentiate) { false }
-      let(:due_date_valid) { "Jan 1, 2020 at 11:59pm" }
-      let(:short_date) { "Jan 1, 2020" }
+      let(:due_date_valid) { "#{format_date_for_view(Time.zone.now + 3.years)} at 11:59pm" }
+      let(:short_date) { format_date_for_view(Time.zone.now + 3.years) }
       let(:error) { "" }
       let(:settings_enable) { {} }
       let(:name_length_invalid) { false }
@@ -393,6 +393,148 @@ describe "assignments" do
           end
         end
       end
+
+      context 'when on index page' do
+        let(:assignment_name) { "Test Assignment"}
+        let(:settings_enable) { { :sis_require_assignment_due_date => { value: true } } }
+        let(:expected_date) { format_date_for_view(Time.zone.now - 1.month) }
+        let(:assignment_id) { @assignment.id }
+        let(:assignment_entry) { f("\#assignment_#{assignment_id}") }
+        let(:post_to_sis_button) { f('.post-to-sis-status', assignment_entry) }
+        let(:due_date_error) { f('#flash_message_holder') }
+        let(:sis_state_text) { f('.icon-post-to-sis', post_to_sis_button).attribute(:alt) }
+        let(:due_date_display) { true }
+        let(:sis_state) { due_date_display ? "disabled" : "enabled" }
+        let(:set_date) { due_date_display ? nil : 1.day.ago}
+        let(:params) { { name: assignment_name} }
+        let(:type) { @course.assignments }
+
+        before(:each) do
+          account_model
+          turn_on_sis
+        end
+
+        def create_hash(due_date = nil)
+          { post_to_sis: false, points_possible: 10 }.merge(due_date_params(due_date))
+        end
+
+        def create_assignment(due_date = nil)
+          @assignment = type.create(create_hash(due_date).merge(params))
+          @assignment.publish! unless @assignment.published?
+        end
+
+        def due_date_params(due_date = nil)
+          due_date ? { due_at: due_date } : { due_at: nil, only_visible_to_overrides: true }
+        end
+
+        def override_create(section_name, due_date = Timecop.freeze(1.day.ago))
+          section = @course.course_sections.create! name: section_name
+
+          @assignment.assignment_overrides.create! do |override|
+            override.set = section
+            override.due_at = due_date
+            override.due_at_overridden = true
+          end
+        end
+
+        def click_sync_to_sis
+          post_to_sis_button.click
+          wait_for_ajaximations
+        end
+
+        def validate
+          get "/courses/#{@course.id}/assignments"
+          click_sync_to_sis
+          expect(due_date_error.displayed?).to be due_date_display
+          expect(sis_state_text).to include(sis_state)
+        end
+
+        describe "when there are due dates" do
+          it 'where there are no overrides' do
+            create_assignment(set_date)
+            validate
+          end
+
+          it 'when there are overrides and no base' do
+            create_assignment
+            override_create("A", set_date)
+            validate
+          end
+
+          it 'when there is a base and overrides' do
+            create_assignment(expected_date)
+            override_create("A", set_date)
+            validate
+          end
+        end
+
+        describe "when there are not due dates" do
+          let(:due_date_display) { false }
+
+          it 'where there are no overrides' do
+            create_assignment(set_date)
+            validate
+          end
+
+          it 'when there are overrides and no base' do
+            create_assignment
+            override_create("A", set_date)
+            validate
+          end
+
+          it 'when there is a base and overrides' do
+            create_assignment(expected_date)
+            override_create("A", set_date)
+            validate
+          end
+        end
+
+        describe 'when due dates for quizzes' do
+          let(:assignment_id) { @assignment.assignment.id }
+          let(:type) { @course.quizzes }
+          let(:assignment_group) { @course.assignment_groups.create!(name: "default") }
+          let(:params) { { title: assignment_name, assignment_group: assignment_group } }
+
+          it 'when there are no overrides' do
+            create_assignment(set_date)
+            validate
+          end
+
+          it 'when there are overrides and no base' do
+            create_assignment
+            override_create("A", set_date)
+            validate
+          end
+          it 'when there is a base and overrides' do
+            create_assignment(expected_date)
+            override_create("A", set_date)
+            validate
+          end
+        end
+
+        describe 'when no due dates for quizzes' do
+          let(:assignment_id) { @assignment.assignment.id }
+          let(:type) { @course.quizzes }
+          let(:assignment_group) { @course.assignment_groups.create!(name: "default") }
+          let(:params) { { title: assignment_name, assignment_group: assignment_group } }
+
+          it 'when there are no overrides' do
+            create_assignment(set_date)
+            validate
+          end
+
+          it 'when there are overrides and no base' do
+            create_assignment
+            override_create("A", set_date)
+            validate
+          end
+          it 'when there is a base and overrides' do
+            create_assignment(expected_date)
+            override_create("A", set_date)
+            validate
+          end
+        end
+      end
     end
 
     it "should create an assignment with more options", priority: "2", test_id: 622614 do
@@ -475,14 +617,8 @@ describe "assignments" do
       close_visible_dialog
       f('.btn-primary[type=submit]').click
       wait_for_ajaximations
-      keep_trying_until do
-        expect(driver.execute_script(
-          "return $('.errorBox').filter('[id!=error_box_template]')"
-        )).to be_present
-      end
-      errorBoxes = driver.execute_script("return $('.errorBox').filter('[id!=error_box_template]').toArray();")
-      visBoxes, hidBoxes = errorBoxes.partition { |eb| eb.displayed? }
-      expect(visBoxes.first.text).to eq "Please create a group set"
+      error_box = f('.errorBox[role=alert]')
+      expect(f('.error_text', error_box).text).to eq "Please create a group set"
     end
 
     it "shows assignment details, un-editable, for concluded teachers", priority: "2", test_id: 626906 do
@@ -673,7 +809,7 @@ describe "assignments" do
       end
 
       it "shows submission scores for students on index page", priority: "2", test_id: 647850 do
-        @assignment.update_attributes(points_possible: 15)
+        @assignment.update(points_possible: 15)
         @assignment.publish
         course_with_student_logged_in(active_all: true, course: @course)
         @assignment.grade_student(@student, grade: 14, grader: @teacher)
@@ -686,14 +822,11 @@ describe "assignments" do
       it "should allow publishing from the show page", priority: "1", test_id: 647851 do
         get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
-        expect(f("#assignment-speedgrader-link")).to have_class("hidden")
-
         f("#assignment_publish_button").click
         wait_for_ajaximations
 
         expect(@assignment.reload).to be_published
         expect(f("#assignment_publish_button")).to include_text("Published")
-        expect(f("#assignment-speedgrader-link")).not_to have_class("hidden")
       end
 
       it "should have a link to speedgrader from the show page", priority: "1", test_id: 3001903 do
@@ -814,13 +947,12 @@ describe "assignments" do
       @course.start_at = nil
       @course.save!
       @assignment = @course.assignments.create({name: "Test Moderated Assignment"})
-      @assignment.update_attribute(:moderated_grading, true)
+      @assignment.update(
+        moderated_grading: true,
+        grader_count: 1,
+        final_grader: @teacher
+      )
       @assignment.publish
-    end
-
-    it "should show the moderated grading page for moderated grading assignments", priority: "1", test_id: 609651 do
-      get "/courses/#{@course.id}/assignments/#{@assignment.id}/moderate"
-      expect(f('#assignment_moderation')).to be_displayed
     end
 
     it "should deny access for a regular student to the moderation page", priority: "1", test_id: 609652 do
@@ -832,7 +964,7 @@ describe "assignments" do
     it "should not show the moderation page if it is not a moderated assignment ", priority: "2", test_id: 609653 do
       @assignment.update_attribute(:moderated_grading, false)
       get "/courses/#{@course.id}/assignments/#{@assignment.id}/moderate"
-      expect(f('#content h2').text).to eql "Page Not Found"
+      expect(f('#content h1').text).to eql "Woops... Looks like nothing is here!"
     end
   end
 

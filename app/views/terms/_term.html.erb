@@ -17,15 +17,16 @@
 %>
 
 <% term ||= nil %>
+<% default_term = @context.default_enrollment_term %>
 <tr class="term" id="term_<%= term ? term.id : "blank" %>" style="<%= hidden unless term %>">
   <td class="header">
     <div class="show_term">
       <span class="name"><%= term.name rescue nbsp %></span>
     </div>
     <div class="show_term" style="font-size: 0.8em;">
-      <% if term && (term.sis_source_id && can_do(@root_account, @current_user, :read_sis) || can_do(@root_account, @current_user, :manage_sis)) %>
+      <% if (term&.sis_source_id && can_do(@root_account, @current_user, :read_sis) || can_do(@root_account, @current_user, :manage_sis)) %>
         <div style="font-size: 0.8em;">
-          <%= before_label :sis_id, "SIS ID" %> <span class="sis_source_id"><%= term.sis_source_id %></span>
+          <%= before_label :sis_id, "SIS ID" %> <span class="sis_source_id"><%= term&.sis_source_id %></span>
         </div>
       <% end %>
       <% if term.try(:grading_period_group).try(:active?) %>
@@ -37,13 +38,13 @@
           </span>
         </div>
       <% end %>
-      <%= term && t(:course_count, "Course", :count => @course_counts_by_term[term.id] || 0) %><br/>
+      <%= t(:course_count, "Course", :count => @course_counts_by_term[term&.id] || 0) %><br/>
     </div>
     <%= form_for (term || EnrollmentTerm.new), :url => (term ? context_url(@context, :context_term_url, term.id) : context_url(@context, :context_terms_url)), :html => {:class => "enrollment_term_form", :method => (term ? :put : :post)} do |f| %>
         <div class="control-group edit_term">
           <label class="control-label" for="enrollment_term_name"><%= t :name, 'Term Name:' %></label>
           <div class="controls">
-            <%= f.text_field :name, :class => "input-xlarge" %>
+            <%= f.text_field :name, :class => "input-xlarge", :disabled => (term && term == default_term) %>
           </div>
         </div>
       <% if can_do(@root_account, @current_user, :manage_sis) %>
@@ -120,7 +121,7 @@
     <a href="#" class="edit_term_link no-hover" title="<%= t 'Edit Term %{name}', name: term.try(:name) %>"><i class="icon-edit standalone-icon" aria-hidden="true"></i></a>
     <% if term && @course_counts_by_term[term.id].to_i > 0 %>
       <a href="#" class="cant_delete_term_link no-hover" title="<%= t 'Delete Term %{name}', name: term.try(:name) %>"><i class="icon-end standalone-icon" aria-hidden="true"></i></a>
-    <% elsif term != @context.default_enrollment_term %>
+    <% elsif term != default_term %>
       <a href="#" class="delete_term_link no-hover" title="<%= t 'Delete Term %{name}', name: term.try(:name) %>"><i class="icon-trash standalone-icon" aria-hidden="true"></i></a>
     <% end %>
   </td>

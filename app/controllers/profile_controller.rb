@@ -158,7 +158,7 @@ class ProfileController < ApplicationController
     end
 
     @user ||= @current_user
-    @active_tab = "profile"
+    set_active_tab "profile"
     @context = @user.profile if @user == @current_user
 
     @user_data = profile_data(
@@ -203,7 +203,7 @@ class ProfileController < ApplicationController
     @pseudonyms = @user.pseudonyms.active
     @password_pseudonyms = @pseudonyms.select{|p| !p.managed_password? }
     @context = @user.profile
-    @active_tab = "profile_settings"
+    set_active_tab "profile_settings"
     js_env :enable_gravatar => @domain_root_account&.enable_gravatar?
     respond_to do |format|
       format.html do
@@ -223,7 +223,8 @@ class ProfileController < ApplicationController
     @user = @current_user
     @current_user.used_feature(:cc_prefs)
     @context = @user.profile
-    @active_tab = 'notifications'
+    set_active_tab 'notifications'
+
 
     # Get the list of Notification models (that are treated like categories) that make up the full list of Categories.
     full_category_list = Notification.dashboard_categories(@user)
@@ -242,6 +243,7 @@ class ProfileController < ApplicationController
       :policies => NotificationPolicy.setup_with_default_policies(@user, full_category_list).map { |p| notification_policy_json(p, @user, session).tap { |json| json[:communication_channel_id] = p.communication_channel_id } },
       :categories => categories,
       :update_url => communication_update_profile_path,
+      :show_observed_names => @user.observer_enrollments.any? || @user.as_observer_observation_links.any? ? @user.send_observed_names_in_notifications? : nil
       },
       :READ_PRIVACY_INFO => @user.preferences[:read_notification_privacy_info],
       :ACCOUNT_PRIVACY_NOTICE => @domain_root_account.settings[:external_notification_warning]
@@ -334,14 +336,14 @@ class ProfileController < ApplicationController
     respond_to do |format|
       user_params = params[:user] ? params[:user].
         permit(:name, :short_name, :sortable_name, :time_zone, :show_user_services, :gender,
-          :avatar_image, :subscribe_to_emails, :locale, :bio, :birthdate)
+          :avatar_image, :subscribe_to_emails, :locale, :bio, :birthdate, :pronouns)
         : {}
       if !@user.user_can_edit_name?
         user_params.delete(:name)
         user_params.delete(:short_name)
         user_params.delete(:sortable_name)
       end
-      if @user.update_attributes(user_params)
+      if @user.update(user_params)
         pseudonymed = false
         if params[:default_email_id].present?
           @email_channel = @user.communication_channels.email.active.where(id: params[:default_email_id]).first
@@ -371,7 +373,7 @@ class ProfileController < ApplicationController
             pseudonym_params.delete :password_confirmation
           end
           params[:pseudonym].delete :password_id
-          if !pseudonym_params.empty? && pseudonym_to_update && !pseudonym_to_update.update_attributes(pseudonym_params)
+          if !pseudonym_params.empty? && pseudonym_to_update && !pseudonym_to_update.update(pseudonym_params)
             pseudonymed = true
             flash[:error] = t('errors.profile_update_failed', "Login failed to update")
             format.html { redirect_to user_profile_url(@current_user) }
@@ -400,6 +402,7 @@ class ProfileController < ApplicationController
     @context = @profile
 
     short_name = params[:user] && params[:user][:short_name]
+    @user.pronouns = params[:pronouns] if params[:pronouns]
     @user.short_name = short_name if short_name && @user.user_can_edit_name?
     if params[:user_profile]
       user_profile_params = params[:user_profile].permit(:title, :bio)
@@ -456,10 +459,30 @@ class ProfileController < ApplicationController
       js_env(AUTH_TYPE: @domain_root_account.parent_auth_type)
     end
     @user ||= @current_user
-    @active_tab = 'observees'
+    set_active_tab 'observees'
     @context = @user.profile if @user == @current_user
 
     add_crumb(@user.short_name, profile_path)
     add_crumb(t('crumbs.observees', "Observing"))
+
+    @google_analytics_page_title = "Students Being Observed"
+    join_title(t(:page_title, 'Students Being Observed'), @user.name)
+    js_bundle :user_observees
+
+    render html: '', layout: true
+  end
+
+  def content_shares
+    raise not_found unless @domain_root_account.feature_enabled?(:direct_share) && @current_user.can_content_share?
+
+    @user ||= @current_user
+    set_active_tab 'content_shares'
+    @context = @user.profile
+
+    ccv_settings = Canvas::DynamicSettings.find('common_cartridge_viewer') || {}
+    js_env({
+      COMMON_CARTRIDGE_VIEWER_URL: ccv_settings['base_url']
+    })
+    render :content_shares
   end
 end

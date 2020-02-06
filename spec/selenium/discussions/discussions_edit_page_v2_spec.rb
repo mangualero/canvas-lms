@@ -32,7 +32,6 @@ describe "discussions index" do
         account: @account, active_course: true)
       @course.enroll_student(@student, { active_all: true })
       @course.enroll_teacher(@teacher, { active_all: true })
-      DiscussionNewEdit.set_section_specific_discussion_flag(@course,'on')
 
       # Discussion attributes: title, message, delayed_post_at, user
       @discussion1 = @course.discussion_topics.create!(
@@ -86,6 +85,12 @@ describe "discussions index" do
       login_and_visit_edit_course(@teacher, @course)
       DiscussionNewEdit.select_a_section("")
       expect(DiscussionNewEdit.section_error).to include("A section is required")
+    end
+
+    it 'graded sections will not show SectionsAutocomplete' do
+      login_and_visit_edit_course(@teacher, @course)
+      DiscussionNewEdit.graded_checkbox.click
+      expect(DiscussionNewEdit.section_disabled_item).to be_truthy
     end
   end
 end

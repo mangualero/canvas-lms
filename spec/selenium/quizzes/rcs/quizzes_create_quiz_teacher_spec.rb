@@ -29,7 +29,6 @@ describe 'creating a quiz' do
   context 'as a teacher' do
     before(:each) do
       course_with_teacher_logged_in(course_name: 'Test Course', active_all: true)
-      enable_all_rcs @course.account
       stub_rcs_config
     end
 
@@ -98,19 +97,13 @@ describe 'creating a quiz' do
       @account.save!
 
       get "/courses/#{@course.id}/quizzes"
-      expect_new_page_load do
-        f('.new-quiz-link').click
-        wait_for_ajaximations
-      end
+      expect_new_page_load { f('.new-quiz-link').click }
       expect(is_checked('#quiz_post_to_sis')).to be_truthy
     end
 
     it "should not default to post grades if account setting is not enabled" do
       get "/courses/#{@course.id}/quizzes"
-      expect_new_page_load do
-        f('.new-quiz-link').click
-        wait_for_ajaximations
-      end
+      expect_new_page_load { f('.new-quiz-link').click }
       expect(is_checked('#quiz_post_to_sis')).to be_falsey
     end
   end

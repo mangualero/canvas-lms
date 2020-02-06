@@ -20,9 +20,9 @@ module Api::V1::Tab
   include Api::V1::Json
   include Api::V1::ExternalTools::UrlHelpers
 
-  def tabs_available_json(context, user, session, includes = [])
-    json = context_tabs(context, user).map { |tab| tab_json(tab.with_indifferent_access, context, user, session) }
-    json.select!{|tab| tab[:type] != 'external'} unless includes.include?('external')
+  def tabs_available_json(context, user, session, includes = [], precalculated_permissions: nil)
+    json = context_tabs(context, user, session: session, precalculated_permissions: precalculated_permissions).map { |tab|
+      tab_json(tab.with_indifferent_access, context, user, session) }
     json.sort!{|x,y| x['position'] <=> y['position']}
   end
 
@@ -37,7 +37,10 @@ module Api::V1::Tab
     hash[:visibility] = visibility(tab, hash)
     hash[:label] = tab[:label]
     hash[:type] = (tab[:external] && 'external') || 'internal'
-    hash[:url] = sessionless_launch_url(context, :id => tab[:args][1], :launch_type => 'course_navigation') if tab[:external] && tab[:args] && tab[:args].length > 1
+    if tab[:external] && tab[:args] && tab[:args].length > 1
+      launch_type = context.is_a?(Account) ? 'account_navigation' : 'course_navigation'
+      hash[:url] = sessionless_launch_url(context, id: tab[:args][1], launch_type: launch_type)
+    end
     api_json(hash, user, session)
   end
 
@@ -51,7 +54,17 @@ module Api::V1::Tab
     end
 
     if tab[:args]
-      send(method, *tab[:args], opts)
+      if tab[:args].is_a?(Hash)
+        # LTI 2 tools have args as a hash rather than an array (see MessageHandler#lti_apps_tabs)
+        send(method, opts.merge(tab[:args].symbolize_keys))
+      elsif tab[:args].last.is_a?(Hash) || tab[:args].last.is_a?(ActionController::Parameters)
+        # If last argument is a hash (of options), we can't add on another options hash;
+        # we need to merge it into the existing options.
+        # can't do tab[:args].last.merge(opts), that may convert :host to 'host'
+        send(method, *tab[:args][0..-2], opts.merge(tab[:args].last))
+      else
+        send(method, *tab[:args], opts)
+      end
     elsif tab[:no_args]
       send(method, opts)
     else
@@ -69,10 +82,23 @@ module Api::V1::Tab
     end
   end
 
-  def context_tabs(context, user)
+  def context_tabs(context, user, precalculated_permissions: nil, session: nil)
     new_collaborations_enabled = context.feature_enabled?(:new_collaborations)
 
-    tabs = context.tabs_available(user, :include_external => true, :api => true).select do |tab|
+    if context.is_a?(User)
+      root_account = @domain_root_account
+      context = context.profile
+    end
+
+    opts = {
+      include_external: true,
+      api: true,
+      precalculated_permissions: precalculated_permissions,
+      root_account: root_account,
+      session: session
+    }
+
+    tabs = context.tabs_available(user, opts).select do |tab|
       if (tab[:id] == context.class::TAB_COLLABORATIONS rescue false)
         tab[:href] && tab[:label] && !new_collaborations_enabled && ::Collaboration.any_collaborations_configured?(context)
       elsif (tab[:id] == context.class::TAB_COLLABORATIONS_NEW rescue false)

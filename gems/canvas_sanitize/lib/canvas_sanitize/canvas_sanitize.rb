@@ -18,6 +18,23 @@
 
 require 'sanitize'
 
+class Sanitize; module Transformers; class CleanElement
+  # modified from sanitize.rb to allow data-* attributes EXCEPT the ones
+  # we have code of our own that treats it like it is trusted html, namely:
+  # kyle-menu|turn-into-dialog|flash-message|popup-within|html-tooltip-title
+  #
+  # Matches a valid HTML5 data attribute name. The unicode ranges included here
+  # are a conservative subset of the full range of characters that are
+  # technically allowed, with the intent of matching the most common characters
+  # used in data attribute names while excluding uncommon or potentially
+  # misleading characters, or characters with the potential to be normalized
+  # into unsafe or confusing forms.
+  #
+  # http://www.whatwg.org/specs/web-apps/current-work/multipage/elements.html#embedding-custom-non-visible-data-with-the-data-*-attributes
+  REGEX_DATA_ATTR = /\Adata-(?!xml|kyle-menu|turn-into-dialog|flash-message|popup-within|html-tooltip-title)[a-z_][\w.\u00E0-\u00F6\u00F8-\u017F\u01DD-\u02AF-]*\z/u
+
+end; end; end
+
 module CanvasSanitize #:nodoc:
   def self.included(klass)
     klass.extend(ClassMethods)
@@ -88,7 +105,7 @@ module CanvasSanitize #:nodoc:
           'mmultiscripts', 'mn', 'mo', 'mover', 'mpadded', 'mphantom', 'mprescripts', 'mroot',
           'mrow', 'ms', 'mscarries', 'mscarry', 'msgroup', 'msline', 'mspace', 'msqrt', 'msrow',
           'mstack', 'mstyle', 'msub', 'msubsup', 'msup', 'mtable', 'mtd', 'mtext', 'mtr', 'munder',
-          'munderover', 'none', 'semantics'].freeze,
+          'munderover', 'none', 'semantics', 'mark'].freeze,
 
       :attributes => {
           :all => ['style',
@@ -141,7 +158,7 @@ module CanvasSanitize #:nodoc:
           'blockquote' => ['cite'].freeze,
           'col' => ['span', 'width'].freeze,
           'colgroup' => ['span', 'width'].freeze,
-          'img' => ['align', 'alt', 'height', 'src', 'width'].freeze,
+          'img' => ['align', 'alt', 'height', 'src', 'width', 'longdesc'].freeze,
           'iframe' => ['src', 'width', 'height', 'name', 'align', 'frameborder', 'scrolling',
                        'allow', # TODO: remove explicit allow with domain whitelist account setting
                        'sandbox', 'allowfullscreen','webkitallowfullscreen','mozallowfullscreen'].freeze,
@@ -260,7 +277,11 @@ module CanvasSanitize #:nodoc:
       }.freeze,
 
       :protocols => {
-          'a' => {'href' => ['ftp', 'http', 'https', 'mailto', :relative].freeze}.freeze,
+          'a' => {
+            'href' => ['ftp', 'http', 'https', 'mailto', :relative].freeze,
+            'data-url' => DEFAULT_PROTOCOLS,
+            'data-item-href' => DEFAULT_PROTOCOLS
+          }.freeze,
           'blockquote' => {'cite' => DEFAULT_PROTOCOLS }.freeze,
           'img' => {'src' => DEFAULT_PROTOCOLS }.freeze,
           'q' => {'cite' => DEFAULT_PROTOCOLS }.freeze,

@@ -11,15 +11,17 @@
          value="{{title}}"
          maxlength="255" />
 
-  <div class="clearfix  pull-right">
-    <a href="#" class="switch_event_description_view pull-right">
-      {{#t "#editor.switch_editor_html"}}HTML Editor{{/t}}
-    </a>
-    <a href="#" class="switch_event_description_view pull-right" style="display:none;">
-      {{#t "#editor.switch_editor_rich_text"}}Rich Content Editor{{/t}}
-    </a>
-  </div>
-  <div style="clear:both;"></div>
+  {{#unless use_rce_enhancements}}
+    <div class="clearfix  pull-right">
+      <a href="#" class="switch_event_description_view pull-right">
+        {{#t "#editor.switch_editor_html"}}HTML Editor{{/t}}
+      </a>
+      <a href="#" class="switch_event_description_view pull-right" style="display:none;">
+        {{#t "#editor.switch_editor_rich_text"}}Rich Content Editor{{/t}}
+      </a>
+    </div>
+    <div style="clear:both;"></div>
+  {{/unless}}
   <textarea class="input-block-level"
             id="calendar-description"
             name="description"
@@ -134,7 +136,7 @@
               </td>
           </tr>
           <tr class="duplicate_event_row duplicate_fields" style="display: none">
-              <td class="duplicate_tooltip_td"><label data-tooltip title="{{#t}}Appends a number to the end of each event title (e.g. Event 1, Event 2, etc)" for="append_iterator{{/t}}">{{#t "count"}}Count:{{/t}}</label>
+              <td class="duplicate_tooltip_td"><label data-tooltip title="{{#t}}Appends a number to the end of each event title (e.g. Event 1, Event 2, etc){{/t}}" for="append_iterator">{{#t "count"}}Count:{{/t}}</label>
                   <input data-tooltip title="{{#t}}Appends a number to the end of each event title (e.g. Event 1, Event 2, etc){{/t}}" value="true" disabled="true" type="checkbox" id="append_iterator" name="append_iterator" />
               </td>
           </tr>

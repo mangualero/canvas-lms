@@ -79,9 +79,30 @@ describe ProfileController do
       @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
       expect(@cc2.position).to eq 2
       put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(@cc2.reload.position).to eq 1
       expect(@cc.reload.position).to eq 2
+    end
+
+    it "should allow changing pronouns" do
+      user_session(@user, @pseudonym)
+      expect(@user.pronouns).to eq nil
+      put 'update', params: {:user => {:pronouns => "  He/Him "}}, format: 'json'
+      expect(response).to be_successful
+      @user.reload
+      expect(@user.read_attribute(:pronouns)).to eq "he_him"
+      expect(@user.pronouns).to eq "He/Him"
+    end
+
+    it "should allow unsetting pronouns" do
+      user_session(@user, @pseudonym)
+      @user.pronouns = " Dude/Guy  "
+      @user.save!
+      expect(@user.pronouns).to eq "Dude/Guy"
+      put 'update', params: {:user => {:pronouns => ''}}, format: 'json'
+      expect(response).to be_successful
+      @user.reload
+      expect(@user.pronouns).to eq nil
     end
 
     it "should clear email cache" do
@@ -90,7 +111,7 @@ describe ProfileController do
         user_session(@user, @pseudonym)
         @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
         put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@user.email).to eq @cc2.path
       end
     end
@@ -104,7 +125,7 @@ describe ProfileController do
       @cc2 = @user.communication_channels.create!(:path => 'email2@example.com', :workflow_state => 'active')
       expect(@cc2.position).to eq 2
       put 'update', params: {:user_id => @user.id, :default_email_id => @cc2.id}, format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(@cc2.reload.position).to eq 1
       expect(@cc.reload.position).to eq 2
     end
@@ -137,7 +158,7 @@ describe ProfileController do
       cc.notification_policies.create!(:notification => nil, :frequency => 'daily')
 
       get 'communication'
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 
@@ -157,7 +178,7 @@ describe ProfileController do
           params: {:user => {:short_name => 'Monsturd', :name => 'Jenkins'},
           :user_profile => {:bio => '...', :title => '!!!'}},
           format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.short_name).to eql 'Monsturd'
@@ -177,7 +198,7 @@ describe ProfileController do
           params: {:user => {:short_name => 'Monsturd', :name => 'Jenkins'},
           :user_profile => {:bio => '...', :title => '!!!'}},
           format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.short_name).to eql old_name
@@ -194,7 +215,7 @@ describe ProfileController do
         params: {:user_profile => {:bio => '...'},
         :user_services => {:twitter => "1", :skype => "false"}},
         format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.user_services.where(service: 'skype').first.visible?).to be_falsey
@@ -207,13 +228,59 @@ describe ProfileController do
         :link_urls => ['example.com', 'foo.com', ''],
         :link_titles => ['Example.com', 'Foo', '']},
         format: 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
 
       @user.reload
       expect(@user.profile.links.map { |l| [l.url, l.title] }).to eq [
         %w(http://example.com Example.com),
         %w(http://foo.com Foo)
       ]
+    end
+  end
+
+  describe "content_shares" do
+    before :once do
+      teacher_in_course(:active_all => true)
+      student_in_course(:active_all => true)
+    end
+
+    describe "direct_share flag is enabled" do
+      before :once do
+        @teacher.account.enable_feature!(:direct_share)
+      end
+
+      it "should show if user has any non-student enrollments" do
+        allow(Canvas::DynamicSettings).to receive(:find).and_return({'base_url' => 'the_ccv_url'})
+        user_session(@teacher)
+        get 'content_shares', params: {user_id: @teacher.id}
+        expect(response).to render_template('content_shares')
+        expect(assigns.dig(:js_env, :COMMON_CARTRIDGE_VIEWER_URL)).to eq('the_ccv_url')
+      end
+
+      it "should show if the user has an account membership" do
+        user_session(account_admin_user)
+        get 'content_shares', params: {user_id: @admin.id}
+        expect(response).to render_template('content_shares')
+      end
+
+      it "should 404 if user has only student enrollments" do
+        user_session(@student)
+        get 'content_shares', params: {user_id: @student.id}
+        expect(response).to be_not_found
+      end
+    end
+
+    describe "direct_share flag is disabled" do
+      before :once do
+        @user.account.disable_feature!(:direct_share)
+      end
+
+      it "should 404 even if user has non-student enrollments" do
+        teacher_in_course(:active_all => true)
+        user_session(@teacher)
+        get 'content_shares', params: {user_id: @teacher.id}
+        expect(response).to be_not_found
+      end
     end
   end
 end

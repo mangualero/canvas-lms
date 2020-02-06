@@ -36,7 +36,7 @@ describe AccountsController do
     it "should confirm deletion of canvas-authenticated users" do
       user_with_pseudonym :account => @account
       get 'confirm_delete_user', params: {:account_id => @account.id, :user_id => @user.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not confirm deletion of non-existent users" do
@@ -47,7 +47,7 @@ describe AccountsController do
     it "should confirm deletion of managed password users" do
       user_with_managed_pseudonym :account => @account
       get 'confirm_delete_user', params: {:account_id => @account.id, :user_id => @user.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 
@@ -134,7 +134,7 @@ describe AccountsController do
 
     it "should allow adding a new account admin" do
       post 'add_account_user', params: {:account_id => @account.id, :role_id => admin_role.id, :user_list => 'testadmin@example.com'}
-      expect(response).to be_success
+      expect(response).to be_successful
 
       new_admin = CommunicationChannel.where(path: 'testadmin@example.com').first.user
       expect(new_admin).not_to be_nil
@@ -145,7 +145,7 @@ describe AccountsController do
     it "should allow adding a new custom account admin" do
       role = custom_account_role('custom', :account => @account)
       post 'add_account_user', params: {:account_id => @account.id, :role_id => role.id, :user_list => 'testadmin@example.com'}
-      expect(response).to be_success
+      expect(response).to be_successful
 
       new_admin = CommunicationChannel.find_by_path('testadmin@example.com').user
       expect(new_admin).to_not be_nil
@@ -158,7 +158,7 @@ describe AccountsController do
       @subaccount = @account.sub_accounts.create!
       @munda = user_with_pseudonym(:account => @account, :active_all => 1, :username => 'munda@instructure.com')
       post 'add_account_user', params: {:account_id => @subaccount.id, :role_id => admin_role.id, :user_list => 'munda@instructure.com'}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(@subaccount.account_users.map(&:user)).to eq [@munda]
     end
   end
@@ -567,7 +567,7 @@ describe AccountsController do
         post 'update', params: {:id => @account.id, :account => {
           :turnitin_host => 'blah'
         }}
-        expect(response).not_to be_success
+        expect(response).not_to be_successful
       end
     end
 
@@ -591,16 +591,58 @@ describe AccountsController do
         expect(@account.reload.terms_of_service.passive).to eq true
       end
     end
+
+    it "should be set and unset outgoing email name" do
+      account_with_admin_logged_in
+      post 'update', params: {:id => @account.id, :account => {
+        :settings => {:outgoing_email_default_name_option => "custom", :outgoing_email_default_name => "beep"}}}
+      expect(@account.reload.settings[:outgoing_email_default_name]).to eq "beep"
+      post 'update', params: {:id => @account.id, :account => {
+        :settings => {:outgoing_email_default_name_option => "default"}}}
+      expect(@account.reload.settings[:outgoing_email_default_name]).to eq nil
+    end
   end
 
   describe "#settings" do
+    describe "js_env" do
+      let(:account) do
+        account_with_admin_logged_in
+        @account
+      end
+
+      it 'sets the external tools create url' do
+        get 'settings', params: {account_id: account.id}
+        expect(assigns.dig(:js_env, :EXTERNAL_TOOLS_CREATE_URL)).to eq(
+          "http://test.host/accounts/#{account.id}/external_tools"
+        )
+      end
+
+      it 'sets the tool configuration show url' do
+        get 'settings', params: {account_id: account.id}
+        expect(assigns.dig(:js_env, :TOOL_CONFIGURATION_SHOW_URL)).to eq(
+          "http://test.host/api/lti/accounts/#{account.id}/developer_keys/:developer_key_id/tool_configuration"
+        )
+      end
+
+      it 'defaults new feature flags to false' do
+        get 'settings', params: {account_id: account.id}
+        expect(assigns.dig(:js_env, :NEW_FEATURES_UI)).to eq(false)
+      end
+
+      it 'passes on correct value for new feature flags ui' do
+        account.root_account.enable_feature!(:new_features_ui)
+        get 'settings', params: {account_id: account.id}
+        expect(assigns.dig(:js_env, :NEW_FEATURES_UI)).to eq(true)
+      end
+    end
+
     it "should load account report details" do
       account_with_admin_logged_in
       report_type = AccountReport.available_reports.keys.first
       report = @account.account_reports.create!(report_type: report_type, user: @admin)
 
-      get 'settings', params: {account_id: @account}
-      expect(response).to be_success
+      get 'reports_tab', params: {account_id: @account}
+      expect(response).to be_successful
 
       expect(assigns[:last_reports].first.last).to eq report
     end
@@ -625,7 +667,7 @@ describe AccountsController do
 
         @shard1.activate do
           get 'settings', params: {account_id: @account}
-          expect(response).to be_success
+          expect(response).to be_successful
         end
       end
     end
@@ -652,7 +694,7 @@ describe AccountsController do
 
       it "should load account external integration keys" do
         get 'settings', params: {account_id: @account}
-        expect(response).to be_success
+        expect(response).to be_successful
 
         external_integration_keys = assigns[:external_integration_keys]
         expect(external_integration_keys.key?(:external_key0)).to be_truthy
@@ -723,28 +765,89 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'terms_of_service', params: {account_id: @account.id}
 
-      expect(response).to be_success
-      expect(response.body).to match(/\"content\":\"custom content\"/)
-    end
-
-    it "should return the terms of service content as student" do
-      @account.update_terms_of_service(terms_type: "custom", content: "custom content")
-
-      user_session(@teacher)
-      get 'terms_of_service', params: {account_id: @account.id}
-
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"content\":\"custom content\"/)
     end
 
     it "should return the terms of service content as teacher" do
       @account.update_terms_of_service(terms_type: "custom", content: "custom content")
 
+      user_session(@teacher)
+      get 'terms_of_service', params: {account_id: @account.id}
+
+      expect(response).to be_successful
+      expect(response.body).to match(/\"content\":\"custom content\"/)
+    end
+
+    it "should return the terms of service content as student" do
+      @account.update_terms_of_service(terms_type: "custom", content: "custom content")
+
       user_session(@student)
       get 'terms_of_service', params: {account_id: @account.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"content\":\"custom content\"/)
+    end
+  end
+
+  describe "help links" do
+    before do
+      account_with_admin_logged_in
+      @account.settings[:custom_help_links] = [
+        {
+          id: 'link1',
+          text: 'Custom Link!',
+          subtext: 'Custom subtext',
+          url: 'https://canvas.instructure.com/guides',
+          type: 'custom',
+          available_to: ['user', 'student', 'teacher'],
+        },
+      ]
+      @account.save
+      course_with_teacher(account: @account)
+      course_with_student(course: @course)
+    end
+
+    it "should return default help links" do
+      get 'help_links', params: {account_id: @account.id}
+
+      expect(response).to be_successful
+      expect(response.body).to match(/\"help_link_name\":\"Help\"/)
+      expect(response.body).to match(/\"help_link_icon\":\"help\"/)
+      expect(response.body).to match(/\"id\":\"report_a_problem\"/)
+      expect(response.body).to match(/\"id\":\"instructor_question\"/)
+      expect(response.body).to match(/\"id\":\"search_the_canvas_guides\"/)
+      expect(response.body).to match(/\"type\":\"default\"/)
+    end
+
+    it "should return custom help links" do
+      @account.settings[:help_link_name] = 'Help and Policies'
+      @account.settings[:help_link_icon] = 'paperclip'
+      @account.save
+      get 'help_links', params: {account_id: @account.id}
+
+      expect(response).to be_successful
+      expect(response.body).to match(/\"help_link_name\":\"Help and Policies\"/)
+      expect(response.body).to match(/\"help_link_icon\":\"paperclip\"/)
+      expect(response.body).to match(/\"id\":\"link1\"/)
+      expect(response.body).to match(/\"type\":\"custom\"/)
+      expect(response.body).to match(/\"url\":\"https:\/\/canvas.instructure.com\/guides\"/)
+    end
+
+    it "should return the help links as student" do
+      user_session(@student)
+      get 'help_links', params: {account_id: @account.id}
+
+      expect(response).to be_successful
+      expect(response.body).to match(/\"help_link_name\":\"Help\"/)
+    end
+
+    it "should return the help links as teacher" do
+      user_session(@teacher)
+      get 'help_links', params: {account_id: @account.id}
+
+      expect(response).to be_successful
+      expect(response.body).to match(/\"help_link_name\":\"Help\"/)
     end
   end
 
@@ -770,7 +873,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {:account_id => @account.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/#{@c1.id}/)
       expect(response.body).to match(/#{@c2.id}/)
     end
@@ -782,7 +885,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {:account_id => @account.id, :include => [:sections]}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).not_to match(/sections/)
     end
 
@@ -792,7 +895,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "course_name", order: "asc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"apple\".+\"name\":\"bar\".+\"name\":\"foo\".+\"name\":\"xylophone\"/)
     end
 
@@ -802,7 +905,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "course_name", order: "desc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"xylophone\".+\"name\":\"foo\".+\"name\":\"bar\".+\"name\":\"apple\"/)
     end
 
@@ -812,7 +915,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "sis_course_id", order: "asc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"sis_course_id\":\"30\".+\"sis_course_id\":\"31\".+\"sis_course_id\":\"42\".+\"sis_course_id\":\"52\"/)
     end
 
@@ -822,7 +925,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "sis_course_id", order: "desc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"sis_course_id\":\"52\".+\"sis_course_id\":\"42\".+\"sis_course_id\":\"31\".+\"sis_course_id\":\"30\"/)
     end
 
@@ -850,7 +953,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "teacher", order: "asc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"apple\".+\"name\":\"xylophone\".+\"name\":\"foo\".+\"name\":\"bar\"/)
     end
 
@@ -878,7 +981,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "teacher", order: "desc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"bar\".+\"name\":\"foo\".+\"name\":\"xylophone\".+\"name\":\"apple\"/)
     end
 
@@ -905,7 +1008,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "subaccount", order: "asc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"sis_course_id\":\"52\".+\"sis_course_id\":\"42\".+\"sis_course_id\":\"31\".+\"sis_course_id\":\"30\"/)
     end
 
@@ -932,7 +1035,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "subaccount", order: "desc"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"sis_course_id\":\"30\".+\"sis_course_id\":\"31\".+\"sis_course_id\":\"42\".+\"sis_course_id\":\"52\"/)
     end
 
@@ -949,7 +1052,7 @@ describe AccountsController do
       it "should be able to sort courses by term ascending" do
         get 'courses_api', params: {account_id: @account.id, sort: "term", order: "asc", include: ['term']}
 
-        expect(response).to be_success
+        expect(response).to be_successful
         term_names = json_parse(response.body).map{|c| c['term']['name']}
         expect(term_names).to eq(letters_in_random_order.sort)
       end
@@ -957,7 +1060,7 @@ describe AccountsController do
       it "should be able to sort courses by term descending" do
         get 'courses_api', params: {account_id: @account.id, sort: "term", order: "desc", include: ['term']}
 
-        expect(response).to be_success
+        expect(response).to be_successful
         term_names = json_parse(response.body).map{|c| c['term']['name']}
         expect(term_names).to eq(letters_in_random_order.sort.reverse)
       end
@@ -990,7 +1093,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "teacher", order: "asc", search_by: "teacher", search_term: "teach"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"hot dog eating\".+\"name\":\"xylophone\"/)
     end
 
@@ -1021,7 +1124,7 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "course_name", order: "asc", search_by: "course", search_term: "aPp"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"apple\".+\"name\":\"Apps\".+\"name\":\"cappuccino\"/)
       expect(response.body).not_to match(/\"name\":\"apple\".+\"name\":\"Apps\".+\"name\":\"bar\".+\"name\":\"cappuccino\".+\"name\":\"foo\"/)
     end
@@ -1053,10 +1156,93 @@ describe AccountsController do
       admin_logged_in(@account)
       get 'courses_api', params: {account_id: @account.id, sort: "course_name", order: "asc", search_by: "course", search_term: "300"}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to match(/\"name\":\"apple\".+\"name\":\"Apps\"/)
       expect(response.body).not_to match(/\"name\":\"apple\".+\"name\":\"Apps\".+\"name\":\"bar\".+\"name\":\"cappuccino\".+\"name\":\"foo\"/)
     end
 
+  end
+
+  describe "#eportfolio_moderation" do
+    before(:each) do
+      account_with_admin_logged_in
+
+      author.eportfolios.create!(name: "boring")
+      author.eportfolios.create!(name: "maybe spam", spam_status: "flagged_as_possible_spam")
+      author.eportfolios.create!(name: "spam", spam_status: "marked_as_spam")
+      author.eportfolios.create!(name: "not spam", spam_status: "marked_as_safe")
+    end
+
+    let(:author) do
+      user = User.create!
+      user.user_account_associations.create!(account: @account)
+      user
+    end
+
+    let(:vanished_author) do
+      user = User.create!
+      user.user_account_associations.create!(account: @account)
+      user.destroy
+      user
+    end
+
+    it "redirects the user to the account settings URL if the eportfolio_moderation flag is not enabled" do
+      get "eportfolio_moderation", params: {account_id: @account.id}
+      expect(response).to redirect_to(account_settings_url(@account))
+    end
+
+    context "when the eportfolio_moderation flag is enabled" do
+      before(:each) { @account.root_account.enable_feature!(:eportfolio_moderation) }
+
+      let(:returned_portfolios) { assigns[:eportfolios] }
+
+      it "returns eportfolios that have been auto-flagged as spam, or manually marked as spam/safe" do
+        get "eportfolio_moderation", params: {account_id: @account.id}
+        expect(returned_portfolios.count).to eq 3
+      end
+
+      it "ignores portfolios belonging to deleted users" do
+        vanished_eportfolio = Eportfolio.create!(user_id: vanished_author.id, name: "hello", spam_status: "marked_as_spam")
+
+        get "eportfolio_moderation", params: {account_id: @account.id}
+        expect(returned_portfolios).not_to include(vanished_eportfolio)
+      end
+
+      it "returns flagged_as_possible_spam results, then marked_as_spam, then marked_as_safe" do
+        get "eportfolio_moderation", params: {account_id: @account.id}
+        expect(returned_portfolios.pluck(:name)).to eq ["maybe spam", "spam", "not spam"]
+      end
+
+      it "excludes results from authors who have no portfolios marked as possible or definitive spam" do
+        safe_user = User.create!
+        safe_user.user_account_associations.create!(account: @account)
+        safe_eportfolio = safe_user.eportfolios.create!(name: ":)")
+        safe_eportfolio.update!(spam_status: "marked_as_safe")
+
+        get "eportfolio_moderation", params: {account_id: @account.id}
+        expect(returned_portfolios.pluck(:id)).not_to include(safe_eportfolio.id)
+      end
+
+      context "pagination" do
+        before(:once) do
+          Setting.set('eportfolio_moderation_results_per_page', 2)
+        end
+
+        it "does not return more than the specified results per page" do
+          get "eportfolio_moderation", params: {account_id: @account.id}
+          expect(returned_portfolios.count).to eq 2
+        end
+
+        it "returns the first page of results if no 'page' param is given" do
+          get "eportfolio_moderation", params: {account_id: @account.id}
+          expect(returned_portfolios.pluck(:name)).to eq ["maybe spam", "spam"]
+        end
+
+        it "paginates using the 'page' param if supplied" do
+          get "eportfolio_moderation", params: {account_id: @account.id, page: 2}
+          expect(returned_portfolios.pluck(:name)).to eq ["not spam"]
+        end
+      end
+    end
   end
 end

@@ -21,8 +21,8 @@ describe AssignmentConfigurationToolLookup do
   include_context 'lti2_spec_helper'
 
   let(:subscription_service){ class_double(Services::LiveEventsSubscriptionService).as_stubbed_const }
-  let(:test_id){ 'test-id' }
-  let(:stub_response){ double(code: 200, parsed_response: {'Id' => 'test-id'}, ok?: true) }
+  let(:test_id){ SecureRandom.uuid }
+  let(:stub_response){ double(code: 200, parsed_response: {'Id' => test_id}, ok?: true) }
   let(:assignment){ assignment_model(course: course) }
 
   before(:each) do
@@ -30,7 +30,7 @@ describe AssignmentConfigurationToolLookup do
     allow(subscription_service).to receive_messages(create_tool_proxy_subscription: stub_response)
     allow(subscription_service).to receive_messages(destroy_tool_proxy_subscription: stub_response)
 
-    message_handler.update_attributes(capabilities: ["Canvas.placements.similarityDetection"])
+    message_handler.update(capabilities: ["Canvas.placements.similarityDetection"])
 
     resource_handler.message_handlers << message_handler
     tool_proxy.resources << resource_handler
@@ -39,7 +39,7 @@ describe AssignmentConfigurationToolLookup do
 
   describe '#destroy_subscription' do
     it 'destroys the subscription if it exists' do
-      expect(subscription_service).to receive(:destroy_tool_proxy_subscription).with(tool_proxy, 'test-id')
+      expect(subscription_service).to receive(:destroy_tool_proxy_subscription).with(tool_proxy, test_id)
       assignment.tool_settings_tool = message_handler
       assignment.save!
       lookup = assignment.assignment_configuration_tool_lookups.last
@@ -74,6 +74,7 @@ describe AssignmentConfigurationToolLookup do
   describe '#lti_tool' do
     it 'returns the tool associated by id if present (for backwards compatibility and future LTI 1)' do
       lookup = assignment.assignment_configuration_tool_lookups.create!(
+        context_type: 'Account',
         tool_id: message_handler.id,
         tool_type: 'Lti::MessageHandler'
       )
@@ -120,7 +121,7 @@ describe AssignmentConfigurationToolLookup do
     end
   end
 
-  describe '#configured_assignments' do
+  describe 'subscriptions' do
     let(:root_account) { Account.create!(name: 'root account') }
     let(:account) { Account.create!(name: 'account', root_account: root_account) }
     let(:course) { Course.create!(account: account) }
@@ -131,36 +132,110 @@ describe AssignmentConfigurationToolLookup do
       a.save!
       a
     end
+    let!(:lookup) { assignment.assignment_configuration_tool_lookups.first }
 
     before do
-      allow_any_instance_of(Lti::AssignmentSubscriptionsHelper).to receive(:create_subscription) { SecureRandom.uuid }
-      allow_any_instance_of(Lti::AssignmentSubscriptionsHelper).to receive(:destroy_subscription) { {} }
-      message_handler.update_attributes(capabilities: [Lti::ResourcePlacement::SIMILARITY_DETECTION_LTI2])
+      message_handler.update!(capabilities: [Lti::ResourcePlacement::SIMILARITY_DETECTION_LTI2])
+      tool_proxy.update!(context: account)
       assignment
     end
 
-    it 'finds configured assignments when installed in an account' do
-      tool_proxy.update_attributes!(context: account)
-      expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
+    describe '#recreate_missing_subscriptions' do
+      let(:initial_id) { 'initial-id-string' }
+
+      # Only create a tool for the root account and call
+      # recreate_missing_subscriptions for the root_account, because plagiarism
+      # tools are never really installed on individual subaccouts.
+      # `tool_proxy` is normally created with `account`, so we override `account` to be
+      # the root account, and Override `course` to use the subaccount
+      let(:account) { root_account }
+      let(:subaccount) { Account.create!(name: 'account', root_account: root_account) }
+      let(:course) { Course.create!(account: subaccount) }
+
+      before { lookup.update!(subscription_id: initial_id) }
+
+      context 'for a course in the subaccount' do
+        it 'creates a new subscription' do
+          expect do
+            AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+          end.to change { lookup.reload.subscription_id }
+        end
+
+        context 'when no subscription existed' do
+          let(:initial_id) { nil }
+
+          it 'creates a new subscription' do
+            expect do
+              AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+            end.to change { lookup.reload.subscription_id }
+          end
+        end
+      end
+
+      context 'for a course in the root account' do
+        let(:course) { Course.create!(account: root_account) }
+
+        it 'creates a new subscription' do
+          expect do
+            AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+          end.to change { lookup.reload.subscription_id }
+        end
+
+        context 'when no subscription existed' do
+          let(:initial_id) { nil }
+
+          it 'creates a new subscription' do
+            expect do
+              AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+            end.to change { lookup.reload.subscription_id }
+          end
+        end
+      end
+
+      context 'when the tool context type is Account and the ACTL context type is Course' do
+        it 'does not create a new subscription' do
+          lookup.update!(context_type: 'Course')
+          expect do
+            AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+          end.to_not change { lookup.reload.subscription_id }
+        end
+      end
+
+      context 'when the tool context type is Course and the ACTL context type is Account' do
+        it 'does not create a new subscription' do
+          lookup.update!(context_type: 'Account')
+          tool_proxy.update!(context: course)
+          expect do
+            AssignmentConfigurationToolLookup.recreate_missing_subscriptions(root_account, message_handler)
+          end.to_not change { lookup.reload.subscription_id }
+        end
+      end
     end
 
-    it 'finds configured assignments when installed in a root acocunt' do
-      tool_proxy.update_attributes!(context: root_account)
-      expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
-    end
+    describe '#configured_assignments' do
+      it 'finds configured assignments when installed in an account' do
+        tool_proxy.update!(context: account)
+        expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
+      end
 
-    it 'finds configured assignments when installed in a course' do
-      tool_proxy.update_attributes!(context: course)
-      expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
-    end
+      it 'finds configured assignments when installed in a root acocunt' do
+        tool_proxy.update!(context: root_account)
+        expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
+      end
 
-    it 'handles multiple configured assignments' do
-      second_assignment = assignment.dup
-      second_assignment.tool_settings_tool = message_handler
-      second_assignment.lti_context_id = SecureRandom.uuid
-      second_assignment.save!
-      tool_proxy.update_attributes!(context: root_account)
-      expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment, second_assignment]
+      it 'finds configured assignments when installed in a course' do
+        tool_proxy.update!(context: course)
+        expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment]
+      end
+
+      it 'handles multiple configured assignments' do
+        second_assignment = assignment.dup
+        second_assignment.tool_settings_tool = message_handler
+        second_assignment.lti_context_id = SecureRandom.uuid
+        second_assignment.save!
+        tool_proxy.update!(context: root_account)
+        expect(AssignmentConfigurationToolLookup.by_tool_proxy(tool_proxy)).to match_array [assignment, second_assignment]
+      end
     end
   end
 end

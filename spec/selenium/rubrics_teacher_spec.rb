@@ -25,7 +25,7 @@ describe "teacher shared rubric specs" do
   let(:who_to_login) { 'teacher' }
 
   before(:each) do
-    resize_screen_to_normal
+
     course_with_teacher_logged_in
   end
 
@@ -46,7 +46,7 @@ describe "teacher shared rubric specs" do
   end
 
   it "should round to an integer when splitting" do
-    resize_screen_to_default
+
     should_round_to_an_integer_when_splitting
   end
 
@@ -88,6 +88,35 @@ describe "course rubrics" do
       # check again after reload
       refresh_page
       expect(fj('.rubric_total')).to include_text "10" #avoid selenium caching
+    end
+
+    it "should calculate ratings based on initial rating values" do
+      assignment_with_editable_rubric(10)
+      get "/courses/#{@course.id}/rubrics/#{@rubric.id}"
+
+      f('#right-side .edit_rubric_link').click
+      replace_content(fj(".criterion_points:visible"), "50")
+      fj(".criterion_points:visible").send_keys(:return)
+      expect(ff('.points').map(&:text).reject!(&:empty?)).to eq ["50", "15", "0"]
+
+      replace_content(fj(".criterion_points:visible"), "25")
+      fj(".criterion_points:visible").send_keys(:return)
+      expect(ff('.points').map(&:text).reject!(&:empty?)).to eq ["25", "7.5", "0"]
+
+      replace_content(fj(".criterion_points:visible"), "10")
+      fj(".criterion_points:visible").send_keys(:return)
+      submit_form("#edit_rubric_form")
+      expect(ff('.points').map(&:text).reject!(&:empty?)).to eq ["10", "3", "0"]
+    end
+
+    it "should not show an error when adjusting from 0 points" do
+      assignment_with_editable_rubric(0)
+      get "/courses/#{@course.id}/rubrics/#{@rubric.id}"
+      f('#right-side .edit_rubric_link').click
+      replace_content(fj(".criterion_points:visible"), "10")
+      fj(".criterion_points:visible").send_keys(:return)
+      submit_form("#edit_rubric_form")
+      expect(ff('.points').map(&:text).reject!(&:empty?)).to eq ["10", "5", "0"]
     end
 
     it "should not display the edit form more than once" do
@@ -173,13 +202,13 @@ describe "course rubrics" do
 
     get "/courses/#{@course.id}/grades"
     f('.toggle_rubric_assessments_link').click
-    expect(f('.rubric .criterion .custom_rating_comments')).to include_text comment
-    expect(f('.rubric .criterion .custom_rating_comments a')).to have_attribute('href', 'http://www.example.com/')
+    expect(f('.rubric-freeform')).to include_text comment
+    expect(f('.rubric-freeform a')).to have_attribute('href', 'http://www.example.com/')
 
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
-    expect(f('.rubric .criterion .custom_rating_comments')).to include_text comment
-    expect(f('.rubric .criterion .custom_rating_comments a')).to have_attribute('href', 'http://www.example.com/')
+    expect(f('.rubric-freeform')).to include_text comment
+    expect(f('.rubric-freeform a')).to have_attribute('href', 'http://www.example.com/')
   end
 
   it "should highlight a criterion level if score is 0" do
@@ -203,7 +232,7 @@ describe "course rubrics" do
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
     wait_for_ajaximations
-    expect(f('table .ratings tbody td:nth-child(3)')).to have_class('original_selected')
+    expect(ff('.rubric-criterion:nth-of-type(1) .rating-tier').third).to have_class('selected')
   end
 
   it "should not highlight a criterion level if score is nil" do
@@ -227,6 +256,8 @@ describe "course rubrics" do
     get "/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
     f('.assess_submission_link').click
     wait_for_ajaximations
-    expect(f('table .ratings tbody td:nth-child(3)')).not_to have_class('original_selected')
+    ff('.rubric-criterion:nth-of-type(1) .rating-tier').each do |criterion|
+      expect(criterion).not_to have_class('selected')
+    end
   end
 end

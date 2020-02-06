@@ -6,6 +6,9 @@
 </td>
 <td role="gridcell">{{tDateToString created_at "medium"}}</td>
 <td role="gridcell">{{tDateToString updated_at "medium"}}{{#if last_edited_by.display_name}} by {{last_edited_by.display_name}}{{/if}}</td>
+{{#if collectionHasTodoDate}}
+  <td role="gridcell">{{tDateToString todo_date "date_at_time"}}</td>
+{{/if}}
 {{#if CAN.MANAGE}}
   <td role="gridcell" class="master-content-lock-cell"></td>
   {{#if CAN.PUBLISH}}
@@ -54,6 +57,22 @@
             <a href="#" class="icon-copy-course duplicate-wiki-page" title="{{#t}}Duplicate{{/t}}">
               {{#t}}Duplicate{{/t}}
             </a>
+          </li>
+        {{/if}}
+        {{#if DIRECT_SHARE_ENABLED}}
+          <li>
+            <a
+              href="#"
+              class="send-wiki-page-to icon-user"
+              aria-label="{{#t}}Send page to another user{{/t}}"
+            >{{#t}}Send to...{{/t}}</a>
+          </li>
+          <li>
+            <a
+              href="#"
+              class="copy-wiki-page-to icon-duplicate"
+              aria-label="{{#t}}Copy page to another course{{/t}}"
+            >{{#t}}Copy to...{{/t}}</a>
           </li>
         {{/if}}
         {{>ExternalTools/external_tools_menu wiki_page_menu_tools}}

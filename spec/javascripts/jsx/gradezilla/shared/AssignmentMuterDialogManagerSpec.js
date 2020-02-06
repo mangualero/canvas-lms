@@ -24,21 +24,14 @@ QUnit.module('AssignmentMuterDialogManager', suiteHooks => {
 
   let assignment
   let submissionsLoaded
-  let anonymousModeratedMarkingEnabled
 
   suiteHooks.beforeEach(() => {
-    anonymousModeratedMarkingEnabled = false
-    assignment = {moderated_grading: false, grades_published: true, muted: true}
+    assignment = {anonymous_grading: false, grades_published: true, muted: true}
     submissionsLoaded = false
   })
 
   function createManager() {
-    return new AssignmentMuterDialogManager(
-      assignment,
-      url,
-      submissionsLoaded,
-      anonymousModeratedMarkingEnabled
-    )
+    return new AssignmentMuterDialogManager(assignment, url, submissionsLoaded)
   }
 
   QUnit.module('#assignment', () => {
@@ -61,8 +54,8 @@ QUnit.module('AssignmentMuterDialogManager', suiteHooks => {
 
   QUnit.module('#showDialog()', hooks => {
     hooks.beforeEach(() => {
-      sinon.spy(AssignmentMuter.prototype, 'confirmUnmute')
-      sinon.spy(AssignmentMuter.prototype, 'showDialog')
+      sinon.stub(AssignmentMuter.prototype, 'confirmUnmute')
+      sinon.stub(AssignmentMuter.prototype, 'showDialog')
     })
 
     hooks.afterEach(() => {
@@ -95,23 +88,13 @@ QUnit.module('AssignmentMuterDialogManager', suiteHooks => {
     })
 
     test('returns false when the assignment is moderated and grades have not been published', () => {
-      anonymousModeratedMarkingEnabled = true
       assignment.grades_published = false
       assignment.moderated_grading = true
       submissionsLoaded = true
       strictEqual(createManager().isDialogEnabled(), false)
     })
 
-    test('returns true for moderated assignments when Anonymous Moderated Marking is disabled', () => {
-      anonymousModeratedMarkingEnabled = false
-      assignment.grades_published = false
-      assignment.moderated_grading = true
-      submissionsLoaded = true
-      strictEqual(createManager().isDialogEnabled(), true)
-    })
-
     test('returns true for moderated assignments when grades have been published', () => {
-      anonymousModeratedMarkingEnabled = true
       assignment.grades_published = true
       assignment.moderated_grading = true
       submissionsLoaded = true
@@ -119,7 +102,6 @@ QUnit.module('AssignmentMuterDialogManager', suiteHooks => {
     })
 
     test('returns true for moderated assignments when not muted', () => {
-      anonymousModeratedMarkingEnabled = true
       assignment.grades_published = false
       assignment.moderated_grading = true
       assignment.muted = false
@@ -128,7 +110,6 @@ QUnit.module('AssignmentMuterDialogManager', suiteHooks => {
     })
 
     test('returns true for assignments when not moderated', () => {
-      anonymousModeratedMarkingEnabled = true
       assignment.grades_published = true
       assignment.moderated_grading = false
       submissionsLoaded = true

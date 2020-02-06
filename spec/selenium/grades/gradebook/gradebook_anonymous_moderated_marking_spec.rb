@@ -20,81 +20,82 @@ require_relative '../pages/gradebook_page'
 
 describe 'Original Gradebook' do
   include_context "in-process server selenium tests"
-  include GradebookCommon
 
-  before(:each) do
-    Account.default.enable_feature!(:anonymous_moderated_marking)
-    Account.default.enable_feature!(:anonymous_grading)
-
+  before(:once) do
     # create a course with a teacher
-    @anonymous_course = create_course(course_name: 'anonymous_course', active_all: true)
-    @teacher1 = User.create!(name: 'Teacher1')
-    @teacher1.register!
-    @anonymous_course.enroll_teacher(@teacher1, enrollment_state: 'active')
+    @teacher1 = course_with_teacher(course_name: 'Course1', active_all: true).user
 
-    # create an anonymous assignment
-    @anonymous_assignment = @anonymous_course.assignments.create!(
-      title: 'Anonymous Assignment1',
-      grader_count: 1,
-      grading_type: 'points',
-      points_possible: 15,
-      submission_types: 'online_upload',
-      anonymous_grading: true
-    )
-    @anonymous_assignment.unmute!
+    # enroll a second teacher
+    @teacher2 = course_with_teacher(course: @course, name: 'Teacher2', active_all: true).user
 
-    # add two students
-    @student_1 = User.create!(name: 'Student M. First')
-    @student_1.register!
-    @student_1.pseudonyms.create!(unique_id: "nobody1@example.com",
-                                  password: 'password',
-                                  password_confirmation: 'password')
-    student_enrollment1 = @anonymous_course.enroll_student(@student_1)
-    student_enrollment1.update!(workflow_state: 'active')
-
-    @student_2 = User.create!(name: 'Student M. Second')
-    @student_2.register!
-    @student_2.pseudonyms.create!(unique_id: "nobody2@example.com",
-                                  password: 'password',
-                                  password_confirmation: 'password')
-    student_enrollment2 = @anonymous_course.enroll_student(@student_2)
-    student_enrollment2.update!(workflow_state: 'active')
+    # enroll two students
+    @student1 = course_with_student(course: @course, name: 'Student1', active_all: true).user
+    @student2 = course_with_student(course: @course, name: 'Student2', active_all: true).user
   end
 
-  context 'with Anonymous Moderated Marking ON in submission detail' do
+  context 'with an anonymous assignment' do
     before(:each) do
+      # create an anonymous assignment
+      @anonymous_assignment = @course.assignments.create!(
+        title: 'Anonymous Assignment1',
+        grader_count: 1,
+        grading_type: 'points',
+        points_possible: 15,
+        submission_types: 'online_upload',
+        anonymous_grading: true
+      )
+
+      @student1_submission = @anonymous_assignment.grade_student(@student1, grade: 13, grader: @teacher1)
       user_session(@teacher1)
-      Gradebook::MultipleGradingPeriods.visit_gradebook(@anonymous_course)
-      Gradebook::MultipleGradingPeriods.open_comment_dialog(0,1)
     end
 
-    it 'cannot navigate to speedgrader for specific student', priority: '1', test_id: 3493483 do
-      # try to navigate to @student_2
-      Gradebook::MultipleGradingPeriods.submission_detail_speedgrader_link.click
-      driver.switch_to.window(driver.window_handles.last)
+    context 'grade cells', priority: '1', test_id: 3496299 do
+      before(:each) do
+        Gradebook.visit_gradebook(@course)
+      end
+
+      it 'are disabled and hide grades when assignment is muted', priority: '1', test_id: 3496299 do
+        grade_cell_grayed = Gradebook.grading_cell_content(0,0)
+        class_attribute_fetched = grade_cell_grayed.attribute("class")
+
+        expect(class_attribute_fetched).to include "grayed-out cannot_edit"
+      end
+    end
+  end
+
+  context 'with a moderated assignment' do
+    before(:each) do
+      # create moderated assignment
+      @moderated_assignment = @course.assignments.create!(
+        title: 'Moderated Assignment1',
+        grader_count: 2,
+        final_grader_id: @teacher1.id,
+        grading_type: 'points',
+        points_possible: 15,
+        submission_types: 'online_text_entry',
+        moderated_grading: true
+      )
+
+      # switch session to non-final-grader
+      user_session(@teacher2)
+    end
+
+    it 'assignment cannot be unmuted in Gradebook before grades are posted', priority: '1', test_id: 3496195 do
+      Gradebook.visit_gradebook(@course)
+      Gradebook.assignment_header_menu_select(@moderated_assignment.id)
       wait_for_ajaximations
-      expect(driver.current_url).not_to include "student_id"
-    end
-  end
 
-  context 'with Anonymous Moderated Marking ON has grade cells', priority: '1', test_id: 3496299 do
-    before(:each) do
-      user_session(@teacher1)
-      Gradebook::MultipleGradingPeriods.visit_gradebook(@anonymous_course)
-      Gradebook::MultipleGradingPeriods.enter_grade("11", 0, 0)
-      Gradebook::MultipleGradingPeriods.toggle_assignment_mute_option(@anonymous_assignment.id)
+      expect(Gradebook.assignment_header_menu_item_find('Unmute Assignment').attribute('aria-disabled')).to eq 'true'
     end
 
-    it 'greyed out with grades invisible when assignment is muted' do
-      grade_cell_grayed = Gradebook::MultipleGradingPeriods.grading_cell_content(0,0)
-      class_attribute_fetched = grade_cell_grayed.attribute("class")
-      expect(class_attribute_fetched).to include "grayed-out cannot_edit"
-    end
+    it 'assignment can be unmuted in Gradebook after grades are posted', priority: '1', test_id: 3496195 do
+      @moderated_assignment.update!(grades_published_at: Time.zone.now)
 
-    it 'not greyed out with grades visible when assignment is unmuted' do
-      refresh_page
-      Gradebook::MultipleGradingPeriods.toggle_assignment_mute_option(@anonymous_assignment.id)
-      expect(Gradebook::MultipleGradingPeriods.cell_graded?("11", 0, 0)).to be true
+      Gradebook.visit_gradebook(@course)
+      Gradebook.assignment_header_menu_select(@moderated_assignment.id)
+      wait_for_ajaximations
+
+      expect(Gradebook.assignment_header_menu_item_find('Unmute Assignment').attribute('aria-disabled')).to be nil
     end
   end
 end

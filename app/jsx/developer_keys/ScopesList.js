@@ -19,15 +19,14 @@ import I18n from 'i18n!react_developer_keys'
 import LazyLoad from 'react-lazy-load'
 import PropTypes from 'prop-types'
 import React from 'react'
-import Flex, {FlexItem} from '@instructure/ui-layout/lib/components/Flex'
-import ScreenReaderContent from '@instructure/ui-a11y/lib/components/ScreenReaderContent'
-import Text from '@instructure/ui-elements/lib/components/Text'
-import Checkbox from '@instructure/ui-forms/lib/components/Checkbox'
-import View from '@instructure/ui-layout/lib/components/View'
-import DeveloperKeyScopesGroup from './ScopesGroup'
-import DeveloperKeyScopesMethod from './ScopesMethod'
+import {Flex, View} from '@instructure/ui-layout'
+import {ScreenReaderContent, PresentationContent} from '@instructure/ui-a11y'
+import {Text} from '@instructure/ui-elements'
+import {Checkbox} from '@instructure/ui-forms'
+import ScopesGroup from './ScopesGroup'
+import ScopesMethod from './ScopesMethod'
 
-export default class DeveloperKeyScopesList extends React.Component {
+export default class ScopesList extends React.Component {
   constructor(props) {
     super(props)
     const formattedScopesArray = Object.keys(this.props.availableScopes).map(k => ({
@@ -102,8 +101,8 @@ export default class DeveloperKeyScopesList extends React.Component {
 
   availableGetScopes() {
     return this.allScopes(this.props.availableScopes)
-    .filter(s => s.verb === 'GET')
-    .map(s => s.scope)
+      .filter(s => s.verb === 'GET')
+      .map(s => s.scope)
   }
 
   allScopes(availableScopes) {
@@ -114,31 +113,42 @@ export default class DeveloperKeyScopesList extends React.Component {
 
   render() {
     return (
-      <div className="scopes-list">
+      <div data-automation="scopes-list">
         <View borderRadius="small" display="block" borderWidth="small">
           <Flex height="564px" width="100%" as="div" direction="column">
-            <FlexItem padding="none" textAlign="start">
+            <Flex.Item padding="none" textAlign="start">
               <View padding="small" display="block" borderWidth="none none medium none">
                 <Flex>
-                  <FlexItem>
+                  <Flex.Item>
                     <Checkbox
-                      label={<ScreenReaderContent>{I18n.t('All GET scopes')}</ScreenReaderContent>}
+                      label={
+                        <ScreenReaderContent>
+                          {this.state.readOnlySelected
+                            ? I18n.t('Disable all read only scopes.')
+                            : I18n.t('Enable all read only scopes.')}
+                        </ScreenReaderContent>
+                      }
                       onChange={this.handleReadOnlySelected}
                       checked={this.state.readOnlySelected}
                       inline
                     />
-                    <Text size="medium" weight="bold">
-                      {I18n.t('Read only')}
-                    </Text>
-                    <DeveloperKeyScopesMethod method="get" margin="none small none small" />
-                  </FlexItem>
+                    <PresentationContent>
+                      <Text size="medium" weight="bold">
+                        {I18n.t('Read only')}
+                      </Text>
+                      <ScopesMethod method="get" margin="none small none small" />
+                    </PresentationContent>
+                  </Flex.Item>
                 </Flex>
               </View>
-            </FlexItem>
-            <FlexItem grow shrink>
+            </Flex.Item>
+            <Flex.Item grow shrink>
               {this.state.availableScopes.map(scopeGroup => {
                 return Object.keys(scopeGroup).reduce((result, key) => {
-                  if (this.noFilter() || key.toLowerCase().indexOf(this.props.filter.toLowerCase()) > -1) {
+                  if (
+                    this.noFilter() ||
+                    key.toLowerCase().indexOf(this.props.filter.toLowerCase()) > -1
+                  ) {
                     result.push(
                       <LazyLoad
                         offset={1000}
@@ -147,7 +157,7 @@ export default class DeveloperKeyScopesList extends React.Component {
                         width="100%"
                         key={`${key}-scope-group`}
                       >
-                        <DeveloperKeyScopesGroup
+                        <ScopesGroup
                           scopes={this.props.availableScopes[key]}
                           name={key}
                           selectedScopes={this.state.selectedScopes}
@@ -159,7 +169,7 @@ export default class DeveloperKeyScopesList extends React.Component {
                   return result
                 }, [])
               })}
-            </FlexItem>
+            </Flex.Item>
           </Flex>
         </View>
       </div>
@@ -167,7 +177,7 @@ export default class DeveloperKeyScopesList extends React.Component {
   }
 }
 
-DeveloperKeyScopesList.propTypes = {
+ScopesList.propTypes = {
   dispatch: PropTypes.func.isRequired,
   listDeveloperKeyScopesSet: PropTypes.func.isRequired,
   availableScopes: PropTypes.objectOf(
@@ -182,6 +192,6 @@ DeveloperKeyScopesList.propTypes = {
   selectedScopes: PropTypes.arrayOf(PropTypes.string)
 }
 
-DeveloperKeyScopesList.defaultProps = {
+ScopesList.defaultProps = {
   selectedScopes: []
 }

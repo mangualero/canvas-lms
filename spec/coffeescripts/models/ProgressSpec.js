@@ -42,8 +42,8 @@ const respond = data =>
     JSON.stringify(data)
   ])
 
-test('polls the progress api until the job is finished', function() {
-  const spy = this.spy()
+test('polls the progress api until the job is finished', () => {
+  const spy = sinon.spy()
   model.on('complete', spy)
   model.poll()
   respond({workflow_state: 'queued'})

@@ -33,11 +33,7 @@ export default {
     }
     // This should be in JSX, but /o\
     ReactDOM.render(
-      React.createElement(DragFeedback, {
-        pageX,
-        pageY,
-        itemsToDrag: this.itemsToDrag()
-      }),
+      <DragFeedback pageX={pageX} pageY={pageY} itemsToDrag={this.itemsToDrag()} />,
       this.dragHolder[0]
     )
   },
@@ -103,12 +99,12 @@ export default {
     event.preventDefault()
     return moveStuff(this.itemsToDrag(), destinationFolder)
       .then(
-        function() {
+        () => {
           if (callback) {
             return callback({success: true, event})
           }
         },
-        function() {
+        () => {
           if (callback) {
             return callback({success: false, event})
           }

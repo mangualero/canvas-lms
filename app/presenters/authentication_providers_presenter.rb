@@ -30,9 +30,9 @@ class AuthenticationProvidersPresenter
   end
 
   def new_auth_types
-    AuthenticationProvider::VALID_AUTH_TYPES.map do |auth_type|
+    AuthenticationProvider.valid_auth_types.map do |auth_type|
       klass = AuthenticationProvider.find_sti_class(auth_type)
-      next unless klass.enabled?
+      next unless klass.enabled?(account)
       next if klass.singleton? && configs.any? { |aac| aac.is_a?(klass) }
       klass
     end.compact
@@ -100,18 +100,14 @@ class AuthenticationProvidersPresenter
 
   def saml_identifiers
     return [] unless saml_enabled?
-    Onelogin::Saml::NameIdentifiers::ALL_IDENTIFIERS
-  end
-
-  def saml_debugging?
-     !saml_configs.empty? && saml_configs.any?(&:debugging?)
+    AuthenticationProvider::SAML.name_id_formats
   end
 
   def login_attribute_for(config)
     saml_login_attributes.invert[config.login_attribute]
   end
 
-  def saml_authn_contexts(base = Onelogin::Saml::AuthnContexts::ALL_CONTEXTS)
+  def saml_authn_contexts(base = SAML2::AuthnStatement::Classes.constants.map { |const| SAML2::AuthnStatement::Classes.const_get(const, false) })
     return [] unless saml_enabled?
     [["No Value", nil]] + base.sort
   end

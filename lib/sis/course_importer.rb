@@ -26,7 +26,7 @@ module SIS
       blueprint_associations = {}
 
       importer = Work.new(@batch, @root_account, @logger, courses_to_update_sis_batch_id, course_ids_to_update_associations, messages, @batch_user, blueprint_associations)
-      Course.suspend_callbacks(:update_enrollments_later) do
+      Course.suspend_callbacks(:update_enrollments_later, :update_enrollment_states_if_necessary) do
         Course.process_as_sis(@sis_options) do
           Course.skip_updating_account_associations do
             yield importer
@@ -39,7 +39,7 @@ module SIS
         Course.where(:id => courses).update_all(:sis_batch_id => @batch.id)
       end
 
-      SisBatchRollBackData.bulk_insert_roll_back_data(importer.roll_back_data) if @batch.using_parallel_importers?
+      SisBatchRollBackData.bulk_insert_roll_back_data(importer.roll_back_data)
       MasterCourses::MasterTemplate.create_associations_from_sis(@root_account, blueprint_associations, messages, @batch_user)
 
       @logger.debug("Courses took #{Time.zone.now - start} seconds")
@@ -62,7 +62,7 @@ module SIS
         @success_count = 0
       end
 
-      def add_course(course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name, integration_id, course_format, blueprint_course_id)
+      def add_course(course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name, integration_id, course_format, blueprint_course_id, grade_passback_setting)
         state_changes = []
         @logger.debug("Processing Course #{[course_id, term_id, account_id, fallback_account_id, status, start_date, end_date, abstract_course_id, short_name, long_name].inspect}")
 
@@ -71,6 +71,8 @@ module SIS
         raise ImportError, "No long_name given for course #{course_id}" if long_name.blank? && abstract_course_id.blank?
         raise ImportError, "Improper status \"#{status}\" for course #{course_id}" unless status =~ /\A(active|deleted|completed|unpublished)/i
         raise ImportError, "Invalid course_format \"#{course_format}\" for course #{course_id}" unless course_format.blank? || course_format =~ /\A(online|on_campus|blended|not_set)/i
+        valid_grade_passback_settings = (Setting.get('valid_grade_passback_settings', 'nightly_sync,disabled').split(',') << 'not_set')
+        raise ImportError, "Invalid grade_passback_setting \"#{grade_passback_setting}\" for course #{course_id}" unless grade_passback_setting.blank? || valid_grade_passback_settings.include?(grade_passback_setting.downcase.strip)
         return if @batch.skip_deletes? && status =~ /deleted/i
 
         course = @root_account.all_courses.where(sis_source_id: course_id).take
@@ -122,10 +124,10 @@ module SIS
         end
 
         course_dates_stuck = !(course.stuck_sis_fields & [:start_at, :conclude_at]).empty?
-        if !course_dates_stuck
-          course.start_at = start_date
-          course.conclude_at = end_date
-          unless course.stuck_sis_fields.include?(:restrict_enrollments_to_course_dates)
+        unless course_dates_stuck
+          course.start_at = start_date unless start_date == 'not_present'
+          course.conclude_at = end_date unless end_date == 'not_present'
+          if !course.stuck_sis_fields.include?(:restrict_enrollments_to_course_dates) && !(start_date == 'not_present' && end_date == 'not_present')
             course.restrict_enrollments_to_course_dates = (start_date.present? || end_date.present?)
           end
         end
@@ -174,6 +176,14 @@ module SIS
           if course_format != course.course_format
             course.settings_will_change!
             course.course_format = course_format
+          end
+        end
+
+        if grade_passback_setting
+          grade_passback_setting_stuck = course.stuck_sis_fields.include?(:grade_passback_setting)
+          unless grade_passback_setting_stuck
+            grade_passback_setting = nil if grade_passback_setting == 'not_set'
+            course.grade_passback_setting = grade_passback_setting
           end
         end
 
@@ -231,6 +241,7 @@ module SIS
         end
 
         enrollment_data = course.update_enrolled_users(sis_batch: @batch) if update_enrollments
+        course.update_enrollment_states_if_necessary
         @roll_back_data.push(*enrollment_data) if enrollment_data
         maybe_write_roll_back_data
 

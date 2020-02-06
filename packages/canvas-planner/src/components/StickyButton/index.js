@@ -15,18 +15,19 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import React, { Component } from 'react';
-import classnames from 'classnames';
-import themeable from '@instructure/ui-themeable/lib';
-import { bool, func, node, number, string, oneOf } from 'prop-types';
-import IconArrowUpSolid from 'instructure-icons/lib/Solid/IconArrowUpSolid';
-import IconArrowDownLine from 'instructure-icons/lib/Line/IconArrowDownLine';
+import React, {Component} from 'react'
+import classnames from 'classnames'
+import {themeable} from '@instructure/ui-themeable'
+import {bool, func, node, number, string, oneOf} from 'prop-types'
+import {IconArrowUpSolid, IconArrowDownLine} from '@instructure/ui-icons'
 
-import styles from './styles.css';
-import theme from './theme.js';
+import {ScreenReaderContent} from '@instructure/ui-a11y'
+import styles from './styles.css'
+import theme from './theme.js'
 
 class StickyButton extends Component {
   static propTypes = {
+    id: string.isRequired,
     children: node.isRequired,
     onClick: func,
     disabled: bool,
@@ -35,75 +36,85 @@ class StickyButton extends Component {
     className: string,
     zIndex: number,
     buttonRef: func,
-  };
+    description: string
+  }
 
   static defaultProps = {
     direction: 'none',
     offset: '0',
     className: ''
-  };
+  }
 
-  handleClick = (e) => {
-    const {
-      disabled,
-      onClick
-    } = this.props;
+  handleClick = e => {
+    const {disabled, onClick} = this.props
 
     if (disabled) {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault()
+      e.stopPropagation()
     } else if (typeof onClick === 'function') {
-      onClick(e);
-    }
-  };
-
-  renderIcon () {
-    const direction = this.props.direction;
-
-    if (direction === 'up') {
-      return <IconArrowUpSolid className={styles.icon} />;
-    } else if (direction === 'down') {
-      return <IconArrowDownLine className={styles.icon} />;
-    } else {
-      return null;
+      onClick(e)
     }
   }
 
-  render () {
-    const {
-      children,
-      disabled,
-      hidden,
-      direction,
-      zIndex,
-    } = this.props;
+  renderIcon() {
+    const direction = this.props.direction
+
+    if (direction === 'up') {
+      return <IconArrowUpSolid className={styles.icon} />
+    } else if (direction === 'down') {
+      return <IconArrowDownLine className={styles.icon} />
+    } else {
+      return null
+    }
+  }
+
+  get descriptionId() {
+    return `${this.props.id}_desc`
+  }
+
+  renderDescription() {
+    if (this.props.description) {
+      return (
+        <ScreenReaderContent id={this.descriptionId}>{this.props.description}</ScreenReaderContent>
+      )
+    }
+    return null
+  }
+
+  render() {
+    const {id, children, disabled, hidden, direction, zIndex} = this.props
 
     const classes = {
       [styles.root]: true,
       [styles['direction--' + direction]]: direction !== 'none'
-    };
+    }
 
     const style = {
-      zIndex: (zIndex) ? zIndex : null,
-    };
+      zIndex: zIndex || null
+    }
 
     return (
-      <button
-        type="button"
-        onClick={this.handleClick}
-        className={classnames(classes, styles.newActivityButton)}
-        style={style}
-        aria-disabled={(disabled) ? 'true' : null}
-        aria-hidden={(hidden) ? 'true' : null}
-        ref={this.props.buttonRef}
-      >
-        <span className={styles.layout}>
-          {children}
-          {this.renderIcon()}
-        </span>
-      </button>
-    );
+      <span>
+        <button
+          id={id}
+          type="button"
+          onClick={this.handleClick}
+          className={classnames(classes, styles.newActivityButton)}
+          style={style}
+          aria-disabled={disabled ? 'true' : null}
+          aria-hidden={hidden ? 'true' : null}
+          ref={this.props.buttonRef}
+          aria-describedby={this.props.description ? this.descriptionId : null}
+        >
+          <span className={styles.layout}>
+            {children}
+            {this.renderIcon()}
+          </span>
+        </button>
+        {this.renderDescription()}
+      </span>
+    )
   }
 }
 
-export default themeable(theme, styles)(StickyButton);
+export default themeable(theme, styles)(StickyButton)

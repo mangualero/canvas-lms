@@ -16,63 +16,126 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import _ from 'underscore'
+import _ from 'lodash'
+import uuid from 'uuid'
+import parseLinkHeader from 'parse-link-header'
+import NaiveFetchDispatch from './NaiveFetchDispatch'
 
-const fetchUrl = (url) => (
-  fetch(url, {
-    credentials: 'include'
-  })
-    .then((response) => response.text())
-    .then((text) => JSON.parse(text.replace('while(1);', '')))
-)
+const deepMerge = (lhs, rhs) => {
+  if (lhs === undefined || lhs === null) {
+    return rhs
+  } else if (Array.isArray(lhs)) {
+    return lhs.concat(rhs)
+  } else if (typeof lhs === 'object') {
+    return _.mergeWith(lhs, rhs, deepMerge)
+  } else {
+    return rhs
+  }
+}
+
+const combine = (promiseOfJson1, promiseOfJson2) =>
+  Promise.all([promiseOfJson1, promiseOfJson2]).then(([json1, json2]) => deepMerge(json1, json2))
+
+const parse = response => response.text().then(text => JSON.parse(text.replace('while(1);', '')))
+
+export function fetchUrl(url, dispatch) {
+  return dispatch
+    .fetch(url, {
+      credentials: 'include'
+    })
+    .then(response => {
+      const linkHeader = response.headers.get('link')
+      const next = linkHeader ? parseLinkHeader(linkHeader).next : null
+      if (next) {
+        return combine(parse(response), fetchUrl(next.url, dispatch))
+      } else {
+        return parse(response)
+      }
+    })
+}
 
 const fetchOutcomes = (courseId, studentId) => {
+  const dispatch = new NaiveFetchDispatch()
+
   let outcomeGroups
   let outcomeLinks
   let outcomeRollups
+  let outcomeAssignmentsByOutcomeId
   let outcomeResultsByOutcomeId
   let assignmentsByAssignmentId
 
+  function fetchWithDispatch(url) {
+    return fetchUrl(url, dispatch)
+  }
+
   return Promise.all([
-    fetchUrl(`/api/v1/courses/${courseId}/outcome_groups`),
-    fetchUrl(`/api/v1/courses/${courseId}/outcome_group_links?outcome_style=full`),
-    fetchUrl(`/api/v1/courses/${courseId}/outcome_rollups?user_ids[]=${studentId}`)
+    fetchWithDispatch(`/api/v1/courses/${courseId}/outcome_groups?per_page=100`),
+    fetchWithDispatch(
+      `/api/v1/courses/${courseId}/outcome_group_links?outcome_style=full&per_page=100`
+    ),
+    fetchWithDispatch(
+      `/api/v1/courses/${courseId}/outcome_rollups?user_ids[]=${studentId}&per_page=100`
+    ),
+    fetchWithDispatch(`/api/v1/courses/${courseId}/outcome_alignments?student_id=${studentId}`)
   ])
-    .then(([groups, links, rollups]) => {
+    .then(([groups, links, rollups, alignments]) => {
       outcomeGroups = groups
       outcomeLinks = links
       outcomeRollups = rollups
+      outcomeAssignmentsByOutcomeId = _.groupBy(alignments, 'learning_outcome_id')
     })
-    .then(() => (
-      Promise.all(outcomeLinks.map((outcomeLink) => (
-        fetchUrl(`/api/v1/courses/${courseId}/outcome_results?user_ids[]=${studentId}&outcome_ids[]=${outcomeLink.outcome.id}&include[]=assignments&per_page=100`) // eslint-disable-line max-len
-      )))
-    ))
-    .then((responses) => {
+    .then(() =>
+      Promise.all(
+        outcomeLinks.map(outcomeLink =>
+          fetchWithDispatch(
+            `/api/v1/courses/${courseId}/outcome_results?user_ids[]=${studentId}&outcome_ids[]=${outcomeLink.outcome.id}&include[]=assignments&per_page=100`
+          )
+        )
+      )
+    )
+    .then(responses => {
       outcomeResultsByOutcomeId = responses.reduce((acc, response, i) => {
-        acc[outcomeLinks[i].outcome.id] = response.outcome_results.filter((r) => !r.hidden);
+        acc[outcomeLinks[i].outcome.id] = response.outcome_results.filter(r => !r.hidden)
         return acc
       }, {})
-      assignmentsByAssignmentId = _.indexBy(_.flatten(responses.map((response) => response.linked.assignments)), (a) => a.id)
+      assignmentsByAssignmentId = _.keyBy(
+        _.flatten(responses.map(response => response.linked.assignments)),
+        a => a.id
+      )
     })
     .then(() => {
-      const outcomes = outcomeLinks.map((outcomeLink) => ({ groupId: outcomeLink.outcome_group.id, ...outcomeLink.outcome }))
-      const outcomesById = _.indexBy(outcomes, (o) => o.id)
+      const outcomes = outcomeLinks.map(outcomeLink => ({
+        // outcome ids are not unique (can appear in multiple groups), so we add unique
+        // id to manage expansion/contraction
+        expansionId: uuid(),
+        groupId: outcomeLink.outcome_group.id,
+        ...outcomeLink.outcome
+      }))
+
+      // filter empty outcome groups
+      const outcomesByGroup = _.groupBy(outcomes, o => o.groupId)
+      outcomeGroups = outcomeGroups.filter(g => outcomesByGroup[g.id])
 
       // add rollup scores, mastered
-      outcomeRollups.rollups[0].scores.forEach((scoreData) => {
+      const outcomesById = _.keyBy(outcomes, o => o.id)
+      outcomeRollups.rollups[0].scores.forEach(scoreData => {
         const outcome = outcomesById[scoreData.links.outcome]
-        outcome.score = scoreData.score
-        outcome.mastered = scoreData.score >= outcome.mastery_points
+        if (outcome) {
+          outcome.score = scoreData.score
+          outcome.mastered = scoreData.score >= outcome.mastery_points
+        }
       })
+
       // add results, assignments
-      outcomes.forEach((outcome) => {
-        outcome.results = outcomeResultsByOutcomeId[outcome.id] // eslint-disable-line no-param-reassign
-        outcome.results.forEach((result) => {
-          result.assignment = assignmentsByAssignmentId[result.links.assignment] // eslint-disable-line no-param-reassign
+      outcomes.forEach(outcome => {
+        outcome.assignments = outcomeAssignmentsByOutcomeId[outcome.id] || []
+        outcome.results = outcomeResultsByOutcomeId[outcome.id] || []
+        outcome.results.forEach(result => {
+          const key = result.links.assignment || result.links.alignment
+          result.assignment = assignmentsByAssignmentId[key]
         })
       })
-      return { outcomeGroups, outcomes }
+      return {outcomeGroups, outcomes}
     })
 }
 

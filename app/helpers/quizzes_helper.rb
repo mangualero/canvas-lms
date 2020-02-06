@@ -62,11 +62,21 @@ module QuizzesHelper
     quiz.available? && can_publish(quiz)
   end
 
+  def render_number(num)
+    # if the string representation of this number uses scientific notation,
+    return format('%g', num) if num.to_s =~ /e/ # short circuit if scientific notation
+    if num.to_s =~ /%/
+      I18n.n(round_if_whole(num.delete('%'))) + '%'
+    else
+      I18n.n(round_if_whole(num))
+    end
+  end
+
   def render_score(score, precision=2)
     if score.nil?
       '_'
     else
-      I18n.n(round_if_whole(score.to_f.round(precision)))
+      render_number(score.to_f.round(precision))
     end
   end
 
@@ -399,7 +409,7 @@ module QuizzesHelper
     html = hash_get(hash, "#{field}_html".to_sym)
 
     if html
-      sanitize(html)
+      UserContent.escape(Sanitize.clean(html, CanvasSanitize::SANITIZE))
     else
       hash_get(hash, field)
     end
@@ -478,6 +488,8 @@ module QuizzesHelper
           HTML
         end
       end
+
+      s['aria-label'] = I18n.t("Multiple dropdowns, read surrounding text")
     end
     doc.to_s.html_safe
   end
@@ -682,8 +694,18 @@ module QuizzesHelper
     end
   end
 
-  def points_possible_display
-    @quiz.quiz_type == "survey" ? "" : round_if_whole(@quiz.points_possible)
+  def points_possible_display(quiz=@quiz)
+    quiz.quiz_type == "survey" ? "" : render_score(quiz.points_possible)
   end
 
+  def label_for_question_type(question_type)
+    case question_type.question_type
+    when 'short_answer_question'
+      I18n.t('Fill in the blank answer')
+    when 'numerical_question', 'calculated_question'
+      I18n.t('Numerical answer')
+    else
+      I18n.t('Answer field')
+    end
+  end
 end

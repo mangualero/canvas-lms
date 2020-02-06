@@ -18,130 +18,288 @@
 
 import I18n from 'i18n!react_developer_keys'
 import $ from 'jquery'
-import Button from '@instructure/ui-buttons/lib/components/Button'
-import CloseButton from '@instructure/ui-buttons/lib/components/CloseButton'
-import Heading from '@instructure/ui-elements/lib/components/Heading'
-import Modal, {ModalHeader, ModalBody, ModalFooter} from '@instructure/ui-overlays/lib/components/Modal'
-import Spinner from '@instructure/ui-elements/lib/components/Spinner'
+
+import {CloseButton, Button} from '@instructure/ui-buttons'
+import {Heading, Spinner} from '@instructure/ui-elements'
+import {Modal} from '@instructure/ui-overlays'
+import {View} from '@instructure/ui-layout'
 import React from 'react'
 import PropTypes from 'prop-types'
-import DeveloperKeyFormFields from './NewKeyForm'
+import NewKeyForm from './NewKeyForm'
 
 export default class DeveloperKeyModal extends React.Component {
+  state = {
+    toolConfiguration: {}, // used to save state when saving the key, display what was there if failure
+    submitted: false,
+    developerKey: {},
+    toolConfigurationUrl: '',
+    isSaving: false,
+    configurationMethod: 'manual'
+  }
+
   developerKeyUrl() {
-    if (this.developerKey()) {
-      return `/api/v1/developer_keys/${this.developerKey().id}`
+    if (this.props.createOrEditDeveloperKeyState.editing) {
+      return `/api/v1/developer_keys/${this.developerKey.id}`
     }
     return `/api/v1/accounts/${this.props.ctx.params.contextId}/developer_keys`
   }
 
-  developerKey() {
-    return this.props.createOrEditDeveloperKeyState.developerKey
+  get developerKey() {
+    return {...this.props.createOrEditDeveloperKeyState.developerKey, ...this.state.developerKey}
   }
 
-  modalTitle() {
-    return this.developerKey() ? I18n.t('Create developer key') : I18n.t('Edit developer key')
+  get manualForm() {
+    return this.newForm
+      ? this.newForm
+      : {
+          valid: () => true,
+          generateToolConfiguration: () => {
+            return this.toolConfiguration
+          }
+        }
   }
 
-  get submissionForm () {
-    return this.newForm ? this.newForm.keyForm : <form />
+  get toolConfiguration() {
+    const public_jwk = this.developerKey.public_jwk
+      ? {public_jwk: this.developerKey.public_jwk}
+      : {}
+    const public_jwk_url = this.developerKey.public_jwk_url
+      ? {public_jwk_url: this.developerKey.public_jwk_url}
+      : {}
+    return {
+      ...(this.developerKey.tool_configuration || {}),
+      ...this.state.toolConfiguration,
+      ...public_jwk,
+      ...public_jwk_url
+    }
   }
 
-  get requireScopes () {
-    return this.newForm && this.newForm.requireScopes
+  get isSaving() {
+    return this.state.isSaving
   }
+
+  get isJsonConfig() {
+    return this.state.configurationMethod === 'json'
+  }
+
+  get isUrlConfig() {
+    return this.state.configurationMethod === 'url'
+  }
+
+  get isManualConfig() {
+    return this.state.configurationMethod === 'manual'
+  }
+
+  get hasRedirectUris() {
+    const redirect_uris = this.developerKey.redirect_uris
+    return redirect_uris && redirect_uris.trim().length !== 0
+  }
+
+  updateConfigurationMethod = configurationMethod => this.setState({configurationMethod})
 
   submitForm = () => {
-    const method = this.developerKey() ? 'put' : 'post'
-    const formData = new FormData(this.submissionForm)
-
-    if (!this.requireScopes) {
-      formData.delete('developer_key[scopes][]')
-      formData.append('developer_key[require_scopes]', false)
-    } else if (this.props.selectedScopes.length === 0 &&
-      this.props.createOrEditDeveloperKeyState.developerKey.scopes.length === 0
-    ) {
-      $.flashError(I18n.t('At least one scope must be selected.'))
-      return
-    } else {
-      const scopesArrayKey = 'developer_key[scopes][]'
-
-      this.props.selectedScopes.forEach((scope) => {
-        formData.append(scopesArrayKey, scope)
-      })
-      formData.append('developer_key[require_scopes]', true)
-    }
-    this.props.store.dispatch(
-      this.props.actions.createOrEditDeveloperKey(formData, this.developerKeyUrl(), method)
-    )
-  }
-
-  modalBody() {
-    if (this.props.createOrEditDeveloperKeyState.developerKeyCreateOrEditPending) {
-      return this.spinner()
-    }
-    return this.developerKeyForm()
-  }
-
-  spinner() {
-    return (
-      <div className="center-content">
-        <Spinner title={I18n.t('Creating Key')} margin="0 0 0 medium" />
-      </div>
-    )
-  }
-
-  developerKeyForm() {
     const {
-      availableScopes,
-      availableScopesPending,
-      createOrEditDeveloperKeyState: { developerKey }
-    } = this.props;
+      store: {dispatch},
+      actions: {createOrEditDeveloperKey},
+      createOrEditDeveloperKeyState: {editing}
+    } = this.props
+    const method = editing ? 'put' : 'post'
+    const toSubmit = this.developerKey
 
-    return <DeveloperKeyFormFields
-      ref={this.setNewFormRef}
-      developerKey={developerKey}
-      availableScopes={availableScopes}
-      availableScopesPending={availableScopesPending}
-      dispatch={this.props.store.dispatch}
-      listDeveloperKeyScopesSet={this.props.actions.listDeveloperKeyScopesSet}
-    />
+    if (!toSubmit.require_scopes) {
+      toSubmit.require_scopes = false
+    }
+    if (!toSubmit.name) {
+      toSubmit.name = 'Unnamed Tool'
+    }
+    if (toSubmit.require_scopes) {
+      if (this.props.selectedScopes.length === 0) {
+        $.flashError(I18n.t('At least one scope must be selected.'))
+        return
+      }
+      toSubmit.scopes = this.props.selectedScopes
+    }
+
+    return dispatch(
+      createOrEditDeveloperKey({developer_key: toSubmit}, this.developerKeyUrl(), method)
+    ).then(() => {
+      this.closeModal()
+    })
   }
 
-  setNewFormRef = node => { this.newForm = node }
-  modalContainerRef = node => { this.modalContainer = node }
+  saveLTIKeyEdit(settings, developerKey) {
+    const {
+      store: {dispatch},
+      actions
+    } = this.props
+    this.setState({toolConfiguration: settings, isSaving: true})
+    return actions
+      .updateLtiKey(developerKey, [], this.developerKey.id, settings, settings.custom_fields, null)
+      .then(data => {
+        this.setState({isSaving: false})
+        const {developer_key, tool_configuration} = data
+        developer_key.tool_configuration = tool_configuration.settings
+        dispatch(actions.listDeveloperKeysReplace(developer_key))
+        $.flashMessage(I18n.t('Save successful.'))
+        this.closeModal()
+      })
+      .catch(errors => {
+        this.setState({isSaving: false})
+        $.flashError(I18n.t('Failed to save changes: %{errors}%', {errors}))
+      })
+  }
 
-  modalIsOpen() {
-    return this.props.createOrEditDeveloperKeyState.developerKeyModalOpen
+  saveLtiToolConfiguration = () => {
+    const {
+      store: {dispatch},
+      actions
+    } = this.props
+    const developer_key = {...this.developerKey}
+    if (!this.hasRedirectUris) {
+      $.flashError(I18n.t('A redirect_uri is required, please supply one.'))
+      this.setState({submitted: true})
+      return
+    }
+    let settings = {}
+    if (this.isJsonConfig) {
+      if (!this.state.toolConfiguration) {
+        this.setState({submitted: true})
+        return
+      }
+      settings = this.state.toolConfiguration
+    } else if (this.isManualConfig) {
+      if (!this.manualForm.valid()) {
+        this.setState({submitted: true})
+        return
+      }
+      settings = this.manualForm.generateToolConfiguration()
+      this.setState({toolConfiguration: settings})
+    }
+    developer_key.scopes = settings.scopes
+
+    if (this.props.createOrEditDeveloperKeyState.editing) {
+      this.saveLTIKeyEdit(settings, developer_key)
+    } else {
+      const toSave = {
+        account_id: this.props.ctx.params.contextId,
+        developer_key
+      }
+      if (this.isUrlConfig) {
+        if (!this.state.toolConfigurationUrl) {
+          $.flashError(I18n.t('A json url is required, please supply one.'))
+          this.setState({submitted: true})
+          return
+        }
+        toSave.settings_url = this.state.toolConfigurationUrl
+      } else {
+        toSave.settings = settings
+      }
+      this.setState({isSaving: true})
+      return actions
+        .saveLtiToolConfiguration(toSave)(dispatch)
+        .then(
+          () => {
+            this.setState({isSaving: false})
+            this.closeModal()
+          },
+          () => this.setState({isSaving: false})
+        )
+    }
+  }
+
+  updateToolConfigurationUrl = toolConfigurationUrl => {
+    this.setState({toolConfigurationUrl})
+  }
+
+  updateToolConfiguration = (update, field = null) => {
+    if (field) {
+      this.setState(state => ({toolConfiguration: {...state.toolConfiguration, [field]: update}}))
+    } else {
+      this.setState({toolConfiguration: update})
+    }
+  }
+
+  updateDeveloperKey = (field, update) => {
+    this.setState(state => ({developerKey: {...state.developerKey, [field]: update}}))
+  }
+
+  setNewFormRef = node => {
+    this.newForm = node
   }
 
   closeModal = () => {
-    this.props.store.dispatch(this.props.actions.developerKeysModalClose())
-    this.props.store.dispatch(this.props.actions.setEditingDeveloperKey())
+    const {actions, store} = this.props
+    store.dispatch(actions.developerKeysModalClose())
+    store.dispatch(actions.resetLtiState())
+    store.dispatch(actions.editDeveloperKey())
+    this.setState({
+      toolConfiguration: null,
+      submitted: false,
+      toolConfigurationUrl: null,
+      developerKey: {}
+    })
   }
 
   render() {
+    const {
+      availableScopes,
+      availableScopesPending,
+      actions,
+      createOrEditDeveloperKeyState: {editing, developerKeyModalOpen, isLtiKey}
+    } = this.props
     return (
-      <div ref={this.modalContainerRef}>
+      <div>
         <Modal
-          open={this.modalIsOpen()}
+          open={developerKeyModalOpen}
           onDismiss={this.closeModal}
           size="fullscreen"
-          label={this.modalTitle()}
+          label={editing ? I18n.t('Create developer key') : I18n.t('Edit developer key')}
+          shouldCloseOnDocumentClick={false}
         >
-          <ModalHeader>
+          <Modal.Header>
             <CloseButton placement="end" onClick={this.closeModal}>
               {I18n.t('Cancel')}
             </CloseButton>
             <Heading>{I18n.t('Key Settings')}</Heading>
-          </ModalHeader>
-          <ModalBody>{this.modalBody()}</ModalBody>
-          <ModalFooter>
-            <Button onClick={this.closeModal}>{I18n.t('Cancel')}</Button>&nbsp;
-            <Button onClick={this.submitForm} variant="primary">
-              {I18n.t('Save Key')}
+          </Modal.Header>
+          <Modal.Body>
+            {this.isSaving ? (
+              <View as="div" textAlign="center">
+                <Spinner renderTitle={I18n.t('Creating Key')} margin="0 0 0 medium" />
+              </View>
+            ) : (
+              <NewKeyForm
+                ref={this.setNewFormRef}
+                developerKey={this.developerKey}
+                availableScopes={availableScopes}
+                availableScopesPending={availableScopesPending}
+                dispatch={this.props.store.dispatch}
+                listDeveloperKeyScopesSet={actions.listDeveloperKeyScopesSet}
+                tool_configuration={this.toolConfiguration}
+                editing={editing}
+                showRequiredMessages={this.state.submitted}
+                updateToolConfiguration={this.updateToolConfiguration}
+                updateDeveloperKey={this.updateDeveloperKey}
+                updateToolConfigurationUrl={this.updateToolConfigurationUrl}
+                toolConfigurationUrl={this.state.toolConfigurationUrl}
+                configurationMethod={this.state.configurationMethod}
+                updateConfigurationMethod={this.updateConfigurationMethod}
+                isLtiKey={isLtiKey}
+              />
+            )}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button onClick={this.closeModal} margin="0 small 0 0">
+              {I18n.t('Cancel')}
             </Button>
-          </ModalFooter>
+            <Button
+              onClick={isLtiKey ? this.saveLtiToolConfiguration : this.submitForm}
+              variant="primary"
+              disabled={this.isSaving}
+            >
+              {I18n.t('Save')}
+            </Button>
+          </Modal.Footer>
         </Modal>
       </div>
     )
@@ -149,27 +307,34 @@ export default class DeveloperKeyModal extends React.Component {
 }
 
 DeveloperKeyModal.propTypes = {
-  availableScopes: PropTypes.objectOf(PropTypes.arrayOf(
-    PropTypes.shape({
-      resource: PropTypes.string,
-      scope: PropTypes.string
-    })
-  )).isRequired,
+  availableScopes: PropTypes.objectOf(
+    PropTypes.arrayOf(
+      PropTypes.shape({
+        resource: PropTypes.string,
+        scope: PropTypes.string
+      })
+    )
+  ).isRequired,
   store: PropTypes.shape({
     dispatch: PropTypes.func.isRequired
   }).isRequired,
   actions: PropTypes.shape({
     createOrEditDeveloperKey: PropTypes.func.isRequired,
     developerKeysModalClose: PropTypes.func.isRequired,
-    setEditingDeveloperKey: PropTypes.func.isRequired,
-    listDeveloperKeyScopesSet: PropTypes.func.isRequired
+    editDeveloperKey: PropTypes.func.isRequired,
+    listDeveloperKeyScopesSet: PropTypes.func.isRequired,
+    saveLtiToolConfiguration: PropTypes.func.isRequired,
+    resetLtiState: PropTypes.func.isRequired,
+    updateLtiKey: PropTypes.func.isRequired
   }).isRequired,
   createOrEditDeveloperKeyState: PropTypes.shape({
+    isLtiKey: PropTypes.bool.isRequired,
     developerKeyCreateOrEditSuccessful: PropTypes.bool.isRequired,
     developerKeyCreateOrEditFailed: PropTypes.bool.isRequired,
     developerKeyCreateOrEditPending: PropTypes.bool.isRequired,
     developerKeyModalOpen: PropTypes.bool.isRequired,
-    developerKey: DeveloperKeyFormFields.propTypes.developerKey
+    developerKey: NewKeyForm.propTypes.developerKey,
+    editing: PropTypes.bool.isRequired
   }).isRequired,
   availableScopesPending: PropTypes.bool.isRequired,
   ctx: PropTypes.shape({
@@ -179,4 +344,3 @@ DeveloperKeyModal.propTypes = {
   }).isRequired,
   selectedScopes: PropTypes.arrayOf(PropTypes.string).isRequired
 }
-

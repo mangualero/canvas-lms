@@ -21,7 +21,8 @@ module SIS
     class UserImporter < CSVBaseImporter
 
       def self.user_csv?(row)
-        row.include?('user_id') && row.include?('login_id')
+        login_csv = (row & %w{existing_user_id existing_integration_id existing_canvas_user_id}.freeze).empty?
+        row.include?('user_id') && row.include?('login_id') && login_csv
       end
 
       def self.identifying_fields
@@ -34,11 +35,11 @@ module SIS
         messages = []
         count = SIS::UserImporter.new(@root_account, importer_opts).process(messages) do |importer|
           csv_rows(csv, index, count) do |row|
-            update_progress
             begin
-              importer.add_user(create_user(row, csv))
+              u = create_user(row, csv)
+              importer.add_user(u)
             rescue ImportError => e
-              messages << SisBatch.build_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: row)
+              messages << SisBatch.build_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: u.row_info)
             end
           end
         end
@@ -63,6 +64,7 @@ module SIS
           sortable_name: row['sortable_name'],
           lineno: row['lineno'],
           csv: csv,
+          row: row,
           authentication_provider_id: row['authentication_provider_id']
         )
       end

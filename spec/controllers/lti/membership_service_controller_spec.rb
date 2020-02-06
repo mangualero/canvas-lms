@@ -28,10 +28,11 @@ module Lti
         @tool = external_tool_model(context: @course)
         @tool.allow_membership_service_access = true
         @tool.save!
+        allow_any_instance_of(Account).to receive(:feature_enabled?).and_return(false)
+        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
       end
 
       it 'returns the members' do
-        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
         consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
         path = "/api/lti/courses/#{@course.id}/membership_service"
         req = consumer.create_signed_request(:get, path)
@@ -43,7 +44,6 @@ module Lti
       end
 
       it 'returns unauthorized if the tool is not found' do
-        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
         consumer = OAuth::Consumer.new(@tool.consumer_key+"1", @tool.shared_secret, :site => "http://www.example.com/")
         path = "/api/lti/courses/#{@course.id}/membership_service"
         req = consumer.create_signed_request(:get, path)
@@ -52,7 +52,6 @@ module Lti
       end
 
       it 'returns unauthorized if the tool does not have access to the api' do
-        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(true)
         @tool.allow_membership_service_access = false
         @tool.save!
         consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
@@ -63,6 +62,7 @@ module Lti
       end
 
       it 'returns unauthorized if the membership service access feature flag is disabled' do
+        allow_any_instance_of(Account).to receive(:feature_enabled?).with(:membership_service_for_lti_tools).and_return(false)
         consumer = OAuth::Consumer.new(@tool.consumer_key, @tool.shared_secret, :site => "http://www.example.com/")
         path = "/api/lti/courses/#{@course.id}/membership_service"
         req = consumer.create_signed_request(:get, path)
@@ -93,6 +93,7 @@ module Lti
       before(:each) do
         course_with_teacher
         @course.offer!
+        enable_default_developer_key!
       end
 
       describe "#course_index" do
@@ -211,6 +212,7 @@ module Lti
 
     context 'course with multiple enrollments' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.enroll_user(@teacher, 'TeacherEnrollment', enrollment_state: 'active')
         @ta = user_model
@@ -261,6 +263,7 @@ module Lti
 
     context 'user not in course group' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.offer!
         user_model
@@ -320,6 +323,7 @@ module Lti
 
         context 'with access token' do
           before(:each) do
+            enable_default_developer_key!
             pseudonym(@student)
             @student.save!
             token = @student.access_tokens.create!(purpose: 'test').full_token
@@ -398,6 +402,7 @@ module Lti
 
     context 'group with multiple students' do
       before(:each) do
+        enable_default_developer_key!
         course_with_teacher
         @course.offer!
         @student1 = user_model

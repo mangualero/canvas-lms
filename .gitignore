@@ -19,15 +19,17 @@
 /config/*.yml
 /config/environments/*-local.rb
 /config/locales/generated/
-/config/RAILS5_2
+/config/RAILS6_0
 /coverage/
 /coverage-js/
 /db/schema.rb
 /db/*.sqlite*
 /db/*sql
+docker-compose.override.yml
 /exports/
 Gemfile.lock
-Gemfile.lock.52
+Gemfile.lock.next
+knapsack_rspec_report.json
 /log/
 mkmf.log
 /node_modules
@@ -61,10 +63,9 @@ docker-compose.local.*
 
 # sub-packages
 /packages/*/node_modules
-/packages/*/copy-of-what-gets-published-to-npm-registry
-/packages/canvas-planner/lib
-/packages/canvas-planner/es
-/packages/canvas-planner/coverage/
+/packages/*/es
+/packages/*/lib
+/packages/*/coverage/
 /packages/canvas-planner/.babel-cache
 
 # pact artifacts
@@ -76,3 +77,11 @@ docker-compose.local.*
 
 # generated scopes markdown
 /doc/api/api_token_scopes.md
+
+# js coverage stuff
+.nyc_output
+coverage-jest
+coverage-karma
+
+# generated graphql schema
+schema.graphql

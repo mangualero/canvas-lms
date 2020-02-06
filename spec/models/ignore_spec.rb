@@ -25,8 +25,9 @@ describe Ignore do
     quiz_model(course: @course)
     reviewer = @student
     reviewee = student_in_course(course: @course).user
-    submission = @assignment.submissions.where(user: reviewee).take
-    @ar = submission.assessment_requests.create!(assessor: reviewer, user: reviewee, assessor_asset: reviewer)
+    submission = @assignment.find_or_create_submission(reviewee)
+    assessor_submission = @assignment.find_or_create_submission(reviewer)
+    @ar = submission.assessment_requests.create!(assessor: reviewer, user: reviewee, assessor_asset: assessor_submission)
     @ignore_assign = Ignore.create!(asset: @assignment, user: @student, purpose: 'submitting')
     @ignore_quiz = Ignore.create!(asset: @quiz, user: @student, purpose: 'submitting')
     @ignore_ar = Ignore.create!(asset: @ar, user: @student, purpose: 'reviewing')
@@ -34,7 +35,7 @@ describe Ignore do
 
   describe '#cleanup' do
     it 'should delete ignores for deleted assignments' do
-      @assignment.update_attributes!(workflow_state: 'deleted', updated_at: 2.months.ago)
+      @assignment.update!(workflow_state: 'deleted', updated_at: 2.months.ago)
       assignment2 = assignment_model(course: @course)
       ignore2 = Ignore.create!(asset: assignment2, user: @student, purpose: 'submitting')
       assignment2.destroy_permanently!
@@ -44,7 +45,7 @@ describe Ignore do
     end
 
     it 'should delete ignores for deleted quizzes' do
-      @quiz.update_attributes!(workflow_state: 'deleted', updated_at: 2.months.ago)
+      @quiz.update!(workflow_state: 'deleted', updated_at: 2.months.ago)
       quiz2 = quiz_model(course: @course)
       ignore2 = Ignore.create!(asset: quiz2, user: @student, purpose: 'submitting')
       quiz2.destroy_permanently!
@@ -68,7 +69,7 @@ describe Ignore do
     end
 
     it 'should delete ignores for users with enrollments concluded for six months' do
-      @enrollment.update_attributes!(workflow_state: 'completed', completed_at: 7.months.ago)
+      @enrollment.update!(workflow_state: 'completed', completed_at: 7.months.ago)
       Ignore.cleanup
       expect {@ignore_assign.reload}.to raise_error ActiveRecord::RecordNotFound
       expect {@ignore_quiz.reload}.to raise_error ActiveRecord::RecordNotFound
@@ -84,7 +85,7 @@ describe Ignore do
     end
 
     it 'should delete ignores for users with deleted enrollments' do
-      @enrollment.update_attributes!(workflow_state: 'deleted', updated_at: 2.months.ago)
+      @enrollment.update!(workflow_state: 'deleted', updated_at: 2.months.ago)
       Ignore.cleanup
       expect {@ignore_assign.reload}.to raise_error ActiveRecord::RecordNotFound
       expect {@ignore_quiz.reload}.to raise_error ActiveRecord::RecordNotFound

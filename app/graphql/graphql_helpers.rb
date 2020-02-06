@@ -17,6 +17,8 @@
 #
 
 module GraphQLHelpers
+  UrlHelpers = Rails.application.routes.url_helpers
+
   # this function allows an argument to take ids in the graphql global form or
   # standard canvas ids. the resolve function for fields using this preparer
   # will get a standard canvas id
@@ -43,7 +45,7 @@ module GraphQLHelpers
   end
 
   def self.parse_relay_or_legacy_id(relay_or_legacy_id, expected_type)
-    if relay_or_legacy_id =~ /\A\d+\Z/
+    if relay_or_legacy_id.nil? || relay_or_legacy_id =~ /\A\d+\Z/
       relay_or_legacy_id
     else
       type, id = GraphQL::Schema::UniqueWithinType.decode(relay_or_legacy_id)

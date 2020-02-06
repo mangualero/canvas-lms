@@ -16,9 +16,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import Color from 'tinycolor2';
+import Color from 'tinycolor2'
 
-const defaultColors = {
+export const defaultColors = {
   salmon: '#FFE8E5',
   orange: '#FEF0E5',
   yellow: '#FEF7E5',
@@ -29,7 +29,7 @@ const defaultColors = {
   pink: '#F8EAF6',
   lavender: '#F0E8EF',
   white: '#FFFFFF'
-};
+}
 
 const defaultStatusColors = {
   dropped: defaultColors.orange,
@@ -37,21 +37,15 @@ const defaultStatusColors = {
   late: defaultColors.blue,
   missing: defaultColors.salmon,
   resubmitted: defaultColors.green
-};
+}
 
-function statusColors (userColors = {}) {
+export function statusColors(userColors = {}) {
   return {
     ...defaultStatusColors,
     ...userColors
-  };
+  }
 }
 
-function darken (color, percent) {
-  return Color(color).darken(percent);
+export function darken(color, percent) {
+  return Color(color).darken(percent)
 }
-
-export default {
-  defaultColors,
-  statusColors,
-  darken
-};

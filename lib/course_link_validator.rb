@@ -40,7 +40,7 @@ class CourseLinkValidator
   def self.process(progress)
     validator = self.new(progress.context)
     validator.check_course(progress)
-    progress.set_results({:issues => validator.issues, :completed_at => Time.now.utc})
+    progress.set_results({:issues => validator.issues, :completed_at => Time.now.utc, :version => 2})
   rescue
     report_id = Canvas::Errors.capture_exception(:course_link_validation, $ERROR_INFO)[:error_report]
     progress.workflow_state = 'failed'
@@ -60,6 +60,16 @@ class CourseLinkValidator
   # ****************************************************************
   # this is where the magic happens
   def check_course(progress)
+    # Course card image
+    if self.course.image_url.present?
+      find_invalid_link(self.course.image_url) do |link|
+        self.issues << {:name => I18n.t("Course Card Image"), :type => :course_card_image,
+                   :content_url => "/courses/#{self.course.id}/settings",
+                   :invalid_links => [link.merge(:image => true)]}
+      end
+      progress.update_completion! 1
+    end
+
     # Syllabus
     find_invalid_links(self.course.syllabus_body) do |links|
       self.issues << {:name => I18n.t(:syllabus, "Course Syllabus"), :type => :syllabus,
@@ -103,12 +113,17 @@ class CourseLinkValidator
     progress.update_completion! 55
 
     # External URL Module items (almost forgot about these)
-    self.course.context_module_tags.not_deleted.where(:content_type => "ExternalUrl").each do |ct|
+    invalid_module_links = {}
+    self.course.context_module_tags.not_deleted.where(:content_type => "ExternalUrl").preload(:context_module).each do |ct|
       find_invalid_link(ct.url) do |invalid_link|
-        self.issues << {:name => ct.title, :type => :module_item,
-                   :content_url => "/courses/#{self.course.id}/modules"}.merge(:invalid_links => [invalid_link])
+        (invalid_module_links[ct.context_module] ||= []) << invalid_link.merge(:link_text => ct.title)
       end
     end
+    invalid_module_links.each do |mod, invalid_module_links|
+      self.issues << {:name => mod.name, :type => :module,
+                 :content_url => "/courses/#{self.course.id}/modules#module_#{mod.id}"}.merge(:invalid_links => invalid_module_links)
+    end
+
     progress.update_completion! 65
 
     # Quizzes
@@ -169,7 +184,7 @@ class CourseLinkValidator
   def find_invalid_links(html)
     links = []
     doc = Nokogiri::HTML(html || "")
-    attrs = ['rel', 'href', 'src', 'data', 'value']
+    attrs = ['href', 'src', 'data', 'value']
 
     doc.search("*").each do |node|
       attrs.each do |attr|
@@ -180,6 +195,9 @@ class CourseLinkValidator
         end
 
         find_invalid_link(url) do |invalid_link|
+          link_text = node.text.presence
+          invalid_link[:link_text] = link_text if link_text
+          invalid_link[:image] = true if node.name == 'img'
           links << invalid_link
         end
       end
@@ -188,27 +206,12 @@ class CourseLinkValidator
     yield links if links.any?
   end
 
-  ITEM_CLASSES = {
-    'assignments' => Assignment,
-    'announcements' => Announcement,
-    'calendar_events' => CalendarEvent,
-    'discussion_topics' => DiscussionTopic,
-    'collaborations' => Collaboration,
-    'files' => Attachment,
-    'quizzes' => Quizzes::Quiz,
-    'groups' => Group,
-    'wiki' => WikiPage,
-    'pages' => WikiPage,
-    'modules' => ContextModule,
-    'items' => ContentTag
-  }
-
   # yields a hash containing the url and an error type if the url is invalid
   def find_invalid_link(url)
+    return if url.start_with?('mailto:')
     unless result = self.visited_urls[url]
       begin
         if ImportedHtmlConverter.relative_url?(url) || (self.domain_regex && url.match(self.domain_regex))
-
           if valid_route?(url)
             if url.match(/\/courses\/(\d+)/) && self.course.id.to_s != $1
               result = :course_mismatch
@@ -218,7 +221,7 @@ class CourseLinkValidator
           else
             result = :unreachable
           end
-        elsif !url.start_with?('mailto:')
+        else
           unless reachable_url?(url)
             result = :unreachable
           end
@@ -246,59 +249,65 @@ class CourseLinkValidator
   end
 
   # makes sure that links to course objects exist and are in a visible state
-  def check_object_status(url)
-    result = nil
-    case url
-    when /\/courses\/\d+\/file_contents\/(.*)/
-      rel_path = CGI.unescape($1)
-      unless (att = Folder.find_attachment_in_context_with_path(self.course, rel_path)) && !att.deleted?
-        result = :missing_file
-      end
-    when /\/courses\/\d+\/(pages|wiki)\/([^\s"<'\?\/#]*)/
-      if obj = self.course.wiki.find_page(CGI.unescape($2))
-        if obj.workflow_state == 'unpublished'
-          result = :unpublished_item
-        end
-      else
-        result = :missing_item
-      end
-    when /\/courses\/\d+\/(.*)\/(\d+)/
-      obj_type =  $1
-      obj_id = $2
-
-      if obj_class = ITEM_CLASSES[obj_type]
-        if (obj_class == Attachment) && (obj = self.course.attachments.find_by_id(obj_id)) # attachments.find_by_id uses the replacement hackery
-          if obj.file_state == 'deleted'
-            result = :missing_item
-          elsif obj.locked?
-            result = :unpublished_item
-          end
-        elsif (obj = obj_class.where(:id => obj_id).first)
-          if obj.workflow_state == 'deleted'
-            result = :missing_item
-          elsif obj.workflow_state == 'unpublished'
-            result = :unpublished_item
-          end
-        else
-          result = :missing_item
-        end
-      end
+  def check_object_status(url, object: nil)
+    return :missing_item unless valid_route?(url)
+    return :missing_item if url =~ /\/test_error/
+    object ||= Context.find_asset_by_url(url)
+    unless object
+      return :missing_item unless [nil, 'syllabus'].include?(url.match(/\/courses\/\d+\/\w+\/(.+)/)&.[](1))
+      return nil
     end
-    result
+    if object.deleted?
+      return :deleted
+    end
+
+    case object
+    when Attachment
+      return :unpublished_item if object.locked?
+    when Quizzes::Quiz
+      return :unpublished_item if object.workflow_state == 'created' || object.workflow_state == 'unpublished'
+    else
+      return :unpublished_item if object.workflow_state == 'unpublished'
+    end
+    nil
+  rescue => e
+    :missing_item
+  end
+
+  # whitelisted hosts will never be flagged as unavailable
+  def whitelisted?(url)
+    @whitelist ||= Setting.get('link_validator_whitelisted_hosts', '').split(',')
+    return false if @whitelist.empty?
+    host = URI.parse(url).host
+    @whitelist.include?(host)
+  rescue URI::InvalidURIError
+    false
   end
 
   # ping the url and make sure we get a 200
   def reachable_url?(url)
+    return true if whitelisted?(url)
+
+    @unavailable_photo_redirect_pattern ||= Regexp.new(Setting.get('unavailable_photo_redirect_pattern', 'yimg\.com/.+/photo_unavailable.png$'))
+    redirect_proc = lambda do |response|
+      # flickr does a redirect to this file when a photo is deleted/not found;
+      # treat this as a broken image instead of following the redirect
+      url = response['Location']
+      raise RuntimeError("photo unavailable") if url =~ @unavailable_photo_redirect_pattern
+    end
+
     begin
-      response = CanvasHttp.head(url, { "Accept-Encoding" => "gzip" }, redirect_limit: 9)
+      response = CanvasHttp.head(url, { "Accept-Encoding" => "gzip" }, redirect_limit: 9, redirect_spy: redirect_proc)
       if %w{404 405}.include?(response.code)
-        response = CanvasHttp.get(url, { "Accept-Encoding" => "gzip" }, redirect_limit: 9)
+        response = CanvasHttp.get(url, { "Accept-Encoding" => "gzip" }, redirect_limit: 9, redirect_spy: redirect_proc) do
+          # don't read the response body
+        end
       end
 
       case response.code
       when /^2/ # 2xx code
         true
-      when "401", "403", "503"
+      when "401", "403", "429", "503"
         # we accept unauthorized and forbidden codes here because sometimes servers refuse to serve our requests
         # and someone can link to a site that requires authentication anyway - doesn't necessarily make it invalid
         true

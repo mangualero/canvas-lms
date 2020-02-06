@@ -50,7 +50,7 @@ describe ConferencesController do
     it "should assign variables" do
       user_session(@student)
       get 'index', params: {:course_id => @course.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not redirect from group context" do
@@ -58,7 +58,7 @@ describe ConferencesController do
       @group = @course.groups.create!(:name => "some group")
       @group.add_user(@student)
       get 'index', params: {:group_id => @group.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "should not include the student view student" do
@@ -108,7 +108,16 @@ describe ConferencesController do
     it "should create a conference" do
       user_session(@teacher)
       post 'create', params: {:course_id => @course.id, :web_conference => {:title => "My Conference", :conference_type => 'Wimba'}}, :format => 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
+    end
+
+    it "should create a conference with observers removed" do
+      user_session(@teacher)
+      enrollment = observer_in_course(active_all: true, user: user_with_pseudonym(active_all: true))
+      post 'create', params: {:observers => { :remove => "1" }, :course_id => @course.id, :web_conference => {:title => "My Conference", :conference_type => 'Wimba'}}, :format => 'json'
+      expect(response).to be_successful
+      conference = WebConference.last
+      expect(conference.invitees).not_to include(enrollment.user)
     end
 
     context 'with concluded students in context' do
@@ -154,7 +163,23 @@ describe ConferencesController do
       user_session(@teacher)
       @conference = @course.web_conferences.create!(:conference_type => 'Wimba', :user => @teacher)
       post 'update', params: {:course_id => @course.id, :id => @conference, :web_conference => {:title => "Something else"}}, :format => 'json'
-      expect(response).to be_success
+      expect(response).to be_successful
+    end
+
+    it "should return user ids" do
+      user_session(@teacher)
+      @conference = @course.web_conferences.create!(conference_type: "Wimba", user: @teacher)
+      params = {
+        course_id: @course.id,
+        id: @conference,
+        web_conference: {
+          title: "Something else",
+        },
+      }
+      post :update, params: params, format: :json
+      body = JSON.parse(response.body)
+      expect(body["user_ids"]).to include(@teacher.id)
+      expect(body["user_ids"]).to include(@student.id)
     end
   end
 

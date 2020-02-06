@@ -26,6 +26,8 @@ class Group < ActiveRecord::Base
   validates :context_id, :context_type, :account_id, :root_account_id, :workflow_state, :uuid, presence: true
   validates_allowed_transitions :is_public, false => true
 
+  validates :sis_source_id, uniqueness: {scope: :root_account}, allow_nil: true
+
   # use to skip queries in can_participate?, called by policy block
   attr_accessor :can_participate
 
@@ -57,7 +59,7 @@ class Group < ActiveRecord::Base
   belongs_to :wiki
   has_many :wiki_pages, as: :context, inverse_of: :context
   has_many :web_conferences, :as => :context, :inverse_of => :context, :dependent => :destroy
-  has_many :collaborations, -> { order("#{Collaboration.quoted_table_name}.title, #{Collaboration.quoted_table_name}.created_at") }, as: :context, inverse_of: :context, dependent: :destroy
+  has_many :collaborations, -> { order(Arel.sql("collaborations.title, collaborations.created_at")) }, as: :context, inverse_of: :context, dependent: :destroy
   has_many :media_objects, :as => :context, :inverse_of => :context
   has_many :content_migrations, :as => :context, :inverse_of => :context
   has_many :content_exports, :as => :context, :inverse_of => :context
@@ -70,6 +72,7 @@ class Group < ActiveRecord::Base
   before_save :update_max_membership_from_group_category
 
   after_create :refresh_group_discussion_topics
+  after_save :touch_context, :if => :saved_change_to_workflow_state?
 
   after_update :clear_cached_short_name, :if => :saved_change_to_name?
 
@@ -360,6 +363,7 @@ class Group < ActiveRecord::Base
     new_group_memberships = all_group_memberships - old_group_memberships
     new_group_memberships.sort_by!(&:user_id)
     users.sort_by!(&:id)
+    User.clear_cache_keys(user_ids, :groups)
     users.each {|user| clear_permissions_cache(user) }
 
     if self.context_available?
@@ -473,9 +477,17 @@ class Group < ActiveRecord::Base
   # if you modify this set_policy block, note that we've denormalized this
   # permission check for efficiency -- see User#cached_contexts
   set_policy do
+
     # Participate means the user is connected to the group somehow and can be
-    given { |user| user && can_participate?(user) }
-    can :participate
+    given { |user| user && can_participate?(user) && self.has_member?(user) }
+    can :participate and
+    can :manage_calendar and
+    can :manage_content and
+    can :manage_files and
+    can :manage_wiki and
+    can :post_to_forum and
+    can :create_collaborations and
+    can :create_forum
 
     # Course-level groups don't grant any permissions besides :participate (because for a teacher to add a student to a
     # group, the student must be able to :participate, and the teacher should be able to add students while the course
@@ -485,14 +497,8 @@ class Group < ActiveRecord::Base
 
     use_additional_policy do
       given { |user| user && self.has_member?(user) }
-      can :create_collaborations and
-      can :manage_calendar and
-      can :manage_content and
-      can :manage_files and
-      can :manage_wiki and
-      can :post_to_forum and
-      can :read and
       can :read_forum and
+      can :read and
       can :read_announcements and
       can :read_roster and
       can :view_unpublished_items
@@ -539,6 +545,7 @@ class Group < ActiveRecord::Base
       can :manage_wiki and
       can :moderate_forum and
       can :post_to_forum and
+      can :create_forum and
       can :read and
       can :read_forum and
       can :read_announcements and
@@ -550,6 +557,9 @@ class Group < ActiveRecord::Base
 
       given { |user, session| self.context && self.context.grants_all_rights?(user, session, :read_as_admin, :post_to_forum) }
       can :post_to_forum
+
+      given { |user, session| self.context && self.context.grants_all_rights?(user, session, :read_as_admin, :create_forum) }
+      can :create_forum
 
       given { |user, session| self.context && self.context.grants_right?(user, session, :view_group_pages) }
       can :read and can :read_forum and can :read_announcements and can :read_roster
@@ -578,8 +588,10 @@ class Group < ActiveRecord::Base
     end
   end
 
-  def users_visible_to(user)
-    grants_right?(user, :read) ? users : users.none
+  def users_visible_to(user, opts={})
+    return users.none unless grants_right?(user, :read)
+
+    opts[:include_inactive] ? users : participating_users_in_context
   end
 
   # Helper needed by several permissions, use grants_right?(user, :participate)

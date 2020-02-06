@@ -63,7 +63,7 @@
 #         "all_day": {
 #           "description": "the overridden all day flag (present if due_at is overridden)",
 #           "example": true,
-#           "type": "integer"
+#           "type": "boolean"
 #         },
 #         "all_day_date": {
 #           "description": "the overridden all day date (present if due_at is overridden)",
@@ -207,7 +207,7 @@ class AssignmentOverridesController < ApplicationController
     data, errors = interpret_assignment_override_data(@assignment, params[:assignment_override])
     return bad_request(:errors => errors) if errors
 
-    if update_assignment_override(@override, data)
+    if update_assignment_override(@override, data, updating_user: @current_user)
       render :json => assignment_override_json(@override), :status => 201
     else
       bad_request(@override.errors)
@@ -263,7 +263,7 @@ class AssignmentOverridesController < ApplicationController
     data, errors = interpret_assignment_override_data(@assignment, params[:assignment_override], @override.set_type)
     return bad_request(:errors => errors) if errors
 
-    if update_assignment_override(@override, data)
+    if update_assignment_override(@override, data, updating_user: @current_user)
       render :json => assignment_override_json(@override)
     else
       bad_request(@override.errors)
@@ -429,7 +429,7 @@ class AssignmentOverridesController < ApplicationController
   end
 
   def require_assignment
-    @assignment = @course.active_assignments.find(params[:assignment_id])
+    @assignment = api_find(@course.active_assignments, params[:assignment_id])
   end
 
   def require_assignment_edit
@@ -458,7 +458,7 @@ class AssignmentOverridesController < ApplicationController
       is_update ? data['override'] : data['assignment'].assignment_overrides.build
     end
 
-    if update_assignment_overrides(overrides, all_data)
+    if update_assignment_overrides(overrides, all_data, updating_user: @current_user)
       render json: assignment_overrides_json(overrides, @current_user)
     else
       errors = overrides.map do |override|

@@ -7,11 +7,16 @@
 
   color: var(--color);
   background: var(--background);
+
+  &.small {
+    .desert, .balloons {
+      max-width: 100%;
+    }
+  }
 }
 
-.desert {
+.desert, .balloons {
   display: block;
-  transform: scale(1.4);
   margin-inline-start: auto;
   margin-inline-end: auto;
   text-align: center;
@@ -35,3 +40,5 @@
 .subtitle {
   padding: 12px;
 }
+
+

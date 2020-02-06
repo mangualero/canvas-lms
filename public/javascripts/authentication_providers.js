@@ -16,39 +16,43 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-  var authenticationProviders = {
-    hideAllNewAuthTypeForms: function(){
-      var newForms = document.querySelectorAll(".auth-form-container--new");
-      Array.prototype.forEach.call(newForms, function(el, id){
-        el.style.display = "none";
-      });
-    },
+import $ from 'jquery'
+import 'jquery.instructure_misc_helpers'
 
-    showFormFor: function(authType){
-      var formId = authType + "_form";
-      var form =  document.getElementById(formId);
-      if(form !== null){
-        form.style.display = "";
-        setTimeout(function(){
-          $(form).find(":focusable:first").focus();
-          form.scrollIntoView();
-        }, 100);
-      }
-    },
+var authenticationProviders = {
+  hideAllNewAuthTypeForms() {
+    const newForms = document.querySelectorAll('.auth-form-container--new')
+    Array.prototype.forEach.call(newForms, (el, id) => {
+      el.style.display = 'none'
+    })
+  },
 
-    hideNoAuthMessage: function(){
-      var noAuthMessage = document.getElementById("no_auth");
-      if(noAuthMessage !== null){
-        noAuthMessage.style.display = "none";
-      }
-    },
-
-    changedAuthType: function(authType){
-      authenticationProviders.hideNoAuthMessage();
-      authenticationProviders.hideAllNewAuthTypeForms();
-      authenticationProviders.showFormFor(authType);
+  showFormFor(authType) {
+    const formId = authType + '_form'
+    const form = document.getElementById(formId)
+    if (form !== null) {
+      form.style.display = ''
+      setTimeout(() => {
+        $(form)
+          .find(':focusable:first')
+          .focus()
+        form.scrollIntoView()
+      }, 100)
     }
-  };
+  },
 
-  export default authenticationProviders;
+  hideNoAuthMessage() {
+    const noAuthMessage = document.getElementById('no_auth')
+    if (noAuthMessage !== null) {
+      noAuthMessage.style.display = 'none'
+    }
+  },
 
+  changedAuthType(authType) {
+    authenticationProviders.hideNoAuthMessage()
+    authenticationProviders.hideAllNewAuthTypeForms()
+    authenticationProviders.showFormFor(authType)
+  }
+}
+
+export default authenticationProviders

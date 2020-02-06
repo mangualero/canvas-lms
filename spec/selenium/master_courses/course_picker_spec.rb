@@ -24,7 +24,6 @@ describe "master courses - course picker" do
 
   before :once do
     # create the master course
-    Account.default.enable_feature!(:master_courses)
     @master = course_factory(active_all: true)
     @template = MasterCourses::MasterTemplate.set_as_master_course(@master)
 
@@ -69,8 +68,8 @@ describe "master courses - course picker" do
   let(:course_search_input) {'.bca-course-filter input[type="search"]'}
   let(:filter_output) {'.bca-course-details__wrapper'}
   let(:loading) {'.bca-course-picker__loading'}
-  let(:term_filter) {'.bca-course-filter select:contains("Any Term")'}
-  let(:sub_account_filter) {'.bca-course-filter select:contains("Any Sub-Account")'}
+  let(:term_filter) {'#termsFilter'}
+  let(:sub_account_filter) {'#subAccountsFilter'}
 
   def wait_for_spinner
     begin
@@ -131,7 +130,7 @@ describe "master courses - course picker" do
     get "/courses/#{@master.id}"
     open_associations
     open_courses_list
-    click_option(term_filter, 'fall term')
+    click_INSTUI_Select_option(term_filter, 'fall term')
     wait_for_spinner
     expect(available_courses().length).to eq(4)
   end
@@ -140,7 +139,7 @@ describe "master courses - course picker" do
     get "/courses/#{@master.id}"
     open_associations
     open_courses_list
-    click_option(sub_account_filter, 'sub-account 1')
+    click_INSTUI_Select_option(sub_account_filter, 'sub-account 1')
     wait_for_spinner
     expect(available_courses().length).to eq(1)
   end

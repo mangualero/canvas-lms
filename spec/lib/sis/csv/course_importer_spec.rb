@@ -277,10 +277,21 @@ describe SIS::CSV::CourseImporter do
     )
     @account.courses.where(sis_source_id: "test4").first.tap do |course|
       expect(course.restrict_enrollments_to_course_dates).to be_truthy
-      expect(course.start_at).to eq DateTime.parse("2011-04-14 00:00:00")
-      expect(course.conclude_at).to eq DateTime.parse("2011-05-14 00:00:00")
+      expect(course.start_at).to eq Time.zone.parse("2011-04-14 00:00:00")
+      expect(course.conclude_at).to eq Time.zone.parse("2011-05-14 00:00:00")
       course.restrict_enrollments_to_course_dates = false # should be able to change this without stickying dates
       course.save!
+    end
+
+    # should not change restrict_enrollments_to_course_dates or start_at or end_at when columns are not supplied
+    process_csv_data_cleanly(
+      "course_id,short_name,long_name,account_id,term_id,status",
+      "test4,TC 104,Test Course 4,,,active"
+    )
+    @account.courses.where(sis_source_id: "test4").first.tap do |course|
+      expect(course.restrict_enrollments_to_course_dates).to be_falsey
+      expect(course.start_at).to eq Time.zone.parse("2011-04-14 00:00:00")
+      expect(course.conclude_at).to eq Time.zone.parse("2011-05-14 00:00:00")
     end
 
     process_csv_data_cleanly(
@@ -289,10 +300,10 @@ describe SIS::CSV::CourseImporter do
     )
     @account.courses.where(sis_source_id: "test4").first.tap do |course|
       expect(course.restrict_enrollments_to_course_dates).to be_falsey
-      expect(course.start_at).to eq DateTime.parse("2012-04-14 00:00:00")
-      expect(course.conclude_at).to eq DateTime.parse("2012-05-14 00:00:00")
-      course.start_at = DateTime.parse("2010-04-14 00:00:00")
-      course.conclude_at = DateTime.parse("2010-05-14 00:00:00") # now get sticky
+      expect(course.start_at).to eq Time.zone.parse("2012-04-14 00:00:00")
+      expect(course.conclude_at).to eq Time.zone.parse("2012-05-14 00:00:00")
+      course.start_at = Time.zone.parse("2010-04-14 00:00:00")
+      course.conclude_at = Time.zone.parse("2010-05-14 00:00:00") # now get sticky
       course.save!
     end
 
@@ -302,8 +313,8 @@ describe SIS::CSV::CourseImporter do
     )
     @account.courses.where(sis_source_id: "test4").first.tap do |course|
       expect(course.restrict_enrollments_to_course_dates).to be_falsey
-      expect(course.start_at).to eq DateTime.parse("2010-04-14 00:00:00")
-      expect(course.conclude_at).to eq DateTime.parse("2010-05-14 00:00:00")
+      expect(course.start_at).to eq Time.zone.parse("2010-04-14 00:00:00")
+      expect(course.conclude_at).to eq Time.zone.parse("2010-05-14 00:00:00")
     end
   end
 
@@ -618,7 +629,6 @@ describe SIS::CSV::CourseImporter do
   end
 
   it 'should create rollback data' do
-    @account.enable_feature!(:refactor_of_sis_imports)
     batch1 = @account.sis_batches.create! { |sb| sb.data = {} }
     process_csv_data_cleanly(
       "course_id,short_name,long_name,account_id,term_id,status",
@@ -716,6 +726,15 @@ describe SIS::CSV::CourseImporter do
       expect(template2.child_subscriptions.active.pluck(:child_course_id)).to eq([c3.id])
     end
 
+    it "should give one warning per row" do
+      courses = (1..3).map{|x| @account.courses.create!(:sis_source_id => "acourse#{x}")}
+      rows = ["course_id,short_name,long_name,status,blueprint_course_id"] +
+        courses.map{|c| "#{c.sis_source_id},shortname,long name,active,missingid"}
+      importer = process_csv_data(*rows)
+      expected = courses.map{|c| "Unknown blueprint course \"missingid\" for course \"#{c.sis_source_id}\""}
+      expect(importer.errors.map(&:last)).to match_array(expected)
+    end
+
     it "should try to queue a migration afterwards" do
       account_admin_user(:active_all => true)
       c1 = @account.courses.create!(:sis_source_id => "acourse1")
@@ -750,6 +769,51 @@ describe SIS::CSV::CourseImporter do
       mm = @template.reload.master_migrations.last
       expect(mm).to_not eq other_mm
       expect(mm).to be_completed
+    end
+
+    it 'sets and updates grade_passback_setting' do
+      Setting.set('valid_grade_passback_settings', 'disabled,nightly_sync,other')
+      process_csv_data_cleanly(
+        "course_id,short_name,long_name,account_id,term_id,status,grade_passback_setting",
+        "test_1,TC 101,Test Course 101,,,active,disabled",
+        "test_2,TC 102,Test Course 102,,,active,other",
+        "test_3,TC 103,Test Course 103,,,active,nightly_sync"
+      )
+      expect(Course.where(sis_source_id: 'test_1').take.grade_passback_setting).to eq 'disabled'
+      expect(Course.where(sis_source_id: 'test_2').take.grade_passback_setting).to eq 'other'
+      expect(Course.where(sis_source_id: 'test_3').take.grade_passback_setting).to eq 'nightly_sync'
+
+      process_csv_data_cleanly(
+        "course_id,short_name,long_name,account_id,term_id,status,grade_passback_setting",
+        "test_1,TC 101,Test Course 101,,,active,",
+        "test_2,TC 102,Test Course 102,,,active,\"\"",
+        "test_3,TC 103,Test Course 103,,,active,nightly_sync"
+      )
+      expect(Course.where(sis_source_id: 'test_1').take.grade_passback_setting).to be_nil
+      expect(Course.where(sis_source_id: 'test_2').take.grade_passback_setting).to be_nil
+      expect(Course.where(sis_source_id: 'test_3').take.grade_passback_setting).to eq 'nightly_sync'
+
+      process_csv_data_cleanly(
+        "course_id,short_name,long_name,account_id,term_id,status",
+        "test_3,TC 103,Test Course 103,,,active"
+      )
+      expect(Course.where(sis_source_id: 'test_3').take.grade_passback_setting).to eq 'nightly_sync'
+    end
+
+    it 'respects stuck grade_passback setting' do
+      process_csv_data_cleanly(
+        "course_id,short_name,long_name,account_id,term_id,status,grade_passback_setting",
+        "test_1,TC 101,Test Course 101,,,active,nightly_sync"
+      )
+      expect((course = Course.where(sis_source_id: 'test_1').take).grade_passback_setting).to eq 'nightly_sync'
+      course.grade_passback_setting=nil
+      course.save!
+
+      process_csv_data_cleanly(
+        "course_id,short_name,long_name,account_id,term_id,status,grade_passback_setting",
+        "test_1,TC 101,Test Course 101,,,active,nightly_sync"
+      )
+      expect(Course.where(sis_source_id: 'test_1').take.grade_passback_setting).to be_nil
     end
   end
 end

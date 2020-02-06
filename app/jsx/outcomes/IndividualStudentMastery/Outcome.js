@@ -17,104 +17,154 @@
  */
 
 import React from 'react'
-import I18n from 'i18n!outcomes'
-import View from '@instructure/ui-layout/lib/components/View'
-import Flex, { FlexItem } from '@instructure/ui-layout/lib/components/Flex'
-import ToggleDetails from '@instructure/ui-toggle-details/lib/components/ToggleDetails'
-import List, { ListItem } from '@instructure/ui-elements/lib/components/List'
-import Pill from '@instructure/ui-elements/lib/components/Pill'
-import Text from '@instructure/ui-elements/lib/components/Text'
-import IconArrowOpenDown from '@instructure/ui-icons/lib/Solid/IconArrowOpenDown'
-import IconArrowOpenRight from '@instructure/ui-icons/lib/Solid/IconArrowOpenRight'
-import IconOutcomes from '@instructure/ui-icons/lib/Line/IconOutcomes'
+import _ from 'lodash'
+import PropTypes from 'prop-types'
+import I18n from 'i18n!IndividualStudentMasteryOutcome'
+import {View, Flex} from '@instructure/ui-layout'
+import {ToggleGroup} from '@instructure/ui-toggle-details'
+import {List, Pill, Text} from '@instructure/ui-elements'
+import natcompare from 'compiled/util/natcompare'
 import AssignmentResult from './AssignmentResult'
+import UnassessedAssignment from './UnassessedAssignment'
+import OutcomePopover from './OutcomePopover'
+import {ScreenReaderContent, PresentationContent} from '@instructure/ui-a11y'
+import TruncateWithTooltip from '../../shared/components/TruncateWithTooltip'
 import * as shapes from './shapes'
-
-const spacyIcon = (expanded) => () => {
-  const Icon = expanded ? IconArrowOpenDown : IconArrowOpenRight
-  return (
-    <View padding="0 0 0 small"><Icon /></View>
-  )
-}
 
 export default class Outcome extends React.Component {
   static propTypes = {
-    outcome: shapes.outcomeShape.isRequired
+    outcome: shapes.outcomeShape.isRequired,
+    expanded: PropTypes.bool.isRequired,
+    onExpansionChange: PropTypes.func.isRequired,
+    outcomeProficiency: shapes.outcomeProficiencyShape
   }
 
-  constructor () {
-    super()
-    this.handleToggle = this.handleToggle.bind(this)
-    this.state = { expanded: false }
+  static defaultProps = {
+    outcomeProficiency: null
   }
 
-  contract () {
-    this.setState({ expanded: false })
+  handleToggle = (_event, expanded) => {
+    this.props.onExpansionChange('outcome', this.props.outcome.expansionId, expanded)
   }
 
-  expand () {
-    this.setState({ expanded: true })
-  }
-
-  handleToggle (_event, expanded) {
-    this.setState({ expanded })
-  }
-
-  renderHeader () {
-    const { outcome } = this.props
-    const { mastered, results, title } = outcome
-    const numAlignments = results.length
+  renderHeader() {
+    const {outcome, outcomeProficiency} = this.props
+    const {assignments, display_name, mastered, title, score, points_possible, results} = outcome
+    const numAlignments = assignments.length
+    const pillAttributes = {margin: '0 0 0 x-small', text: I18n.t('Not mastered')}
+    if (mastered) {
+      Object.assign(pillAttributes, {text: I18n.t('Mastered'), variant: 'success'})
+    }
 
     return (
-      <Flex direction="row" justifyItems='space-between' padding="small x-small">
-        <FlexItem>
+      <Flex direction="row" justifyItems="space-between" data-selenium="outcome">
+        <Flex.Item shrink>
           <Flex direction="column">
-            <FlexItem>
+            <Flex.Item>
               <Text size="medium">
                 <Flex>
-                  <FlexItem><IconOutcomes /></FlexItem>
-                  <FlexItem padding="0 x-small">{ title }</FlexItem>
+                  <Flex.Item>
+                    <OutcomePopover outcome={outcome} outcomeProficiency={outcomeProficiency} />
+                  </Flex.Item>
+                  <Flex.Item shrink padding="0 x-small">
+                    <TruncateWithTooltip>{display_name || title}</TruncateWithTooltip>
+                  </Flex.Item>
                 </Flex>
               </Text>
-            </FlexItem>
-            <FlexItem><Text size="small">{ I18n.t({
-              zero: 'No alignments',
-              one: '%{count} alignment',
-              other: '%{count} alignments'
-            }, { count: I18n.n(numAlignments) }) }</Text></FlexItem>
+            </Flex.Item>
+            <Flex.Item>
+              <Text size="small">
+                {I18n.t(
+                  {
+                    zero: 'No alignments',
+                    one: '%{count} alignment',
+                    other: '%{count} alignments'
+                  },
+                  {count: I18n.n(numAlignments)}
+                )}
+              </Text>
+            </Flex.Item>
           </Flex>
-        </FlexItem>
-        <FlexItem>
-        {
-          mastered ? <Pill text={I18n.t('Mastered')} variant="success" /> : <Pill text={I18n.t('Not mastered')} />
-        }
-        </FlexItem>
+        </Flex.Item>
+        <Flex.Item>
+          {_.isNumber(score) && !_.every(results, ['hide_points', true]) && (
+            <span>
+              <PresentationContent>
+                <Text size="medium">
+                  {score}/{points_possible}
+                </Text>
+              </PresentationContent>
+              <ScreenReaderContent>
+                {I18n.t('%{score} out of %{points_possible} points', {score, points_possible})}
+              </ScreenReaderContent>
+            </span>
+          )}
+          <Pill {...pillAttributes} />
+        </Flex.Item>
       </Flex>
     )
   }
 
-  render () {
-    const { outcome } = this.props
+  renderDetails() {
+    const {outcome, outcomeProficiency} = this.props
+    const {assignments, results} = outcome
+    const assignmentsWithResults = _.filter(results, r =>
+      r.assignment.id.startsWith('assignment_')
+    ).map(r => r.assignment.id.split('_')[1])
+    const assessmentsWithResults = _.filter(results, r =>
+      r.assignment.id.startsWith('live_assessments/assessment_')
+    ).map(r => r.assignment.id.split('_')[2])
+    const unassessed = _.filter(
+      assignments,
+      a =>
+        (a.assignment_id && !_.includes(assignmentsWithResults, a.assignment_id.toString())) ||
+        (a.assessment_id && !_.includes(assessmentsWithResults, a.assessment_id.toString()))
+    )
     return (
-      <ToggleDetails
-        divider="dashed"
-        icon={spacyIcon(false)}
-        iconExpanded={spacyIcon(true)}
+      <List variant="unstyled" delimiter="dashed">
+        {results
+          .sort(natcompare.byKey('submitted_or_assessed_at'))
+          .reverse()
+          .map(result => (
+            <List.Item key={result.id}>
+              <AssignmentResult
+                result={result}
+                outcome={outcome}
+                outcomeProficiency={outcomeProficiency}
+              />
+            </List.Item>
+          ))}
+        {unassessed.map(assignment => (
+          <List.Item key={`a${assignment.assignment_id}`}>
+            <UnassessedAssignment assignment={assignment} />
+          </List.Item>
+        ))}
+      </List>
+    )
+  }
+
+  renderEmpty() {
+    return (
+      <View as="div" padding="small">
+        <Text>{I18n.t('No alignments are available for this outcome.')}</Text>
+      </View>
+    )
+  }
+
+  render() {
+    const {outcome, expanded} = this.props
+    const {assignments, title} = outcome
+    const hasAlignments = assignments.length > 0
+    return (
+      <ToggleGroup
         summary={this.renderHeader()}
-        expanded={this.state.expanded}
+        toggleLabel={I18n.t('Toggle alignment details for %{title}', {title})}
+        expanded={expanded}
         onToggle={this.handleToggle}
-        fluidWidth
+        border={false}
       >
-        <View as="div" borderWidth="small 0 0 0">
-          <List variant="unstyled" delimiter="dashed">
-          {
-            outcome.results.map((result) => (
-              <ListItem key={result.id}><AssignmentResult result={result} outcome={outcome} /></ListItem>
-            ))
-          }
-          </List>
-        </View>
-      </ToggleDetails>
+        {hasAlignments ? this.renderDetails() : this.renderEmpty()}
+      </ToggleGroup>
     )
   }
 }

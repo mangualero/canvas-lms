@@ -17,52 +17,46 @@
  */
 
 import I18n from 'i18n!external_tools'
-import _ from 'underscore'
 import React from 'react'
 import PropTypes from 'prop-types'
-import TextInput from '../../external_apps/components/TextInput'
+import TextInput from './TextInput'
 
-export default React.createClass({
-    displayName: 'ConfigurationFormLti2',
+export default class ConfigurationFormLti2 extends React.Component {
+  static propTypes = {
+    registrationUrl: PropTypes.string.isRequired
+  }
 
-    propTypes: {
-      registrationUrl : PropTypes.string.isRequired
-    },
+  state = {
+    errors: {}
+  }
 
-    getInitialState: function() {
-      return {
-        errors: {}
-      };
-    },
-
-    isValid() {
-      if (!this.refs.registrationUrl.state.value) {
-        this.setState({ errors: { registrationUrl: I18n.t('This field is required') }});
-        return false;
-      } else {
-        return true;
-      }
-    },
-
-    getFormData() {
-      return {
-        registrationUrl : this.refs.registrationUrl.state.value
-      };
-    },
-
-    render() {
-      return (
-        <div className="ConfigurationFormLti2">
-          <TextInput
-            ref="registrationUrl"
-            id="registrationUrl"
-            name="tool_consumer_url"
-            defaultValue={this.props.registrationUrl}
-            label={I18n.t('Registration URL')}
-            hintText={I18n.t('Example: https://lti-tool-provider-example.herokuapp.com/register')}
-            required={true}
-            errors={this.state.errors} />
-        </div>
-      );
+  isValid = () => {
+    if (!this.refs.registrationUrl.state.value) {
+      this.setState({errors: {registrationUrl: I18n.t('This field is required')}})
+      return false
+    } else {
+      return true
     }
-  });
+  }
+
+  getFormData = () => ({
+    registrationUrl: this.refs.registrationUrl.state.value
+  })
+
+  render() {
+    return (
+      <div className="ConfigurationFormLti2">
+        <TextInput
+          ref="registrationUrl"
+          id="registrationUrl"
+          name="tool_consumer_url"
+          defaultValue={this.props.registrationUrl}
+          label={I18n.t('Registration URL')}
+          hintText={I18n.t('Example: https://lti-tool-provider-example.herokuapp.com/register')}
+          required
+          errors={this.state.errors}
+        />
+      </div>
+    )
+  }
+}

@@ -37,7 +37,8 @@ class MarkDonePresenter
         @context.context
       end
     return unless item_context.is_a?(Course)
-    item_ids = item_context.module_items_visible_to(@user).where(:content_type => @asset.class.name, :content_id => @asset.id).reorder(nil).pluck(:id)
+
+    item_ids = Shackles.activate(:slave) { item_context.module_items_visible_to(@user).where(:content_type => @asset.class.name, :content_id => @asset.id).reorder(nil).pluck(:id) }
     item_ids.first if item_ids.count == 1
   end
 
@@ -52,7 +53,9 @@ class MarkDonePresenter
 
   def checked?
     return false unless has_requirement?
-    progression = @module.context_module_progressions.find{|p| p[:user_id] == @user.id}
+    progression = @module.context_module_progressions.loaded? ?
+      @module.context_module_progressions.find{|p| p[:user_id] == @user.id} :
+      @module.context_module_progressions.where(:user_id => @user.id).first
     return false unless progression
     !!progression.requirements_met.find {|r| r[:id] == @item.id && r[:type] == "must_mark_done" }
   end

@@ -16,8 +16,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative '../../common'
+require_relative 'gradezilla_grade_detail_tray_page'
 
-class Gradezilla
+module Gradezilla
   class Cells
     class << self
       include SeleniumDependencies
@@ -39,12 +40,20 @@ class Gradezilla
         f("#{grading_cell_selector(student, assignment)} input[type='text']")
       end
 
+      def grid_assignment_row_cell(student,assignment)
+        grading_cell(student, assignment).find(".Grid__GradeCell")
+      end
+
       def grading_cell_menu_button(student, assignment, menu_selector:)
-        f("#{grading_cell_selector(student, assignment)} .Grid__AssignmentRowCell__#{menu_selector}Menu button")
+        f("#{grading_cell_selector(student, assignment)} .Grid__GradeCell__#{menu_selector}Menu button")
+      end
+
+      def grade_tray_button
+        f('.Grid__GradeCell__Options button')
       end
 
       def get_grade(student, assignment)
-        grading_cell(student, assignment).text
+        grading_cell(student, assignment).text.strip
       end
 
       def edit_grade(student, assignment, grade)
@@ -87,10 +96,13 @@ class Gradezilla
       end
 
       def open_tray(student, assignment)
-        cell = grading_cell(student, assignment)
-        cell.click
-        driver.action.send_keys(:escape).perform
-        driver.action.send_keys('c').perform
+        # ie has narrow columns hiding the grade_tray_button
+        if driver.browser == :internet_explorer
+          driver.execute_script("arguments[0].setAttribute('style', 'width: 150px')", grading_cell(student, assignment))
+        end
+        grading_cell(student, assignment).click
+        grade_tray_button.click
+        Gradezilla::GradeDetailTray.submission_tray_full_content
         wait_for_ajaximations
       end
 
@@ -124,6 +136,28 @@ class Gradezilla
         driver.action.send_keys(:escape).perform
         driver.action.send_keys(key).perform
         wait_for_animations
+      end
+
+      # ---------- Grade Override Cells ---------------
+      def grade_override_selector(student)
+        ".slick-row.student_#{student.id} .slick-cell.total-grade-override"
+      end
+
+      def grade_override_input(student)
+        f("#{grade_override_selector(student)} input[type='text']")
+      end
+
+      def get_override_grade(student)
+        f(grade_override_selector(student)).text
+      end
+
+      def edit_override(student, grade)
+        f(grade_override_selector(student)).click
+
+        override_input = grade_override_input(student)
+        set_value(override_input, grade)
+
+        override_input.send_keys(:return)
       end
     end
   end

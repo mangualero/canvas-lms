@@ -17,7 +17,7 @@
 
 require_relative '../common'
 require_relative '../helpers/announcements_common'
-require_relative './announcement_new_edit_page'
+require_relative './pages/announcement_new_edit_page'
 
 describe "announcements" do
   include_context "in-process server selenium tests"
@@ -40,7 +40,7 @@ describe "announcements" do
       AnnouncementNewEdit.select_a_section("Section")
       AnnouncementNewEdit.add_message("Announcement Body")
       AnnouncementNewEdit.add_title("Announcement Title")
-      expect_new_page_load {AnnouncementNewEdit.submit_announcement_form}
+      AnnouncementNewEdit.submit_announcement_form
       expect(driver.current_url).to include(AnnouncementNewEdit.
                                             individual_announcement_url(Announcement.last))
     end
@@ -132,7 +132,7 @@ describe "announcements" do
       it "should add an attachment to a graded topic", priority: "1", test_id: 220367 do
         what_to_create == DiscussionTopic ? @course.discussion_topics.create!(:title => 'graded attachment topic', :user => @user) : announcement_model(:title => 'graded attachment topic', :user => @user)
         if what_to_create == DiscussionTopic
-          what_to_create.last.update_attributes(:assignment => @course.assignments.create!(:name => 'graded topic assignment'))
+          what_to_create.last.update(:assignment => @course.assignments.create!(:name => 'graded topic assignment'))
         end
         get url
         expect_new_page_load { f('.ic-announcement-row h3').click }
@@ -162,10 +162,12 @@ describe "announcements" do
       _, path = get_file('testfile1.txt')
       f('#discussion_attachment_uploaded_data').send_keys(path)
       expect_new_page_load { submit_form('.form-actions') }
-      expect(Announcement.last.title).to eq("First Announcement")
+      ann = Announcement.last
+      expect(ann.title).to eq("First Announcement")
       # the delayed post at should be far enough in the future to make this
       # not flaky
-      expect(Announcement.last.delayed_post_at > Time.zone.now).to eq true
+      expect(ann.delayed_post_at > Time.zone.now).to eq true
+      expect(ann.attachment).to be_locked
     end
 
     it "displayed delayed post note on page of delayed announcement" do

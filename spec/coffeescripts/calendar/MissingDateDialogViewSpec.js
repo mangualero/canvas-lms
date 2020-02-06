@@ -21,7 +21,9 @@ import MissingDateDialogView from 'compiled/views/calendar/MissingDateDialogView
 
 QUnit.module('MissingDateDialogView', {
   setup() {
-    $('#fixtures').append('<label for="date">Section one</label><input type="text" id="date" name="date" />')
+    $('#fixtures').append(
+      '<label for="date">Section one</label><input type="text" id="date" name="date" />'
+    )
 
     this.dialog = new MissingDateDialogView({
       validationFn() {
@@ -37,7 +39,7 @@ QUnit.module('MissingDateDialogView', {
           return true
         }
       },
-      success: this.spy()
+      success: sinon.spy()
     })
   },
   teardown() {

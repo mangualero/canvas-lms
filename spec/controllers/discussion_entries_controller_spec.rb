@@ -53,7 +53,7 @@ describe DiscussionEntriesController do
     it "should assign variables" do
       user_session(@student)
       get 'show', params: {:course_id => @course.id, :id => @entry.id}, :format => :json
-      # response.should be_success
+      # response.should be_successful
       expect(assigns[:entry]).not_to be_nil
       expect(assigns[:entry]).to eql(@entry)
     end
@@ -85,6 +85,8 @@ describe DiscussionEntriesController do
     end
 
     it "should NOT attach a file if not authorized" do
+      @course.allow_student_forum_attachments = false
+      @course.save!
       user_session(@student)
       post 'create', params: {:course_id => @course.id, :discussion_entry => {:discussion_topic_id => @topic.id, :message => "yo"}, :attachment => {:uploaded_data => default_uploaded_data}}
       expect(assigns[:topic]).to eql(@topic)
@@ -159,6 +161,8 @@ describe DiscussionEntriesController do
     end
 
     it "should not replace the file to the entry if not authorized" do
+      @course.allow_student_forum_attachments = false
+      @course.save!
       user_session(@student)
       put 'update', params: {:course_id => @course.id, :id => @entry.id, :discussion_entry => {:message => "ahem"}, :attachment => {:uploaded_data => default_uploaded_data}}
       expect(response).to be_redirect
@@ -359,7 +363,7 @@ describe DiscussionEntriesController do
     end
 
     it 'respects podcast_has_student_posts for course discussions' do
-      @topic.update_attributes(podcast_enabled: true, podcast_has_student_posts: false)
+      @topic.update(podcast_enabled: true, podcast_has_student_posts: false)
       get 'public_feed', params: {:discussion_topic_id => @topic.id, :feed_code => @enrollment.feed_code}, :format => 'rss'
       expect(assigns[:discussion_entries].length).to eql 0
     end
@@ -370,7 +374,7 @@ describe DiscussionEntriesController do
       @topic = @group.discussion_topics.create(title: "group topic", user: @teacher)
       @entry = @topic.discussion_entries.create(message: "some message", user: @student)
 
-      @topic.update_attributes(podcast_enabled: true, podcast_has_student_posts: false)
+      @topic.update(podcast_enabled: true, podcast_has_student_posts: false)
       get 'public_feed', params: {:discussion_topic_id => @topic.id, :feed_code => membership.feed_code}, :format => 'rss'
       expect(assigns[:discussion_entries].length).to eql 1
     end

@@ -25,10 +25,10 @@ const createClick = function() {
   e.initMouseEvent('click', true, true, window, 0, 0, 0, 0, 0, true, false, false, false, 2, null)
   return e
 }
-test('redirects clicks', function() {
+test('redirects clicks', () => {
   const sourceDiv = $('<div></div>')
   const targetDiv = $('<div></div>')
-  const targetDivSpy = this.spy()
+  const targetDivSpy = sinon.spy()
   targetDiv.on('click', targetDivSpy)
 
   sourceDiv.redirectClickTo(targetDiv)

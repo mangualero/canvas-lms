@@ -22,17 +22,19 @@ module Api::V1::User
   include AvatarHelper
 
   API_USER_JSON_OPTS = {
-    :only => %w(id name).freeze,
+    :only => %w(id name created_at).freeze,
     :methods => %w(sortable_name short_name).freeze
   }.freeze
 
   def user_json_preloads(users, preload_email=false, opts={})
     # for User#account
-    ActiveRecord::Associations::Preloader.new.preload(users, :pseudonym => :account)
+    ActiveRecord::Associations::Preloader.new.preload(users, :pseudonym => :account) if opts.fetch(:accounts, true)
 
     # pseudonyms for SisPseudonym
     # pseudonyms account for Pseudonym#works_for_account?
-    ActiveRecord::Associations::Preloader.new.preload(users, pseudonyms: :account) if user_json_is_admin?
+    ActiveRecord::Associations::Preloader.new.preload(users, pseudonyms: :account) if opts.fetch(:accounts, true) &&
+      (opts.fetch(:pseudonyms, false) || user_json_is_admin?)
+
     if preload_email && (no_email_users = users.reject(&:email_cached?)).present?
       # communication_channels for User#email if it is not cached
       ActiveRecord::Associations::Preloader.new.preload(no_email_users, :communication_channels)
@@ -42,15 +44,17 @@ module Api::V1::User
     end
   end
 
-  def user_json(user, current_user, session, includes = [], context = @context, enrollments = nil, excludes = [], enrollment=nil)
+  def user_json(user, current_user, session, includes = [], context = @context, enrollments = nil, excludes = [], enrollment=nil, tool_includes: [])
     includes ||= []
     excludes ||= []
     api_json(user, current_user, session, API_USER_JSON_OPTS).tap do |json|
-      enrollment_json_opts = { current_grading_period_scores: includes.include?('current_grading_period_scores') }
-      if !excludes.include?('pseudonym') && user_json_is_admin?(context, current_user)
+      json[:created_at] = json[:created_at]&.iso8601
+      enrollment_json_opts = {current_grading_period_scores: includes.include?('current_grading_period_scores')}
+      if includes.include?('sis_user_id') || (!excludes.include?('pseudonym') && user_json_is_admin?(context, current_user))
         include_root_account = @domain_root_account.trust_exists?
-        sis_context = enrollment || @domain_root_account
-        pseudonym = SisPseudonym.for(user, sis_context, type: :implicit, require_sis: false)
+        course_or_section = @context if (@context.is_a?(Course) || @context.is_a?(CourseSection))
+        sis_context = enrollment || course_or_section || @domain_root_account
+        pseudonym = SisPseudonym.for(user, sis_context, type: :implicit, require_sis: false, root_account: @domain_root_account, in_region: true)
         enrollment_json_opts[:sis_pseudonym] = pseudonym if pseudonym&.sis_user_id
         # the sis fields on pseudonym are poorly named -- sis_user_id is
         # the id in the SIS import data, where on every other table
@@ -60,16 +64,24 @@ module Api::V1::User
           json.merge! :sis_user_id => pseudonym&.sis_user_id,
                       :integration_id => pseudonym&.integration_id
         end
-        json[:sis_import_id] = pseudonym&.sis_batch_id if @domain_root_account.grants_right?(current_user, session, :manage_sis)
-        json[:root_account] = HostUrl.context_host(pseudonym&.account) if include_root_account
 
-        if pseudonym && context.grants_right?(current_user, session, :view_user_logins)
-          json[:login_id] = pseudonym.unique_id
+
+        if !excludes.include?('pseudonym') && user_json_is_admin?(context, current_user)
+          json[:sis_import_id] = pseudonym&.sis_batch_id if @domain_root_account.grants_right?(current_user, session, :manage_sis)
+          json[:root_account] = HostUrl.context_host(pseudonym&.account) if include_root_account
+
+          if pseudonym && context.grants_right?(current_user, session, :view_user_logins)
+            json[:login_id] = pseudonym.unique_id
+          end
         end
       end
 
+      if user.pronouns
+        json[:pronouns] = user.pronouns
+      end
+
       if includes.include?('avatar_url') && user.account.service_enabled?(:avatars)
-        json[:avatar_url] = avatar_url_for_user(user, blank_fallback)
+        json[:avatar_url] = avatar_url_for_user(user)
       end
       if enrollments
         json[:enrollments] = enrollments.map do |enrollment|
@@ -78,12 +90,13 @@ module Api::V1::User
       end
       # include a permissions check here to only allow teachers and admins
       # to see user email addresses.
-      if includes.include?('email') && !excludes.include?('personal_info') && context.grants_right?(current_user, session, :read_email_addresses)
+      if tool_includes.include?('email') || (includes.include?('email') && !excludes.include?('personal_info') && context.grants_right?(current_user, session, :read_email_addresses))
         json[:email] = user.email
       end
 
-      if includes.include?('bio') && !excludes.include?('personal_info') && @domain_root_account.enable_profiles? && user.profile
-        json[:bio] = user.profile.bio
+      if !excludes.include?('personal_info') && @domain_root_account&.enable_profiles? && user.profile
+        json[:bio] = user.profile.bio if includes.include?('bio')
+        json[:title] = user.profile.title if includes.include?('title')
       end
 
       if includes.include?('sections')
@@ -100,6 +113,7 @@ module Api::V1::User
       end
 
       json[:locale] = user.locale if includes.include?('locale')
+      json[:effective_locale] = I18n.locale if includes.include?('effective_locale') && user == current_user
       json[:confirmation_url] = user.communication_channels.email.first.try(:confirmation_url) if includes.include?('confirmation_url')
 
       if includes.include?('last_login')
@@ -113,7 +127,7 @@ module Api::V1::User
       if includes.include?('permissions')
         json[:permissions] = {
           :can_update_name => user.user_can_edit_name?,
-          :can_update_avatar => service_enabled?(:avatars)
+          :can_update_avatar => service_enabled?(:avatars) && !user.avatar_locked?
         }
       end
 
@@ -130,8 +144,14 @@ module Api::V1::User
         json[:time_zone] = zone.name
       end
 
-      if includes.include?('lti_id')
-        json[:lti_id] = user.lti_context_id
+      if tool_includes.include?('lti_id') || includes.include?('lti_id')
+        json[:lti_id] = Lti::Asset.old_id_for_user_in_context(user, context) || user.lti_context_id
+      end
+
+      if includes.include?('uuid')
+        past_uuid = UserPastLtiId.uuid_for_user_in_context(user, context)
+        json[:past_uuid] = past_uuid unless past_uuid == user.uuid
+        json[:uuid] = user.uuid
       end
     end
   end
@@ -145,6 +165,11 @@ module Api::V1::User
     if includes.include?('group_ids') && !context.is_a?(Groups)
       ActiveRecord::Associations::Preloader.new.preload(context, :groups)
     end
+
+    if includes.include?('email') && !excludes.include?('personal_info') && context.grants_right?(current_user, session, :read_email_addresses)
+      ActiveRecord::Associations::Preloader.new.preload(users, :communication_channels)
+    end
+    ActiveRecord::Associations::Preloader.new.preload(users, :pseudonyms)
 
     users.map{ |user| user_json(user, current_user, session, includes, context, enrollments, excludes) }
   end
@@ -162,7 +187,7 @@ module Api::V1::User
   #
   # if parent_context is :profile, the html_url will always be the user's
   # public profile url, regardless of @current_user permissions
-  def user_display_json(user, parent_context = nil)
+  def user_display_json(user, parent_context = nil, includes = [])
     return {} unless user
     participant_url = case parent_context
       when :profile
@@ -175,9 +200,11 @@ module Api::V1::User
     hash = {
       id: user.id,
       display_name: user.short_name,
-      avatar_image_url: avatar_url_for_user(user, blank_fallback),
-      html_url: participant_url
+      avatar_image_url: avatar_url_for_user(user),
+      html_url: participant_url,
+      pronouns: user.pronouns
     }
+    hash[:avatar_is_fallback] = user.avatar_image_url.nil? if includes.include?(:avatar_is_fallback) && avatars_enabled_for_user?(user)
     hash[:fake_student] = true if user.fake_student?
     hash
   end
@@ -202,7 +229,7 @@ module Api::V1::User
         permissions_account = context.is_a?(Account) ? context : context.account
       end
       !!(
-        permissions_context.grants_any_right?(current_user, :manage_students, :read_sis) ||
+        permissions_context.grants_any_right?(current_user, :manage_students, :read_sis, :view_user_logins) ||
         permissions_account.membership_for_user(current_user) ||
         permissions_account.root_account.grants_right?(current_user, :manage_sis)
       )
@@ -247,24 +274,23 @@ module Api::V1::User
         json[:course_integration_id] = enrollment.course.integration_id
         json[:sis_section_id] = enrollment.course_section.sis_source_id
         json[:section_integration_id] = enrollment.course_section.integration_id
-        pseudonym = opts.key?(:sis_pseudonym) ? opts[:sis_pseudonym] : sis_pseudonym_for(enrollment.user, enrollment)
+        pseudonym = opts.key?(:sis_pseudonym) ? opts[:sis_pseudonym] : SisPseudonym.for(enrollment.user, enrollment, type: :trusted, root_account: @domain_root_account)
         json[:sis_user_id] = pseudonym.try(:sis_user_id)
       end
       json[:html_url] = course_user_url(enrollment.course_id, enrollment.user_id)
-      user_includes = includes.include?('avatar_url') ? ['avatar_url'] : []
-      user_includes << 'group_ids' if includes.include?('group_ids')
+      user_includes = includes & %w{avatar_url group_ids uuid}
 
       json[:user] = user_json(enrollment.user, user, session, user_includes, @context, nil, []) if includes.include?(:user)
       if includes.include?('locked')
         lockedbysis = enrollment.defined_by_sis?
-        lockedbysis &&= !enrollment.course.account.grants_right?(@current_user, session, :manage_account_settings)
+        lockedbysis &&= !enrollment.course.account.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis)
         json[:locked] = lockedbysis
       end
       if includes.include?('observed_users') && enrollment.observer? && enrollment.associated_user && !enrollment.associated_user.deleted?
         json[:observed_user] = user_json(enrollment.associated_user, user, session, user_includes, @context, enrollment.associated_user.not_ended_enrollments.all_student.shard(enrollment).where(:course_id => enrollment.course_id))
       end
       if includes.include?('can_be_removed')
-        json[:can_be_removed] = (!enrollment.defined_by_sis? || context.grants_right?(@current_user, session, :manage_account_settings)) &&
+        json[:can_be_removed] = (!enrollment.defined_by_sis? || context.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis)) &&
                                   enrollment.can_be_deleted_by(@current_user, @context, session)
       end
     end
@@ -282,17 +308,27 @@ module Api::V1::User
       period = grading_period(enrollment.course, opts)
       score_opts = period ? { grading_period_id: period.id } : Score.params_for_course
 
-      grades[:current_score] = enrollment.computed_current_score(score_opts)
-      grades[:current_grade] = enrollment.computed_current_grade(score_opts)
-      grades[:final_score]   = enrollment.computed_final_score(score_opts)
-      grades[:final_grade]   = enrollment.computed_final_grade(score_opts)
       grades[:grading_period_id] = period&.id if opts[:current_grading_period_scores]
 
       if course.grants_any_right?(user, :manage_grades, :view_all_grades)
+        override_grade = enrollment.override_grade(score_opts)
+        override_score = enrollment.override_score(score_opts)
+
+        grades[:current_grade] = enrollment.computed_current_grade(score_opts)
+        grades[:current_score] = enrollment.computed_current_score(score_opts)
+        grades[:final_grade]   = enrollment.computed_final_grade(score_opts)
+        grades[:final_score]   = enrollment.computed_final_score(score_opts)
+        grades[:override_grade] = override_grade if override_grade.present?
+        grades[:override_score] = override_score if override_score.present?
         grades[:unposted_current_score] = enrollment.unposted_current_score(score_opts)
         grades[:unposted_current_grade] = enrollment.unposted_current_grade(score_opts)
         grades[:unposted_final_score]   = enrollment.unposted_final_score(score_opts)
         grades[:unposted_final_grade]   = enrollment.unposted_final_grade(score_opts)
+      else
+        grades[:current_grade] = enrollment.effective_current_grade(score_opts)
+        grades[:current_score] = enrollment.effective_current_score(score_opts)
+        grades[:final_grade]   = enrollment.effective_final_grade(score_opts)
+        grades[:final_score]   = enrollment.effective_final_score(score_opts)
       end
     end
     grades
@@ -335,15 +371,11 @@ module Api::V1::User
     sis_id_context(context).grants_right?(user, :read_sis) || @domain_root_account.grants_right?(user, :manage_sis)
   end
 
-  def sis_pseudonym_for(user, context=@domain_root_account)
-    SisPseudonym.for(user, context, type: :trusted)
-  end
-
   def group_ids(user)
     if user.group_memberships.loaded?
-      user.group_memberships.map(&:group_id)
+      user.group_memberships.reject(&:deleted?).map(&:group_id)
     else
-      user.group_memberships.pluck(:group_id)
+      user.group_memberships.active.pluck(:group_id)
     end
   end
 end

@@ -26,10 +26,9 @@ import Progress from 'compiled/models/Progress'
 import customTypes from './PropTypes'
 import submitHtmlForm from './submitHtmlForm'
 import SaveThemeButton from './SaveThemeButton'
-import ThemeEditorAccordion from './ThemeEditorAccordion'
-import ThemeEditorFileUpload from './ThemeEditorFileUpload'
 import ThemeEditorModal from './ThemeEditorModal'
 import ThemeEditorSidebar from './ThemeEditorSidebar'
+import getCookie from '../shared/helpers/getCookie'
 
 /* eslint no-alert:0 */
 const TABS = [
@@ -47,7 +46,12 @@ const TABS = [
   }
 ]
 
-const OVERRIDE_FILE_KEYS = ['js_overrides', 'css_overrides', 'mobile_js_overrides', 'mobile_css_overrides'];
+const OVERRIDE_FILE_KEYS = [
+  'js_overrides',
+  'css_overrides',
+  'mobile_js_overrides',
+  'mobile_css_overrides'
+]
 
 function findVarDef(variableSchema, variableName) {
   for (let i = 0; i < variableSchema.length; i++) {
@@ -99,9 +103,9 @@ export default class ThemeEditor extends React.Component {
       themeStore: {
         properties: {...this.originalThemeProperties},
         files: OVERRIDE_FILE_KEYS.map(key => ({
-            customFileUpload: true,
-            variable_name: key,
-            value: this.originalThemeOverrides[key]
+          customFileUpload: true,
+          variable_name: key,
+          value: this.originalThemeOverrides[key]
         }))
       },
       changedValues: {},
@@ -118,9 +122,8 @@ export default class ThemeEditor extends React.Component {
   }
 
   onSubAccountProgress = data => {
-    const newSubAccountProgs = _.map(
-      this.state.activeSubAccountProgresses,
-      progress => (progress.tag == data.tag ? data : progress)
+    const newSubAccountProgs = _.map(this.state.activeSubAccountProgresses, progress =>
+      progress.tag == data.tag ? data : progress
     )
 
     this.filterAndSetActive(newSubAccountProgs)
@@ -175,13 +178,12 @@ export default class ThemeEditor extends React.Component {
       if (opts.customFileUpload) {
         fileStorageObject.customFileUpload = true
       }
-      const index = files.findIndex(x => x.variable_name === key);
+      const index = files.findIndex(x => x.variable_name === key)
       if (index !== -1) {
-        files[index] = fileStorageObject;
+        files[index] = fileStorageObject
       } else {
-        files.push(fileStorageObject);
+        files.push(fileStorageObject)
       }
-
     } else {
       properties = {
         ...properties,
@@ -248,7 +250,7 @@ export default class ThemeEditor extends React.Component {
   handleCancelClicked = () => {
     if (this.somethingHasChanged() || !this.displayedMatchesSaved()) {
       const msg = I18n.t(
-        'You are about to lose any unsaved changes.\n\n' + 'Would you still like to proceed?'
+        'You are about to lose any unsaved changes.\n\nWould you still like to proceed?'
       )
       if (!window.confirm(msg)) return
     }
@@ -277,21 +279,31 @@ export default class ThemeEditor extends React.Component {
     Object.keys(properties).forEach(k => {
       const defaultVal = this.getSchemaDefault(k)
       if (properties[k] !== defaultVal && properties[k] && properties[k][0] !== '$') {
+        // xsslint safeString.identifier k properties[k]
+        // xsslint safeString.property k
         processedData.append(`brand_config[variables][${k}]`, properties[k])
-      } else {
-        processedData.append(`brand_config[variables][${k}]`, defaultVal)
       }
     })
     files.forEach(f => {
       const keyName = f.customFileUpload
         ? f.variable_name
         : `brand_config[variables][${f.variable_name}]`
-      processedData.append(keyName, f.value)
-    });
+      if (!f.customFileUpload || (f.customFileUpload && f.value != null)) {
+        // xsslint safeString.identifier keyName
+        // xsslint safeString.property value
+        processedData.append(keyName, f.value)
+      }
+    })
     // We need to make sure that these are present with the upload
     OVERRIDE_FILE_KEYS.forEach(name => {
-      if (!processedData.has(name) || processedData.get(name) === 'undefined') {
-        processedData.append(name, this.props.brandConfig[name] || '');
+      if (
+        !processedData.has(name) ||
+        processedData.get(name) === 'undefined' ||
+        processedData.get(name) === 'null'
+      ) {
+        // xsslint safeString.identifier name
+        // xsslint safeString.property name
+        processedData.append(name, this.props.brandConfig[name] || '')
       }
     })
     return processedData
@@ -501,7 +513,7 @@ export default class ThemeEditor extends React.Component {
           className="Theme__container"
         >
           <input name="utf8" type="hidden" value="✓" />
-          <input name="authenticity_token" type="hidden" value={$.cookie('_csrf_token')} />
+          <input name="authenticity_token" type="hidden" value={getCookie('_csrf_token')} />
 
           <div
             className={`Theme__layout ${!this.props.hasUnsavedChanges &&
@@ -537,7 +549,6 @@ export default class ThemeEditor extends React.Component {
               ) : null}
               <iframe
                 id="previewIframe"
-                ref="previewIframe"
                 src={`/accounts/${this.props.accountID}/theme-preview/?editing_brand_config=1`}
                 title={I18n.t('Preview')}
                 aria-hidden={this.somethingHasChanged()}
@@ -545,10 +556,6 @@ export default class ThemeEditor extends React.Component {
               />
             </div>
           </div>
-          {/* Workaround to avoid corrupted XHR2 request body in IE10 / IE11,
-                needs to be last element in <form>. see:
-                https://blog.yorkxin.org/posts/2014/02/06/ajax-with-formdata-is-broken-on-ie10-ie11/ */}
-          <input type="hidden" name="_workaround_for_IE_10_and_11_formdata_bug" />
           {this.renderHeader(tooltipForWhyApplyIsDisabled)}
         </form>
 

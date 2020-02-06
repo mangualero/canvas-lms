@@ -21,6 +21,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../spec_helper')
 describe EportfolioCategoriesController do
   before :once do
     eportfolio_with_user(:active_all => true)
+    @user.account_users.create!(account: Account.default, role: student_role)
   end
 
   def eportfolio_category
@@ -33,41 +34,118 @@ describe EportfolioCategoriesController do
       expect(response).to be_redirect
     end
   end
-  
+
   describe "GET 'show'" do
     before(:once) { eportfolio_category }
     it "should require authorization" do
       get 'show', params: {:eportfolio_id => @portfolio.id, :id => 1}
       assert_unauthorized
     end
-    
+
     it "should assign variables" do
       user_session(@user)
       get 'show', params: {:eportfolio_id => @portfolio.id, :id => @category.id}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:portfolio]).not_to be_nil
       expect(assigns[:portfolio]).to eql(@portfolio)
       expect(assigns[:category]).not_to be_nil
       expect(assigns[:category]).to eql(@category)
     end
-    
+
     it "should responsd to named category request" do
       user_session(@user)
       get 'show', params: {:eportfolio_id => @portfolio.id, :category_name => @category.slug}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:portfolio]).not_to be_nil
       expect(assigns[:portfolio]).to eql(@portfolio)
       expect(assigns[:category]).not_to be_nil
       expect(assigns[:category]).to eql(@category)
     end
+
+    context "spam eportfolios" do
+      before(:once) do
+        @portfolio.user.account.enable_feature!(:eportfolio_moderation)
+        @portfolio.update!(public: true)
+        @portfolio.eportfolio_entries.create!(eportfolio_category: @category, name: 'new page')
+      end
+
+      context "when the user is the author of the eportfolio" do
+        it "renders the category when the eportfolio is spam" do
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          user_session(@user)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          expect(response.status).to eq(200)
+        end
+      end
+
+      context "when the user is a non-admin, non-author of the eportfolio" do
+        before(:once) do
+          @other_user = user_model
+          @other_user.account_users.create!(account: Account.default, role: student_role)
+        end
+
+        it "is unauthorized when the eportfolio is spam" do
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          user_session(@other_user)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          assert_unauthorized
+        end
+
+        it "renders the category when the eportfolio is spam but the release flag is disabled" do
+          @portfolio.user.account.disable_feature!(:eportfolio_moderation)
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          user_session(@other_user)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          expect(response.status).to eq(200)
+        end
+      end
+
+      context "when the user is an admin" do
+        before(:once) do
+          @admin = account_admin_user
+        end
+
+        it "renders the category when the eportfolio is spam and the admin has :moderate_user_content permissions" do
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          Account.default.role_overrides.create!(role: admin_role, enabled: true, permission: :moderate_user_content)
+          user_session(@admin)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          expect(response.status).to eq(200)
+        end
+
+        it "is unauthorized when the eportfolio is spam and the admin does not have :moderate_user_content permissions" do
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          Account.default.role_overrides.create!(role: admin_role, enabled: false, permission: :moderate_user_content)
+          user_session(@admin)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          assert_unauthorized
+        end
+
+        it "renders the category when the eportfolio is spam and the admin does not have " \
+        ":moderate_user_content permissions and the release flag is disabled" do
+          @portfolio.user.account.disable_feature!(:eportfolio_moderation)
+          @portfolio.update!(spam_status: 'marked_as_spam')
+          Account.default.role_overrides.create!(role: admin_role, enabled: false, permission: :moderate_user_content)
+          user_session(@admin)
+          get :show, params: { eportfolio_id: @portfolio.id, category_name: @category.slug }
+
+          expect(response.status).to eq(200)
+        end
+      end
+    end
   end
-  
+
   describe "POST 'create'" do
     it "should require authorization" do
       post 'create', params: {:eportfolio_id => @portfolio.id, :eportfolio_category => {:name => "some portfolio"}}
       assert_unauthorized
     end
-    
+
     it "should create eportfolio category" do
       user_session(@user)
       post 'create', params: {:eportfolio_id => @portfolio.id, :eportfolio_category => {:name => "some category"}}
@@ -76,14 +154,14 @@ describe EportfolioCategoriesController do
       expect(assigns[:category].name).to eql("some category")
     end
   end
-  
+
   describe "PUT 'update'" do
     before(:once) { eportfolio_category }
     it "should require authorization" do
       put 'update', params: {:eportfolio_id => @portfolio.id, :id => @category.id, :eportfolio_category => {:name => "new name" }}
       assert_unauthorized
     end
-    
+
     it "should update eportfolio category" do
       user_session(@user)
       put 'update', params: {:eportfolio_id => @portfolio.id, :id => @category.id, :eportfolio_category => {:name => "new name" }}
@@ -91,14 +169,14 @@ describe EportfolioCategoriesController do
       expect(assigns[:category]).to eql(@category)
     end
   end
-  
+
   describe "DELETE 'destroy'" do
     before(:once) { eportfolio_category }
     it "should require authorization" do
       delete 'destroy', params: {:eportfolio_id => @portfolio.id, :id => @category.id}
       assert_unauthorized
     end
-    
+
     it "should delete eportfolio category" do
       user_session(@user)
       delete 'destroy', params: {:eportfolio_id => @portfolio.id, :id => @category.id}

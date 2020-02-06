@@ -56,10 +56,10 @@ test('should be accessible', assert => {
   assertions.isAccessible(view, done, {a11yReport: true})
 })
 
-test('it should delete a group without assignments', function() {
-  this.stub(window, 'confirm').returns(true)
+test('it should delete a group without assignments', () => {
+  sandbox.stub(window, 'confirm').returns(true)
   const view = createView(false, true)
-  this.stub(view, 'destroyModel')
+  sandbox.stub(view, 'destroyModel')
   view.render()
   view.open()
   ok(window.confirm.called)
@@ -88,20 +88,41 @@ test('assignment and ag counts should update', () => {
   return view.close()
 })
 
-test('it should delete a group with assignments', function() {
-  const destroy_stub = this.stub(DeleteGroupView.prototype, 'destroy')
+test('it should delete a group with assignments', () => {
   const view = createView(true, true)
+  const destroy_spy = sandbox.stub(view, 'destroyModel').returns($.Deferred().resolve())
   view.render()
   view.open()
   view.$('.delete_group').click()
-  ok(destroy_stub.called)
+  ok(destroy_spy.called)
   return view.close()
 })
 
-test('it should not delete the last assignment group', function() {
-  const alert_stub = this.stub(window, 'alert').returns(true)
+test('it validates that an assignment group to move to is selected', () => {
+  const view = createView(true, true)
+  view.render()
+  view.open()
+  view.$('.assignment_group_move').click()
+  const errors = view.validateFormData(view.getFormData())
+  equal(errors.move_assignments_to[0].type, 'required')
+})
+
+test('it should move assignments to another group', () => {
+  const view = createView(true, true)
+  const destroy_spy = sandbox.stub(view, 'destroyModel').returns($.Deferred().resolve())
+  view.render()
+  view.open()
+  view.$('.assignment_group_move').click()
+  view.$('select').val(2)
+  view.$('.delete_group').click()
+  ok(destroy_spy.called)
+  return view.close()
+})
+
+test('it should not delete the last assignment group', () => {
+  const alert_stub = sandbox.stub(window, 'alert').returns(true)
   const view = createView(true, false)
-  const destroy_spy = this.spy(view, 'destroyModel')
+  const destroy_spy = sandbox.spy(view, 'destroyModel')
   view.render()
   view.open()
   ok(alert_stub.called)

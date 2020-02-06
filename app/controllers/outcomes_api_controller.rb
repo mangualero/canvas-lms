@@ -89,7 +89,7 @@
 #         },
 #         "calculation_int": {
 #           "description": "this defines the variable value used by the calculation_method. included only if calculation_method uses it",
-#           "example": 75,
+#           "example": 65,
 #           "type": "integer"
 #         },
 #         "ratings": {
@@ -120,11 +120,51 @@
 #       }
 #     }
 #
+# @model OutcomeAlignment
+#     {
+#       "id": "OutcomeAlignment",
+#       "description": "",
+#       "properties": {
+#         "id": {
+#           "description": "the id of the aligned learning outcome.",
+#           "example": 1,
+#           "type": "integer"
+#         },
+#         "assignment_id": {
+#           "description": "the id of the aligned assignment (null for live assessments).",
+#           "example": 2,
+#           "type": "integer"
+#         },
+#         "assessment_id": {
+#           "description": "the id of the aligned live assessment (null for assignments).",
+#           "example": 3,
+#           "type": "integer"
+#         },
+#         "submission_types": {
+#           "description": "a string representing the different submission types of an aligned assignment.",
+#           "example": "online_text_entry,online_url",
+#           "type": "string"
+#         },
+#         "url": {
+#           "description": "the URL for the aligned assignment.",
+#           "example": "/courses/1/assignments/5",
+#           "type": "string"
+#         },
+#         "title": {
+#           "description": "the title of the aligned assignment.",
+#           "example": "Unit 1 test",
+#           "type": "string"
+#         }
+#       }
+#     }
+#
 class OutcomesApiController < ApplicationController
   include Api::V1::Outcome
+  include Outcomes::Enrollments
 
   before_action :require_user
-  before_action :get_outcome
+  before_action :get_outcome, except: :outcome_alignments
+  before_action :require_context, only: :outcome_alignments
 
   # @API Show an outcome
   #
@@ -194,7 +234,7 @@ class OutcomesApiController < ApplicationController
   #        -F 'vendor_guid=customid9001' \
   #        -F 'mastery_points=3' \
   #        -F 'calculation_method=decaying_average' \
-  #        -F 'calculation_int=75' \
+  #        -F 'calculation_int=65' \
   #        -F 'ratings[][description]=Exceeds Expectations' \
   #        -F 'ratings[][points]=5' \
   #        -F 'ratings[][description]=Meets Expectations' \
@@ -227,11 +267,84 @@ class OutcomesApiController < ApplicationController
     return unless authorized_action(@outcome, @current_user, :update)
 
     update_outcome_criterion(@outcome) if params[:mastery_points] || params[:ratings]
-    if @outcome.update_attributes(params.permit(*DIRECT_PARAMS))
+    if @outcome.update(params.permit(*DIRECT_PARAMS))
       render :json => outcome_json(@outcome, @current_user, session)
     else
       render :json => @outcome.errors, :status => :bad_request
     end
+  end
+
+  # @API Get aligned assignments for an outcome in a course for a particular student
+  #
+  # @argument course_id [Integer]
+  #   The id of the course
+  #
+  # @argument student_id [Integer]
+  #   The id of the student
+  #
+  # @returns [OutcomeAlignment]
+
+  def outcome_alignments
+    if !params[:student_id]
+      render json: { message: "student_id is required" }, status: :bad_request
+    else
+      course = Course.find(params[:course_id])
+      can_manage = course.grants_any_right?(@current_user, session, :manage_grades, :view_all_grades)
+      student_id = params[:student_id].to_i
+      verify_readable_grade_enrollments([student_id]) unless can_manage
+
+      assignment_states = ['deleted']
+      assignment_states << 'unpublished' unless can_manage
+      alignments = ActiveRecord::Base.connection.exec_query(ContentTag.active.for_context(course).learning_outcome_alignments.
+        select("content_tags.learning_outcome_id, content_tags.title, content_tags.content_id as assignment_id, assignments.submission_types").
+        joins("INNER JOIN #{Assignment.quoted_table_name} assignments ON assignments.id = content_tags.content_id AND content_tags.content_type = 'Assignment'").
+        joins("INNER JOIN #{Submission.quoted_table_name} submissions ON submissions.assignment_id = assignments.id AND submissions.user_id = #{student_id} AND submissions.workflow_state <> 'deleted'").
+        where('assignments.workflow_state NOT IN (?)', assignment_states).
+        to_sql).to_hash
+      alignments.each{|a| a[:url] = "#{polymorphic_url([course, :assignments])}/#{a['assignment_id']}"}
+
+      quizzes = Quizzes::Quiz.active
+      quizzes = quizzes.where("quizzes.workflow_state IN ('active', 'available')") unless can_manage
+      quizzes = quizzes.
+        select(:title, :id, :assignment_id).preload(:quiz_questions).
+        joins(assignment: :submissions).
+        where(context: course).
+        where("submissions.user_id = ?", student_id).
+        where("submissions.workflow_state <> 'deleted'")
+      quiz_alignments = quizzes.map do |quiz|
+        bank_ids = quiz.quiz_questions.map{ |qq| qq.assessment_question.try(:assessment_question_bank_id) }.compact.uniq
+        outcome_ids = ContentTag.active.where(content_id: bank_ids, content_type: "AssessmentQuestionBank", tag: "explicit_mastery").pluck(:learning_outcome_id)
+        outcome_ids.map do |id|
+          {
+            learning_outcome_id: id,
+            title: quiz.title,
+            assignment_id: quiz.assignment_id,
+            submission_types: 'online_quiz',
+            url: "#{polymorphic_url([course, :quizzes])}/#{quiz.id}"
+          }
+        end
+      end.flatten
+
+      live_assessments = LiveAssessments::Assessment.for_context(context).
+        joins(:submissions).
+        preload(:learning_outcome_alignments).
+        where(live_assessments_submissions: {user_id: student_id})
+      magic_marker_alignments = live_assessments.map do |la|
+        la.learning_outcome_alignments.map do |loa|
+          {
+            learning_outcome_id: loa.learning_outcome_id,
+            title: loa.title,
+            submission_types: 'magic_marker',
+            assessment_id: la.id
+          }
+        end
+      end.flatten
+      alignments.concat(quiz_alignments, magic_marker_alignments)
+
+      render :json => alignments
+    end
+  rescue ActiveRecord::RecordNotFound => e
+    render json: { message: e.message }, status: :not_found
   end
 
   protected
@@ -241,7 +354,7 @@ class OutcomesApiController < ApplicationController
   end
 
   def update_outcome_criterion(outcome)
-    criterion = outcome.data && outcome.data[:rubric_criterion]
+    criterion = outcome.rubric_criterion
     criterion ||= {}
     if params[:mastery_points]
       criterion[:mastery_points] = params[:mastery_points]

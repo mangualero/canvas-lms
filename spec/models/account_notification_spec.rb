@@ -106,6 +106,20 @@ describe AccountNotification do
       expect(unenrolled_notifications).not_to include(sub_account_announcement)
     end
 
+    it "should not care about announcements where user is not actively enrolled" do
+      params = {
+        subject: 'sub account notification',
+        account: @sub_account,
+        role_ids: [Role.get_built_in_role("StudentEnrollment").id]
+      }
+      sub_account_announcement = sub_account_notification(params)
+      enrollment = course_with_student(account: @sub_account, active_all: true)
+      enrollment.complete!
+      students_notifications = AccountNotification.for_user_and_account(@student, Account.default)
+      expect(students_notifications).to include(@announcement)
+      expect(students_notifications).to_not include(sub_account_announcement)
+    end
+
     it "should find announcements from parent accounts to sub-accounts where user is enrolled" do
       params = {
         subject: 'sub account notification',
@@ -182,17 +196,47 @@ describe AccountNotification do
       notes = AccountNotification.for_user_and_account(@user, Account.default)
       expect(notes).to include sub_announcement
       expect(notes).to include other_announcement
-      expect(notes).not_to include nother_announcement
+      expect(notes).to include nother_announcement
 
       other_notes = AccountNotification.for_user_and_account(@user, other_root_account)
       expect(other_notes).to include sub_announcement
       expect(other_notes).to include other_announcement
-      expect(other_notes).not_to include nother_announcement
+      expect(other_notes).to include nother_announcement
 
       nother_notes = AccountNotification.for_user_and_account(@user, nother_root_account)
       expect(nother_notes).to include sub_announcement
       expect(nother_notes).to include other_announcement
       expect(nother_notes).to include nother_announcement
+    end
+
+    it "still show sub-account announcements even if the course is unpublished" do
+      # because that makes sense i guess?
+      unpub_sub_announcement = sub_account_notification(subject: 'blah', account: @sub_account)
+      course_with_student(user: @user, account: @sub_account)
+
+      notes = AccountNotification.for_user_and_account(@user, Account.default)
+      expect(notes).to include unpub_sub_announcement
+    end
+
+    it "restricts to roles within the respective sub-accounts (even if within same root account)" do
+      course_with_teacher(user: @user, account: @sub_account, active_all: true)
+
+      other_sub_account = Account.default.sub_accounts.create!
+      course_with_student(user: @user, account: other_sub_account, active_all: true)
+      other_sub_announcement = sub_account_notification(subject: 'blah', account: other_sub_account,
+        role_ids: [Role.get_built_in_role("TeacherEnrollment").id])
+      # should not show to user because they're not a teacher in this subaccount
+
+      expect(AccountNotification.for_user_and_account(@user, Account.default)).to_not include(other_sub_announcement)
+    end
+
+    it "still shows to roles nested within the sub-accounts" do
+      sub_sub_account = @sub_account.sub_accounts.create!
+      course_with_teacher(user: @user, account: sub_sub_account, active_all: true)
+      sub_announcement = sub_account_notification(subject: 'blah', account: @sub_account,
+        role_ids: [Role.get_built_in_role("TeacherEnrollment").id])
+
+      expect(AccountNotification.for_user_and_account(@user, Account.default)).to include(sub_announcement)
     end
   end
 
@@ -278,6 +322,152 @@ describe AccountNotification do
         expect(AccountNotification.for_user_and_account(@student, @a1).map(&:id).sort).to eq [@survey.id]
         expect(AccountNotification.for_user_and_account(@student_teacher, @a1).map(&:id).sort).to eq [@survey.id]
         expect(AccountNotification.for_user_and_account(@unenrolled, @a1).map(&:id).sort).to eq [@survey.id]
+      end
+    end
+  end
+
+  context "sending messages" do
+    describe "applicable_user_ids" do
+      before :once do
+        @accounts = {}
+        @accounts[:sub1] = Account.default.sub_accounts.create!
+        @accounts[:sub1sub] =  @accounts[:sub1].sub_accounts.create!
+        @accounts[:sub2] = Account.default.sub_accounts.create!
+
+        @custom_admin_role = custom_account_role("customadmin")
+        @courses = {}
+        @account_admins = {}
+        @custom_admins = {}
+        @students = {}
+        @teachers = {}
+        @users = {}
+
+        # just make something for every account
+        @accounts.each do |k, account|
+          @account_admins[k] = account_admin_user(:active_all => true, :account => account)
+          @custom_admins[k] = account_admin_user(:active_all => true, :account => account, :role => @custom_admin_role)
+          @courses[k] = course_factory(:active_all => true, :account => account)
+          @teachers[k] = @courses[k].teachers.first
+          @students[k] = student_in_course(:active_all => true, :course => @courses[k]).user
+          @users[k] = [@account_admins[k], @custom_admins[k], @teachers[k], @students[k]]
+        end
+      end
+
+      it "should get all active users in a root account" do
+        an = account_notification(:account => Account.default)
+        expected_users = @users.values.flatten
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should get all active users in a sub account" do
+        an = account_notification(:account => @accounts[:sub1])
+        expected_users = @users[:sub1] + @users[:sub1sub]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should filter by course role" do
+        an = account_notification(:account => @accounts[:sub1], :role_ids => [teacher_role.id])
+        expected_users = [@teachers[:sub1], @teachers[:sub1sub]]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should filter by account role" do
+        an = account_notification(:account => @accounts[:sub2], :role_ids => [admin_role.id])
+        expect(an.applicable_user_ids).to eq [@account_admins[:sub2].id]
+      end
+
+      it "should filter by both types of roles together" do
+        an = account_notification(:account => @accounts[:sub1sub], :role_ids => [student_role.id, @custom_admin_role.id])
+        expected_users = [@students[:sub1sub], @custom_admins[:sub1sub]]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should exclude deleted admins" do
+        an = account_notification(:account => @accounts[:sub1sub])
+        deleted_admin = @account_admins[:sub1sub]
+        deleted_admin.account_users.first.destroy
+        expected_users = @users[:sub1sub] - [deleted_admin]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should exclude deleted enrollments" do
+        an = account_notification(:account => @accounts[:sub1sub])
+        deleted_student = @students[:sub1sub]
+        deleted_student.enrollments.first.destroy
+        expected_users = @users[:sub1sub] - [deleted_student]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+
+      it "should exclude deleted courses" do
+        an = account_notification(:account => @accounts[:sub1])
+        Course.where(:id => @courses[:sub1sub]).update_all(:workflow_state => "deleted")
+        expected_users = @users[:sub1] + @users[:sub1sub] - [@students[:sub1sub], @teachers[:sub1sub]]
+        expect(an.applicable_user_ids).to match_array(expected_users.map(&:id))
+      end
+    end
+
+    context "queue_message_broadcast" do
+      it "shouldn't let site admin account notifications even try" do
+        an = account_notification(:account => Account.site_admin)
+        an.send_message = true
+        expect(an).to_not be_valid
+        expect(an.errors[:send_message]).to eq ["Cannot send messages for site admin accounts"]
+      end
+
+      it "should queue a job to send_message when announcement starts" do
+        an = account_notification(:account => Account.default, :send_message => true,
+          :start_at => 1.day.from_now, :end_at => 2.days.from_now)
+        job = Delayed::Job.where(:tag => "AccountNotification#broadcast_messages").last
+        expect(job.strand).to include(an.global_id.to_s)
+        expect(job.run_at.to_i).to eq an.start_at.to_i
+      end
+
+      it "should not queue a job when saving an announcement that already had messages sent" do
+        an = account_notification(:account => Account.default)
+        an.messages_sent_at = 1.day.ago
+        an.send_message = true
+        expect { an.save! }.to change(Delayed::Job, :count).by(0)
+      end
+    end
+
+    context "broadcast_messages" do
+      it "should perform a sanity-check before" do
+        an = account_notification(:account => Account.default)
+        expect(an).to receive(:applicable_user_ids).never
+        an.broadcast_messages # send_message? not set
+
+        an.send_message = true
+        an.messages_sent_at = 1.day.ago
+        an.broadcast_messages # already sent
+
+        an.messages_sent_at = nil
+        an.start_at = 1.day.from_now
+        an.broadcast_messages # not started
+
+        an.start_at = 2.days.ago
+        an.end_at = 1.day.ago
+        an.broadcast_messages # already ended
+      end
+
+      def send_notification_args(user_ids)
+        [anything, anything, anything, user_ids.map{|id| "user_#{id}"}, anything]
+      end
+
+      it "should send messages out in batches" do
+        Notification.create!(:name => 'Account Notification', :category => "TestImmediately")
+
+        an = account_notification(:account => Account.default, :send_message => true, :role_ids => [student_role.id], :message => "wazzuuuuup")
+        user_ids = create_users(3, :active_all => true)
+        allow(an).to receive(:applicable_user_ids).and_return(user_ids)
+        Setting.set("account_notification_message_batch_size", 2) # split into 2 batches
+
+        expect(BroadcastPolicy.notifier).to receive(:send_notification).ordered.with(*send_notification_args(user_ids[0, 2])).and_call_original
+        expect(BroadcastPolicy.notifier).to receive(:send_notification).ordered.with(*send_notification_args(user_ids[2, 3])).and_call_original
+        an.broadcast_messages
+        messages = an.messages_sent["Account Notification"]
+        expect(messages.map(&:user_id)).to match_array(user_ids)
+        expect(messages.first.body).to include(an.message)
+        expect(an.reload.messages_sent_at).to be_present # hopefully shouldn't double-send accidentally
       end
     end
   end

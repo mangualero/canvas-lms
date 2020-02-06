@@ -18,7 +18,11 @@
 class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   include Canvas::GradeValidations
 
-  attr_writer :force_save
+  AUDITABLE_ATTRIBUTES = %w[
+    score grade graded_at final source_provisional_grade_id graded_anonymously scorer_id
+  ].freeze
+
+  attr_writer :force_save, :current_user
 
   belongs_to :submission, inverse_of: :provisional_grades
   belongs_to :scorer, class_name: 'User'
@@ -33,25 +37,29 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   validates :scorer, presence: true
   validates :submission, presence: true
 
-  before_create :must_be_final_or_student_in_need_of_provisional_grade
-  before_create :must_have_non_final_provisional_grade_to_create_final
+  before_create :must_be_final_or_student_in_need_of_provisional_grade,
+    :must_have_non_final_provisional_grade_to_create_final
 
   after_create :touch_graders # to update grading counts
-  after_save :touch_submission
-  after_save :remove_moderation_ignores
+  after_save :touch_submission, :remove_moderation_ignores
+
+  with_options if: :auditable? do
+    after_create :create_provisional_grade_created_event
+    after_update :create_provisional_grade_updated_event
+  end
 
   scope :scored_by, ->(scorer) { where(scorer_id: scorer) }
   scope :final, -> { where(:final => true)}
   scope :not_final, -> { where(:final => false)}
 
   def must_be_final_or_student_in_need_of_provisional_grade
-    if !self.final && !self.submission.assignment.student_needs_provisional_grade?(self.submission.user)
+    if final.blank? && !submission.assignment_can_be_moderated_grader?(scorer)
       raise(Assignment::GradeError, "Student already has the maximum number of provisional grades")
     end
   end
 
   def must_have_non_final_provisional_grade_to_create_final
-    if self.final && !self.submission.provisional_grades.not_final.exists?
+    if final.present? && submission.provisional_grades.not_final.empty?
       raise(Assignment::GradeError, "Cannot give a final mark for a student with no other provisional grades")
     end
   end
@@ -75,9 +83,17 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   end
 
   def grade_attributes
-    self.as_json(:only => [:grade, :score, :graded_at, :scorer_id, :final, :graded_anonymously],
-                 :methods => [:provisional_grade_id, :grade_matches_current_submission],
+    self.as_json(:only => ModeratedGrading::GRADE_ATTRIBUTES_ONLY,
+                 :methods => [:provisional_grade_id, :grade_matches_current_submission, :entered_score, :entered_grade],
                  :include_root => false)
+  end
+
+  def entered_score
+    score
+  end
+
+  def entered_grade
+    grade
   end
 
   def grade_matches_current_submission
@@ -100,9 +116,11 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
     self.submission.student
   end
 
-  def publish!
-    submission.grade_posting_in_progress = true
+  def publish!(skip_grade_calc: false)
+    original_skip_grade_calc = submission.skip_grade_calc
     previously_graded = submission.grade.present? || submission.excused?
+    submission.skip_grade_calc = skip_grade_calc
+    submission.grade_posting_in_progress = true
     submission.grade = grade
     submission.score = score
     submission.graded_anonymously = graded_anonymously
@@ -114,27 +132,7 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
     publish_rubric_assessments!
   ensure
     submission.grade_posting_in_progress = false
-  end
-
-  def copy_to_final_mark!(scorer)
-    final_mark = submission.find_or_create_provisional_grade!(
-      scorer,
-      score: self.score,
-      grade: self.grade,
-      force_save: true,
-      graded_anonymously: self.graded_anonymously,
-      final: true,
-      source_provisional_grade: self
-    )
-
-    final_mark.submission_comments.destroy_all
-    copy_submission_comments!(final_mark)
-
-    final_mark.rubric_assessments.destroy_all
-    copy_rubric_assessments!(final_mark)
-
-    final_mark.reload
-    final_mark
+    submission.skip_grade_calc = original_skip_grade_calc
   end
 
   def attachment_info(user, attachment)
@@ -154,10 +152,25 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
     }
   end
 
+  def auditable?
+    @current_user.present? &&
+      (destroyed? || saved_auditable_changes.present? || auditable_changes.present?) &&
+      submission.assignment_auditable?
+  end
+
   private
 
   def publish_submission_comments!
-    copy_submission_comments!(nil)
+    submission_comments.select(&:provisional_grade_id).each do |provisional_comment|
+      begin
+        comment = provisional_comment.dup
+        comment.grade_posting_in_progress = true
+        comment.provisional_grade_id = nil
+        comment.save!
+      ensure
+        comment.grade_posting_in_progress = false
+      end
+    end
   end
 
   def copy_submission_comments!(dest_provisional_grade)
@@ -169,30 +182,32 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
   end
 
   def publish_rubric_assessments!
-    copy_rubric_assessments!(submission)
-  end
+    self.rubric_assessments.each do |provisional_assessment|
+      rubric_association = provisional_assessment.rubric_association
 
-  def copy_rubric_assessments!(dest_artifact)
-    self.rubric_assessments.each do |prov_assmt|
-      assoc = prov_assmt.rubric_association
+      params = {
+        artifact: submission,
+        assessment_type: provisional_assessment.assessment_type
+      }
 
-      pub_assmt = nil
-      # see RubricAssociation#assess
-      if dest_artifact.is_a?(Submission)
-        if assoc.assessments_unique_per_asset?(prov_assmt.assessment_type)
-          pub_assmt = assoc.rubric_assessments.where(artifact_id: dest_artifact.id, artifact_type: dest_artifact.class_name,
-                                                     assessment_type: prov_assmt.assessment_type).first
-        else
-          pub_assmt = assoc.rubric_assessments.where(artifact_id: dest_artifact.id, artifact_type: dest_artifact.class_name,
-                                                     assessment_type: prov_assmt.assessment_type, assessor_id: prov_assmt.assessor).first
-        end
+      unless rubric_association.assessments_unique_per_asset?(provisional_assessment.assessment_type)
+        params = params.merge({assessor_id: provisional_assessment.assessor})
       end
-      pub_assmt ||= assoc.rubric_assessments.build(:assessor => prov_assmt.assessor, :artifact => dest_artifact,
-                                                   :user => self.student, :rubric => assoc.rubric, :assessment_type => prov_assmt.assessment_type)
-      pub_assmt.score = prov_assmt.score
-      pub_assmt.data = prov_assmt.data
 
-      pub_assmt.save!
+      rubric_assessment = rubric_association.rubric_assessments.find_by(params)
+      rubric_assessment ||= rubric_association.rubric_assessments.build(
+        params.merge(
+          assessor: provisional_assessment.assessor,
+          user: self.student,
+          rubric: rubric_association.rubric,
+        )
+      )
+
+      rubric_assessment.score = provisional_assessment.score
+      rubric_assessment.data = provisional_assessment.data
+      rubric_assessment.submission.grade_posting_in_progress = submission.grade_posting_in_progress
+
+      rubric_assessment.save!
     end
   end
 
@@ -204,5 +219,31 @@ class ModeratedGrading::ProvisionalGrade < ActiveRecord::Base
 
   def set_graded_at
     self.graded_at = Time.zone.now
+  end
+
+  def create_provisional_grade_created_event
+    create_audit_event(event_type: :provisional_grade_created, payload: slice([:id].concat(AUDITABLE_ATTRIBUTES)))
+  end
+
+  def create_provisional_grade_updated_event
+    create_audit_event(event_type: :provisional_grade_updated, payload: saved_auditable_changes.merge({id: id}))
+  end
+
+  def create_audit_event(event_type:, payload:)
+    AnonymousOrModerationEvent.create!(
+      assignment: submission.assignment,
+      submission: submission,
+      user: @current_user,
+      event_type: event_type,
+      payload: payload
+    )
+  end
+
+  def saved_auditable_changes
+    saved_changes.slice(*AUDITABLE_ATTRIBUTES)
+  end
+
+  def auditable_changes
+    changes.slice(*AUDITABLE_ATTRIBUTES)
   end
 end

@@ -21,7 +21,6 @@ import fakeENV from 'helpers/fakeENV'
 import Outcome from 'compiled/models/Outcome'
 import OutcomeView from 'compiled/views/outcomes/OutcomeView'
 import I18nStubber from 'helpers/I18nStubber'
-import tinymce from 'compiled/editor/stocktiny'
 
 const newOutcome = (outcomeOptions, outcomeLinkOptions) =>
   new Outcome(buildOutcome(outcomeOptions, outcomeLinkOptions), {parse: true})
@@ -65,7 +64,7 @@ function buildOutcome(outcomeOptions, outcomeLinkOptions) {
 
 function createView(opts) {
   const application = $('<div id="application" />') // app element for confirmation dialog
-  application.appendTo($("#fixtures"))
+  application.appendTo($('#fixtures'))
 
   const view = new OutcomeView(opts)
   view.$el.appendTo(application)
@@ -371,6 +370,12 @@ test('edit is enabled and warning text present when viewing an assessed account 
   view.remove()
 })
 
+test('warning text is not present if outcome view is read-only', () => {
+  const view = createView({model: newOutcome({assessed: true}, {}), readOnly: true})
+  notOk(view.$('.outcome-assessed-info-banner').length > 0)
+  view.remove()
+})
+
 test('delete button is not shown for outcomes that cannot be unlinked', () => {
   const view = createView({
     model: newOutcome(
@@ -473,9 +478,12 @@ test('the banner is not displayed when the outcome is not assessed', () => {
   ok(!view.$('#assessed_info_banner').length > 0)
 })
 
-test('it attempts a confirmation dialog when an outcome is modified', (assert) => {
+test('it attempts a confirmation dialog when an outcome is modified', assert => {
   const done = assert.async()
-  const view = createView({ model: newOutcome({assessed: true, native: true}, {can_unlink: true}), state: 'edit'})
+  const view = createView({
+    model: newOutcome({assessed: true, native: true}, {can_unlink: true}),
+    state: 'edit'
+  })
   view.edit($.Event())
   changeSelectedCalcMethod(view, 'latest')
   view.$('form').trigger('submit')
@@ -488,9 +496,12 @@ test('it attempts a confirmation dialog when an outcome is modified', (assert) =
   })
 })
 
-test('it saves when without dialog when outcome is unchanged', (assert) => {
+test('it saves when without dialog when outcome is unchanged', assert => {
   const done = assert.async()
-  const view = createView({ model: newOutcome({assessed: true, native: true}, {can_unlink: true}), state: 'edit' })
+  const view = createView({
+    model: newOutcome({assessed: true, native: true}, {can_unlink: true}),
+    state: 'edit'
+  })
   view.edit($.Event())
   view.$('form').trigger('submit')
   view.on('submit', () => {
@@ -503,7 +514,7 @@ test('it saves when without dialog when outcome is unchanged', (assert) => {
 })
 
 test('getModifiedFields returns false for all fields when not modified', () => {
-  const view = createView({ model: newOutcome(), state: 'edit' })
+  const view = createView({model: newOutcome(), state: 'edit'})
   view.edit($.Event())
   const modified = view.getModifiedFields(view.getFormData())
   notOk(modified.masteryPoints)
@@ -512,14 +523,14 @@ test('getModifiedFields returns false for all fields when not modified', () => {
 })
 
 test('getModifiedFields returns true for calculation method when modified', () => {
-  const view = createView({ model: newOutcome(), state: 'edit' })
+  const view = createView({model: newOutcome(), state: 'edit'})
   view.edit($.Event())
   changeSelectedCalcMethod(view, 'latest')
   ok(view.getModifiedFields(view.getFormData()).scoringMethod)
 })
 
 test('getModifiedFields returns true for calculationInt when modified', () => {
-  const view = createView({ model: newOutcome(), state: 'edit' })
+  const view = createView({model: newOutcome(), state: 'edit'})
   view.edit($.Event())
   view.$('#calculation_int').val(2)
   view.$('#calculation_int').trigger('change')
@@ -527,7 +538,10 @@ test('getModifiedFields returns true for calculationInt when modified', () => {
 })
 
 test('getModifiedFields returns false when calculationInt changed but not used', () => {
-  const view = createView({ model: newOutcome({ calculation_method: 'latest', calculation_int: null }), state: 'edit' })
+  const view = createView({
+    model: newOutcome({calculation_method: 'latest', calculation_int: null}),
+    state: 'edit'
+  })
   view.edit($.Event())
   changeSelectedCalcMethod(view, 'decaying_average')
   view.$('#calculation_int').val(33)
@@ -537,7 +551,7 @@ test('getModifiedFields returns false when calculationInt changed but not used',
 })
 
 test('getModifiedFields returns true mastery points when modified', () => {
-  const view = createView({ model: newOutcome(), state: 'edit' })
+  const view = createView({model: newOutcome(), state: 'edit'})
   view.edit($.Event())
   view.$('.mastery_points').val(100)
   view.$('.mastery_points').trigger('keyup')

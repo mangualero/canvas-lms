@@ -66,6 +66,8 @@ class Quizzes::Quiz < ActiveRecord::Base
   before_save :build_assignment
   before_save :set_defaults
   after_save :update_assignment
+  before_save :check_if_needs_availability_cache_clear
+  after_save :clear_availability_cache
   after_save :touch_context
   after_save :regrade_if_published
 
@@ -119,7 +121,6 @@ class Quizzes::Quiz < ActiveRecord::Base
       self.show_correct_answers_last_attempt = false
     end
     self.scoring_policy = "keep_highest" if self.scoring_policy == nil
-    self.due_at ||= self.lock_at if self.lock_at.present?
     self.ip_filter = nil if self.ip_filter && self.ip_filter.strip.empty?
     if !self.available? && !self.survey?
       self.points_possible = self.current_points_possible
@@ -247,7 +248,7 @@ class Quizzes::Quiz < ActiveRecord::Base
       if e[:question_points]
         cnt += e[:pick_count]
       else
-        cnt += 1 unless e[:unsupported]
+        cnt += 1 unless e[:unsupported] || e[:question_type] == Quizzes::QuizQuestion::Q_TEXT_ONLY
       end
     end
 
@@ -323,8 +324,11 @@ class Quizzes::Quiz < ActiveRecord::Base
     end
   end
 
-  def update_cached_due_dates?
-    due_at_changed? || workflow_state_changed? || only_visible_to_overrides_changed?
+  def update_cached_due_dates?(next_quiz_type = nil)
+    due_at_changed? ||
+      workflow_state_changed? ||
+      only_visible_to_overrides_changed? ||
+      (assignment.nil? && next_quiz_type == 'assignment')
   end
 
   def assignment?
@@ -382,9 +386,8 @@ class Quizzes::Quiz < ActiveRecord::Base
     return false unless course.root_account.settings[:restrict_quiz_questions]
 
     if user.present?
-      quiz_eligibility = Quizzes::QuizEligibility.new(course: course, user: user)
-      user_in_active_section = quiz_eligibility.section_dates_currently_apply?
-      return false if user_in_active_section
+      user_sections = course.sections_visible_to(user).select(&:restrict_enrollments_to_section_dates)
+      return false if user_sections.present?
     end
 
     !!course.concluded?
@@ -444,7 +447,7 @@ class Quizzes::Quiz < ActiveRecord::Base
         unless deleted?
           a.workflow_state = self.published? ? 'published' : 'unpublished'
         end
-        @notify_of_update ||= a.workflow_state_changed? && a.published?
+        @notify_of_update = a.will_save_change_to_workflow_state? && a.published? unless defined?(@notify_of_update)
         a.notify_of_update = @notify_of_update
         a.mark_as_importing!(@importing_migration) if @importing_migration
         a.with_versioning(false) do
@@ -457,6 +460,18 @@ class Quizzes::Quiz < ActiveRecord::Base
   end
 
   protected :update_assignment
+
+  attr_reader :should_clear_availability_cache
+  def check_if_needs_availability_cache_clear
+    @should_clear_availability_cache ||= will_save_change_to_due_at? || will_save_change_to_lock_at? || will_save_change_to_unlock_at? || will_save_change_to_workflow_state?
+  end
+
+  def clear_availability_cache
+    if self.should_clear_availability_cache && !self.saved_by == :migration
+      self.clear_cache_key(:availability)
+      self.assignment.clear_cache_key(:availability) if self.assignment
+    end
+  end
 
   ##
   # when a quiz is updated, this method should be called to update the end_at
@@ -633,15 +648,9 @@ class Quizzes::Quiz < ActiveRecord::Base
     # Admins can take the full quiz whenever they want
     return end_at if user.is_a?(::User) && self.grants_right?(user, :grade)
 
-    can_take = Quizzes::QuizEligibility.new(course: self.context, quiz: self, user: submission.user)
-
-    fallback_end_at = if can_take.section_dates_currently_apply?
-      can_take.active_sections_max_end_at
-    elsif course.restrict_enrollments_to_course_dates
-      course.end_at || course.enrollment_term.end_at
-    else
-      course.enrollment_term.end_at
-    end
+    # We no longer use enrollment_term but get this info from enrollment_state
+    fallback_end_at = course.enrollments.for_user(user).active_by_date.
+      maximum('enrollment_states.state_valid_until')
 
     # set to lock date
     if lock_at && !submission.manually_unlocked
@@ -754,7 +763,7 @@ class Quizzes::Quiz < ActiveRecord::Base
   alias_method :to_s, :quiz_title
 
   def low_level_locked_for?(user, opts={})
-    ::Rails.cache.fetch(locked_cache_key(user), :expires_in => 1.minute) do
+    RequestCache.cache(locked_request_cache_key(user)) do
       user_submission = user && quiz_submissions.where(user_id: user.id).first
       return false if user_submission && user_submission.manually_unlocked
 
@@ -785,11 +794,6 @@ class Quizzes::Quiz < ActiveRecord::Base
     return false unless for_assignment?
 
     assignment.low_level_locked_for?(user, opts)
-  end
-
-  def clear_locked_cache(user)
-    super
-    Rails.cache.delete(assignment.locked_cache_key(user)) if self.for_assignment?
   end
 
   def context_module_action(user, action, points=nil)
@@ -923,10 +927,11 @@ class Quizzes::Quiz < ActiveRecord::Base
     end
   end
 
-  def statistics(include_all_versions = true)
+  def statistics(include_all_versions = true, includes_sis_ids = true)
     quiz_statistics.build(
       :report_type => 'student_analysis',
-      :includes_all_versions => include_all_versions
+      :includes_all_versions => include_all_versions,
+      :includes_sis_ids => includes_sis_ids
     ).report.generate
   end
 
@@ -937,9 +942,13 @@ class Quizzes::Quiz < ActiveRecord::Base
     # most recent), thus we say it always cares about all versions
     options[:includes_all_versions] = true if report_type == 'item_analysis'
 
+    # item analysis doesn't include sis ids
+    options[:includes_sis_ids] = false if report_type == 'item_analysis'
+
     quiz_stats_opts = {
       :report_type => report_type,
       :includes_all_versions => !!options[:includes_all_versions],
+      :includes_sis_ids => !!options[:includes_sis_ids],
       :anonymous => anonymous_submissions?
     }
 
@@ -1021,7 +1030,7 @@ class Quizzes::Quiz < ActiveRecord::Base
 
   set_policy do
     given { |user, session| self.context.grants_right?(user, session, :manage_assignments) } #admins.include? user }
-    can :read_statistics and can :manage and can :read and can :update and can :create and can :submit and can :preview
+    can :manage and can :read and can :update and can :create and can :submit and can :preview
 
     given do |user, session|
       self.context.grants_right?(user, session, :manage_assignments) &&
@@ -1094,24 +1103,24 @@ class Quizzes::Quiz < ActiveRecord::Base
     from("(WITH overrides AS (
           SELECT DISTINCT ON (o.quiz_id, o.user_id) *
           FROM (
-            SELECT ao.quiz_id, aos.user_id, ao.due_at, ao.due_at_overridden, 1 AS priority, ao.id AS override_id
+            SELECT ao.quiz_id, aos.user_id, ao.due_at, ao.due_at_overridden, 1 AS priority
             FROM #{AssignmentOverride.quoted_table_name} ao
             INNER JOIN #{AssignmentOverrideStudent.quoted_table_name} aos ON ao.id = aos.assignment_override_id AND ao.set_type = 'ADHOC'
             WHERE aos.user_id = #{User.connection.quote(user)}
               AND ao.workflow_state = 'active'
               AND aos.workflow_state <> 'deleted'
             UNION
-            SELECT ao.quiz_id, e.user_id, ao.due_at, ao.due_at_overridden, 1 AS priority, ao.id AS override_id
+            SELECT ao.quiz_id, e.user_id, ao.due_at, ao.due_at_overridden, 1 AS priority
             FROM #{AssignmentOverride.quoted_table_name} ao
             INNER JOIN #{Enrollment.quoted_table_name} e ON e.course_section_id = ao.set_id AND ao.set_type = 'CourseSection'
             WHERE e.user_id = #{User.connection.quote(user)}
-              AND e.workflow_state NOT IN ('rejected', 'deleted')
+              AND e.workflow_state NOT IN ('rejected', 'deleted', 'inactive')
               AND ao.workflow_state = 'active'
             UNION
-            SELECT q.id, e.user_id, q.due_at, FALSE as due_at_overridden, 2 AS priority, NULL as override_id
+            SELECT q.id, e.user_id, q.due_at, FALSE as due_at_overridden, 2 AS priority
             FROM #{Quizzes::Quiz.quoted_table_name} q
             INNER JOIN #{Enrollment.quoted_table_name} e ON e.course_id = q.context_id
-            WHERE e.workflow_state NOT IN ('rejected', 'deleted')
+            WHERE e.workflow_state NOT IN ('rejected', 'deleted', 'inactive')
               AND e.type in ('StudentEnrollment', 'StudentViewEnrollment')
               AND e.user_id = #{User.connection.quote(user)}
               AND q.assignment_id IS NULL
@@ -1417,6 +1426,10 @@ class Quizzes::Quiz < ActiveRecord::Base
     filters
   end
 
+  def anonymize_students?
+    assignment.present? && assignment.anonymize_students?
+  end
+
   def self.class_names
     %w(Quiz Quizzes::Quiz)
   end
@@ -1427,10 +1440,23 @@ class Quizzes::Quiz < ActiveRecord::Base
 
   def run_if_overrides_changed!
     self.relock_modules!
-    self.assignment.relock_modules! if self.assignment
+    self.clear_cache_key(:availability)
+    if self.assignment
+      self.assignment.clear_cache_key(:availability)
+      self.assignment.relock_modules!
+    end
   end
 
-  def run_if_overrides_changed_later!
-    self.send_later_if_production_enqueue_args(:run_if_overrides_changed!, {:singleton => "quiz_overrides_changed_#{self.global_id}"})
+  # Assignment#run_if_overrides_changed_later! uses its keyword arguments, but
+  # this method does not
+  def run_if_overrides_changed_later!(**)
+    self.send_later_if_production_enqueue_args(
+      :run_if_overrides_changed!,
+      {:singleton => "quiz_overrides_changed_#{self.global_id}"}
+    )
   end
+
+  # This alias exists to handle cases where a method that expects an
+  # Assignment is instead passed a quiz (e.g., Submission#submission_zip).
+  alias_attribute :anonymous_grading?, :anonymous_submissions
 end

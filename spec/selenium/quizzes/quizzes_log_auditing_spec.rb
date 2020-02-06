@@ -25,9 +25,13 @@ describe "quizzes log auditing" do
   include GroupsCommon
 
   context 'as a teacher' do
-    before do
-      course_with_teacher_logged_in
+    before :once do
+      course_with_teacher(active_user: true, active_enrollment: true, active_course: true)
       Account.default.enable_feature!(:quiz_log_auditing)
+    end
+
+    before :each do
+      user_session(@teacher)
     end
 
     context 'attempt numbers' do
@@ -41,7 +45,7 @@ describe "quizzes log auditing" do
       end
 
       context 'multiple attempts' do
-        before do
+        before :each do
           student = student_in_course(course: @course, name: 'student', active_all: true).user
           quiz_create
           @quiz.allowed_attempts = 2
@@ -69,7 +73,7 @@ describe "quizzes log auditing" do
     end
 
     context 'should list the attempt count for multiple attempts' do
-      before do
+      before :each do
         @quiz = @course.quizzes.create!(title: 'new quiz')
         @quiz.quiz_questions.create!(
             question_data: {
@@ -96,13 +100,14 @@ describe "quizzes log auditing" do
 
       it 'should show that a session had started and that it is has been read', priority: "2", test_id:605108 do
         skip_if_safari(:alert)
+        resize_screen_to_small
         scroll_page_to_bottom # the question viewed event is triggered by page scroll
         wait_for_ajax_requests
         submit_quiz
 
         sub = @quiz.quiz_submissions.where(:user_id => @student).first
         user_session(@teacher)
-
+        resize_screen_to_standard
         get "/courses/#{@course.id}/quizzes/#{@quiz.id}/submissions/#{sub.id}/log"
         expect(f('#ic-EventStream')).to include_text('Session started')
         expect(f('#ic-EventStream')).to include_text('Viewed (and possibly read)')

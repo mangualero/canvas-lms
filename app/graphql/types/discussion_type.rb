@@ -17,13 +17,14 @@
 #
 
 module Types
-  DiscussionType = GraphQL::ObjectType.define do
-    name "Discussion"
+  class DiscussionType < ApplicationObjectType
+    graphql_name "Discussion"
 
-    implements GraphQL::Relay::Node.interface
-    interfaces [Interfaces::TimestampInterface]
+    implements GraphQL::Types::Relay::Node
+    implements Interfaces::TimestampInterface
+    implements Interfaces::ModuleItemInterface
+    implements Interfaces::LegacyIDInterface
 
     global_id_field :id
-    field :_id, !types.ID, "legacy canvas id", property: :id
   end
 end

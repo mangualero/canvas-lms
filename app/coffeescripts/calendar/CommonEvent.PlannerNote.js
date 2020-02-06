@@ -18,7 +18,7 @@
 
 import I18n from 'i18n!calendar'
 import fcUtil from '../util/fcUtil'
-import CommonEvent from '../calendar/CommonEvent'
+import CommonEvent from './CommonEvent'
 import {extend} from '../legacyCoffeesScriptHelpers'
 import 'jquery.instructure_date_and_time'
 import 'jquery.instructure_misc_helpers'
@@ -42,7 +42,6 @@ Object.assign(PlannerNote.prototype, {
   // if we get here via a request for the list of notes (see EventDataSource), some of the
   // fields are already filled in, but if we get here because we just edited a planner_note
   // they are not.
-  /* eslint-disable no-param-reassign */
   copyDataFromObject(data) {
     data.type = 'planner_note'
     data.description = data.details
@@ -55,7 +54,7 @@ Object.assign(PlannerNote.prototype, {
     data.all_context_codes = data.context_code
 
     if (data.calendar_event) data = data.calendar_event
-    this.object = this.calendarEvent = data // eslint-disable-line no-multi-assign
+    this.object = this.calendarEvent = data
     if (data.id) this.id = `planner_note_${data.id}`
     this.title = data.title || 'Untitled'
     this.start = this.parseStartDate()

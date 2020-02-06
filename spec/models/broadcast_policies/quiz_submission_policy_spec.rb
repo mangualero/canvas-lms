@@ -22,33 +22,35 @@ module BroadcastPolicies
   describe QuizSubmissionPolicy do
 
     let(:course) do
-      double("Course", available?: true)
+      instance_double("Course", available?: true, id: 1, post_policies_enabled?: false)
     end
     let(:assignment) do
-      double("Assignment")
+      instance_double("Assignment", context: course)
     end
     let(:quiz) do
-      double("Quizzes::Quiz",
-             context_id: 1,
-             deleted?: false,
-             muted?: false,
-             context: course,
-             assignment: assignment,
-             survey?: false
+      double(
+        "Quizzes::Quiz",
+        context: course,
+        context_id: course.id,
+        deleted?: false,
+        muted?: false,
+        assignment: assignment,
+        survey?: false
       )
     end
     let(:submission) do
-      double("Submission", graded_at: Time.now)
+      instance_double("Submission", graded_at: Time.zone.now, posted?: true)
     end
     let(:enrollment) do
-      double("Enrollment", course_id: 1)
+      double("Enrollment", course_id: course.id, inactive?: false)
     end
     let(:user) do
-      double("User", student_enrollments: [enrollment])
+      double("User", not_removed_enrollments: double('enrollments', where: [enrollment]))
     end
     let(:quiz_submission) do
       double("Quizzes::QuizSubmission",
              quiz: quiz,
+             posted?: true,
              submission: submission,
              user: user,
              context: course
@@ -80,8 +82,8 @@ module BroadcastPolicies
       specify { wont_send_when { allow(quiz).to receive(:muted?).and_return true } }
       specify { wont_send_when { allow(course).to receive(:available?).and_return false} }
       specify { wont_send_when { allow(quiz).to receive(:deleted?).and_return true } }
-      specify { wont_send_when { allow(enrollment).to receive(:course_id).and_return 2 } }
       specify { wont_send_when { allow(quiz_submission).to receive(:user).and_return nil } }
+      specify { wont_send_when { allow(user.not_removed_enrollments).to receive(:where).and_return([]) }}
 
       specify do
         wont_send_when do
@@ -89,10 +91,19 @@ module BroadcastPolicies
         end
       end
 
+      context "with post policies" do
+        before { allow(course).to receive(:post_policies_enabled?).and_return true }
+
+        it 'is true when the dependent inputs are true' do
+          expect(policy).to be_should_dispatch_submission_graded
+        end
+      end
     end
 
     describe '#should_dispatch_submission_needs_grading?' do
-      before { allow(quiz_submission).to receive(:pending_review?).and_return true }
+      before do
+        allow(quiz_submission).to receive(:changed_state_to).with(:pending_review).and_return true
+      end
       def wont_send_when
         yield
         expect(policy.should_dispatch_submission_needs_grading?).to be_falsey
@@ -103,18 +114,21 @@ module BroadcastPolicies
       end
 
       it "is true when quiz is muted" do
-        allow(quiz_submission).to receive(:pending_review?).and_return true
         allow(quiz).to receive(:muted?).and_return true
         expect(policy.should_dispatch_submission_needs_grading?).to eq true
       end
 
-      specify { wont_send_when { allow(quiz_submission).to receive(:pending_review?).and_return false } }
       specify { wont_send_when { allow(quiz).to receive(:assignment).and_return nil } }
       specify { wont_send_when { allow(quiz).to receive(:survey?).and_return true} }
       specify { wont_send_when { allow(course).to receive(:available?).and_return false} }
       specify { wont_send_when { allow(quiz).to receive(:deleted?).and_return true } }
-
       specify { wont_send_when { allow(policy).to receive(:user_has_visibility?).and_return(false) }}
+
+      specify do
+        wont_send_when do
+          allow(quiz_submission).to receive(:changed_state_to).with(:pending_review).and_return false
+        end
+      end
     end
 
 
@@ -139,11 +153,22 @@ module BroadcastPolicies
       specify { wont_send_when { allow(quiz).to receive(:deleted?).and_return true } }
       specify { wont_send_when { allow(submission).to receive(:graded_at).and_return nil }}
       specify { wont_send_when { allow(policy).to receive(:user_has_visibility?).and_return(false) }}
+      specify { wont_send_when { allow(user.not_removed_enrollments).to receive(:where).and_return([]) }}
 
       specify do
         wont_send_when do
           allow(quiz_submission).to receive(:changed_in_state).
             with(:complete, :fields => [:score]).and_return false
+        end
+      end
+
+      context "with post policies" do
+        before { allow(course).to receive(:post_policies_enabled?).and_return true }
+
+        specify { wont_send_when { allow(quiz_submission).to receive(:posted?).and_return false } }
+
+        it 'is true when the dependent inputs are true' do
+          expect(policy).to be_should_dispatch_submission_grade_changed
         end
       end
     end

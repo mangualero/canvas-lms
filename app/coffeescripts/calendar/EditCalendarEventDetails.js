@@ -26,10 +26,10 @@ import 'jquery.instructure_date_and_time'
 import 'jquery.instructure_forms'
 import 'jquery.instructure_misc_helpers'
 import 'vendor/date'
-import commonEventFactory from '../calendar/commonEventFactory'
+import commonEventFactory from './commonEventFactory'
 import coupleTimeFields from '../util/coupleTimeFields'
 import fcUtil from '../util/fcUtil'
-import '../calendar/fcMomentHandlebarsHelpers'
+import './fcMomentHandlebarsHelpers'
 
 export default class EditCalendarEventDetails {
   constructor(selector, event, contextChangeCB, closeCB) {
@@ -43,7 +43,8 @@ export default class EditCalendarEventDetails {
         contexts: this.event.possibleContexts(),
         lockedTitle: this.event.lockedTitle,
         location_name: this.event.location_name,
-        date: this.event.startDate()
+        date: this.event.startDate(),
+        is_child: this.event.object.parent_event_id != null
       })
     )
     $(selector).append(this.$form)
@@ -51,9 +52,9 @@ export default class EditCalendarEventDetails {
     this.setupTimeAndDatePickers()
 
     this.$form.submit(this.formSubmit)
-    this.$form.find('.more_options_link').click(this.moreOptionsClick)
-    this.$form.find('select.context_id').change(this.contextChange)
-    this.$form.find('#duplicate_event').change(this.duplicateCheckboxChanged)
+    this.$form.find('.more_options_link').click(this.moreOptionsClick.bind(this))
+    this.$form.find('select.context_id').change(this.contextChange.bind(this))
+    this.$form.find('#duplicate_event').change(this.duplicateCheckboxChanged.bind(this))
     this.$form.find('select.context_id').triggerHandler('change', false)
 
     // show context select if the event allows moving between calendars

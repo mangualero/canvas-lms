@@ -16,36 +16,29 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { mount, ReactWrapper } from 'enzyme';
-import SubmissionCommentCreateForm from 'jsx/gradezilla/default_gradebook/components/SubmissionCommentCreateForm';
-import SubmissionTray from 'jsx/gradezilla/default_gradebook/components/SubmissionTray';
+import React from 'react'
+import {mount, shallow} from 'enzyme'
+
+import SubmissionTray from 'jsx/gradezilla/default_gradebook/components/SubmissionTray'
+import GradeInputDriver from './GradeInput/GradeInputDriver'
 
 /* eslint qunit/no-identical-names: 0 */
 
-QUnit.module('SubmissionTray', function (hooks) {
-  let clock;
-  let content;
-  let wrapper;
+QUnit.module('SubmissionTray', hooks => {
+  let defaultProps
+  let clock
+  let content
+  let wrapper
 
-  hooks.beforeEach(function () {
-    const applicationElement = document.createElement('div');
-    applicationElement.id = 'application';
-    document.getElementById('fixtures').appendChild(applicationElement);
-    clock = sinon.useFakeTimers();
-  });
+  hooks.beforeEach(() => {
+    const applicationElement = document.createElement('div')
+    applicationElement.id = 'application'
+    document.getElementById('fixtures').appendChild(applicationElement)
+    clock = sinon.useFakeTimers()
 
-  hooks.afterEach(function () {
-    wrapper.unmount();
-    document.getElementById('fixtures').innerHTML = '';
-    clock.restore();
-  });
-
-  function mountComponent (props) {
-    const defaultProps = {
-      anonymousModeratedMarkingEnabled: false,
-      contentRef (ref) {
-        content = ref;
+    defaultProps = {
+      contentRef(ref) {
+        content = ref
       },
       colors: {
         late: '#FEF7E5',
@@ -53,18 +46,21 @@ QUnit.module('SubmissionTray', function (hooks) {
         excused: '#E5F3FC'
       },
       editedCommentId: null,
-      editSubmissionComment () {},
+      editSubmissionComment() {},
       enterGradesAs: 'points',
       gradingDisabled: false,
-      gradingScheme: [['A', 0.90], ['B+', 0.85], ['B', 0.80], ['B-', 0.75]],
+      gradingScheme: [['A', 0.9], ['B+', 0.85], ['B', 0.8], ['B-', 0.75]],
       locale: 'en',
-      onGradeSubmission () {},
-      onRequestClose () {},
-      onClose () {},
+      onAnonymousSpeedGraderClick() {},
+      onGradeSubmission() {},
+      onRequestClose() {},
+      onClose() {},
+      showSimilarityScore: true,
       submissionUpdating: false,
       isOpen: true,
       courseId: '1',
       currentUserId: '2',
+      postPoliciesEnabled: false,
       speedGraderEnabled: true,
       student: {
         id: '27',
@@ -74,562 +70,761 @@ QUnit.module('SubmissionTray', function (hooks) {
       },
       submission: {
         assignmentId: '30',
+        enteredGrade: '10',
+        enteredScore: 10,
         excused: false,
-        grade: '100%',
+        grade: '7',
+        gradedAt: new Date().toISOString(),
+        hasPostableComments: false,
         id: '2501',
         late: false,
         missing: false,
         pointsDeducted: 3,
-        secondsLate: 0
+        postedAt: null,
+        score: 7,
+        secondsLate: 0,
+        submissionType: 'online_text_entry',
+        userId: '27',
+        workflowState: 'graded'
       },
-      updateSubmission () {},
-      updateSubmissionComment () {},
+      updateSubmission() {},
+      updateSubmissionComment() {},
       assignment: {
+        anonymizeStudents: false,
+        courseId: '1',
         name: 'Book Report',
         gradingType: 'points',
         htmlUrl: 'http://htmlUrl/',
+        id: '30',
+        moderatedGrading: false,
         muted: false,
+        pointsPossible: 10,
+        postManually: false,
         published: true
       },
-      isFirstAssignment: true,
-      isLastAssignment: true,
-      selectNextAssignment () {},
-      selectPreviousAssignment () {},
-      isFirstStudent: true,
-      isLastStudent: true,
-      selectNextStudent () {},
-      selectPreviousStudent () {},
+      isFirstAssignment: false,
+      isLastAssignment: false,
+      selectNextAssignment() {},
+      selectPreviousAssignment() {},
+      isFirstStudent: false,
+      isLastStudent: false,
+      selectNextStudent() {},
+      selectPreviousStudent() {},
       submissionCommentsLoaded: true,
-      createSubmissionComment () {},
-      deleteSubmissionComment () {},
+      createSubmissionComment() {},
+      deleteSubmissionComment() {},
       processing: false,
-      setProcessing () {},
+      setProcessing() {},
       submissionComments: [],
       isInOtherGradingPeriod: false,
       isInClosedGradingPeriod: false,
       isInNoGradingPeriod: false,
       isNotCountedForScore: false
-    };
-    wrapper = mount(<SubmissionTray {...defaultProps} {...props} />);
-    clock.tick(50); // wait for Tray to transition open
+    }
+  })
+
+  hooks.afterEach(() => {
+    wrapper.unmount()
+    document.getElementById('fixtures').innerHTML = ''
+    clock.restore()
+  })
+
+  function mountComponent(props) {
+    wrapper = mount(<SubmissionTray {...defaultProps} {...props} />)
+    clock.tick(50) // wait for Tray to transition open
   }
 
-  function avatarDiv () {
-    return document.querySelector('#SubmissionTray__Avatar');
+  function avatarDiv() {
+    return document.querySelector('#SubmissionTray__Avatar')
   }
 
-  function studentNameDiv () {
-    return document.querySelector('#student-carousel a');
+  function studentNameDiv() {
+    return document.querySelector('#student-carousel a')
   }
 
-  function wrapContent () {
-    return new ReactWrapper(content, wrapper.node);
+  function carouselButton(label) {
+    const $buttons = [...content.querySelectorAll('button')]
+    return $buttons.find($button => $button.textContent.trim() === label)
   }
 
-  function radioInputGroupDiv () {
-    return document.querySelector('#SubmissionTray__RadioInputGroup');
+  function radioInputGroupDiv() {
+    return document.querySelector('#SubmissionTray__RadioInputGroup')
   }
 
-  QUnit.module('Student Carousel', function () {
-    test('is disabled when the tray is "processing"', function () {
-      mountComponent({ processing: true });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), true);
-    });
+  function assertElementDisabled($elt, disabled, message) {
+    strictEqual($elt.getAttribute('disabled'), disabled ? '' : null, message)
+  }
 
-    test('is not disabled when the tray is not "processing"', function () {
-      mountComponent({ processing: false });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), false);
-    });
+  function speedGraderLink() {
+    return document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]')
+  }
 
-    test('is disabled when the submission comments have not loaded', function () {
-      mountComponent({ submissionCommentsLoaded: false });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), true);
-    });
+  function studentGroupRequiredAlert() {
+    return [...document.querySelectorAll('div')].find($el =>
+      $el.textContent.includes('you must select a student group')
+    )
+  }
 
-    test('is not disabled when the submission comments have loaded', function () {
-      mountComponent({ submissionCommentsLoaded: true });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), false);
-    });
+  QUnit.module('Student Carousel', () => {
+    function assertStudentButtonsDisabled(disabled) {
+      ;['Previous student', 'Next student'].forEach(label => {
+        const $button = carouselButton(label)
+        const message = `'${label}' button is ${disabled ? '' : 'not '} disabled`
+        assertElementDisabled($button, disabled, message)
+      })
+    }
 
-    test('is disabled when the submission is updating', function () {
-      mountComponent({ submissionUpdating: true });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), true);
-    });
+    test('is disabled when the tray is "processing"', () => {
+      mountComponent({processing: true})
+      assertStudentButtonsDisabled(true)
+    })
 
-    test('is not disabled when the submission is not updating', function () {
-      mountComponent({ submissionUpdating: false });
-      strictEqual(wrapContent().find('Carousel').at(0).prop('disabled'), false);
-    });
-  });
+    test('is not disabled when the tray is not "processing"', () => {
+      mountComponent({processing: false})
+      assertStudentButtonsDisabled(false)
+    })
 
-  QUnit.module('Assignment Carousel', function () {
-    test('is disabled when the tray is "processing"', function () {
-      mountComponent({ processing: true });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), true);
-    });
+    test('is disabled when the submission comments have not loaded', () => {
+      mountComponent({submissionCommentsLoaded: false})
+      assertStudentButtonsDisabled(true)
+    })
 
-    test('is not disabled when the tray is not "processing"', function () {
-      mountComponent({ processing: false });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), false);
-    });
+    test('is not disabled when the submission comments have loaded', () => {
+      mountComponent({submissionCommentsLoaded: true})
+      assertStudentButtonsDisabled(false)
+    })
 
-    test('is disabled when the submission comments have not loaded', function () {
-      mountComponent({ submissionCommentsLoaded: false });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), true);
-    });
+    test('is disabled when the submission is updating', () => {
+      mountComponent({submissionUpdating: true})
+      assertStudentButtonsDisabled(true)
+    })
 
-    test('is not disabled when the submission comments have loaded', function () {
-      mountComponent({ submissionCommentsLoaded: true });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), false);
-    });
+    test('is not disabled when the submission is not updating', () => {
+      mountComponent({submissionUpdating: false})
+      assertStudentButtonsDisabled(false)
+    })
+  })
 
-    test('is disabled when the submission is updating', function () {
-      mountComponent({ submissionUpdating: true });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), true);
-    });
+  QUnit.module('Assignment Carousel', () => {
+    function assertAssignmentButtonsDisabled(disabled) {
+      ;['Previous assignment', 'Next assignment'].forEach(label => {
+        const $button = carouselButton(label)
+        const message = `'${label}' button is ${disabled ? '' : 'not '} disabled`
+        assertElementDisabled($button, disabled, message)
+      })
+    }
 
-    test('is not disabled when the submission is not updating', function () {
-      mountComponent({ submissionUpdating: false });
-      strictEqual(wrapContent().find('Carousel').at(1).prop('disabled'), false);
-    });
-  });
+    test('is disabled when the tray is "processing"', () => {
+      mountComponent({processing: true})
+      assertAssignmentButtonsDisabled(true)
+    })
 
-  test('shows SpeedGrader link if enabled', function () {
-    const speedGraderUrl = encodeURI('/courses/1/gradebook/speed_grader?assignment_id=30#{"student_id":"27"}');
-    mountComponent();
-    const speedGraderLink = document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]').getAttribute('href');
-    strictEqual(speedGraderLink, speedGraderUrl);
-  });
+    test('is not disabled when the tray is not "processing"', () => {
+      mountComponent({processing: false})
+      assertAssignmentButtonsDisabled(false)
+    })
 
-  test('invokes "onAnonymousSpeedGraderClick" when the SpeedGrader link is clicked ' +
-  'if the assignment is anonymous and Anonymous Moderated Marking is enabled', function () {
+    test('is disabled when the submission comments have not loaded', () => {
+      mountComponent({submissionCommentsLoaded: false})
+      assertAssignmentButtonsDisabled(true)
+    })
+
+    test('is not disabled when the submission comments have loaded', () => {
+      mountComponent({submissionCommentsLoaded: true})
+      assertAssignmentButtonsDisabled(false)
+    })
+
+    test('is disabled when the submission is updating', () => {
+      mountComponent({submissionUpdating: true})
+      assertAssignmentButtonsDisabled(true)
+    })
+
+    test('is not disabled when the submission is not updating', () => {
+      mountComponent({submissionUpdating: false})
+      assertAssignmentButtonsDisabled(false)
+    })
+  })
+
+  test('shows SpeedGrader link if enabled', () => {
+    const speedGraderUrl = encodeURI(
+      '/courses/1/gradebook/speed_grader?assignment_id=30&student_id=27'
+    )
+    mountComponent()
+    strictEqual(speedGraderLink().getAttribute('href'), speedGraderUrl)
+  })
+
+  test('invokes "onAnonymousSpeedGraderClick" when the SpeedGrader link is clicked if the assignment is anonymous', () => {
     const props = {
-      anonymousModeratedMarkingEnabled: true,
       assignment: {
+        anonymizeStudents: true,
         name: 'Book Report',
         gradingType: 'points',
         htmlUrl: 'http://htmlUrl/',
-        anonymousGrading: true,
-        muted: false,
         published: true
       },
       onAnonymousSpeedGraderClick: sinon.stub()
     }
     mountComponent(props)
-    document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]').click()
+    speedGraderLink().click()
     strictEqual(props.onAnonymousSpeedGraderClick.callCount, 1)
   })
 
-  test('omits student_id from SpeedGrader link if enabled and assignment is ' +
-  'anonymously graded and anonymous moderated marking is enabled', function() {
-    mountComponent({anonymousModeratedMarkingEnabled: true, assignment: {anonymousGrading: true}});
-    const speedGraderLink = document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]').getAttribute('href');
-    notOk(speedGraderLink.match(/student_id/))
-  });
+  test('omits student_id from SpeedGrader link if enabled and assignment has anonymized students', () => {
+    mountComponent({assignment: {anonymizeStudents: true}})
+    notOk(
+      speedGraderLink()
+        .getAttribute('href')
+        .match(/student_id/)
+    )
+  })
 
-  test('includes student_id in the SpeedGrader link if enabled and assignment is ' +
-  'anonymously graded and anonymous moderated marking is disabled', function() {
-    mountComponent({assignment: {anonymousGrading: true}});
-    const speedGraderLink = document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]').getAttribute('href');
-    ok(speedGraderLink.match(/student_id/))
-  });
+  test('does not show SpeedGrader link if disabled', () => {
+    mountComponent({speedGraderEnabled: false})
+    notOk(speedGraderLink())
+  })
 
-  test('does not show SpeedGrader link if disabled', function () {
-    mountComponent({speedGraderEnabled: false});
-    const speedGraderLink = document.querySelector('.SubmissionTray__Container a[href*="speed_grader"]');
-    notOk(speedGraderLink);
-  });
+  QUnit.module('when requireStudentGroupForSpeedGrader is true', requireStudentGroupHooks => {
+    requireStudentGroupHooks.beforeEach(() => {
+      mountComponent({requireStudentGroupForSpeedGrader: true})
+    })
 
-  test('shows avatar if avatar is not null', function () {
-    const avatarUrl = 'http://bob_is_not_a_domain/me.jpg?filter=make_me_pretty';
-    const gradesUrl = 'http://gradesUrl/';
-    mountComponent({ student: { id: '27', name: 'Bob', avatarUrl, gradesUrl, isConcluded: false } });
-    const avatarBackground = avatarDiv().firstChild.style.getPropertyValue('background-image');
-    strictEqual(avatarBackground, `url("${avatarUrl}")`);
-  });
+    test('disables the SpeedGrader link', () => {
+      strictEqual(speedGraderLink().getAttribute('disabled'), '')
+    })
 
-  test('shows no avatar if avatar is null', function () {
-    mountComponent({ student: { id: '27', name: 'Joe', gradesUrl: 'http://gradesUrl/', isConcluded: false } });
-    notOk(avatarDiv());
-  });
+    test('shows an alert indicating a group must be selected', () => {
+      ok(studentGroupRequiredAlert())
+    })
+  })
 
-  test('shows the state of the submission', function () {
-    mountComponent();
+  QUnit.module('when passing true for postPoliciesEnabled', contextHooks => {
+    contextHooks.beforeEach(() => {
+      defaultProps.postPoliciesEnabled = true
+    })
 
-    strictEqual(wrapContent().find('SubmissionStatus').length, 1);
-  });
+    test('"Hidden" is displayed when a submission is graded and unposted', () => {
+      defaultProps.submission.workflowState = 'graded'
+      mountComponent()
+      ok(content.textContent.includes('Hidden'))
+    })
 
-  test('passes along assignment prop to SubmissionStatus', function () {
-    mountComponent();
-    const submissionStatusProps = wrapContent().find('SubmissionStatus').at(0).props();
+    test('"Hidden" is displayed when a submission has comments and is unposted', () => {
+      defaultProps.submission.hasPostableComments = true
+      mountComponent()
+      ok(content.textContent.includes('Hidden'))
+    })
+  })
 
-    deepEqual(submissionStatusProps.assignment, wrapper.props().assignment);
-  });
+  test('shows avatar if avatar is not null', () => {
+    const avatarUrl = 'http://bob_is_not_a_domain/me.jpg?filter=make_me_pretty'
+    const gradesUrl = 'http://gradesUrl/'
+    const props = {student: {id: '27', name: 'Bob', avatarUrl, gradesUrl, isConcluded: false}}
 
-  test('passes along submission prop to SubmissionStatus', function () {
-    mountComponent();
-    const submissionStatusProps = wrapContent().find('SubmissionStatus').at(0).props();
+    wrapper = shallow(<SubmissionTray {...defaultProps} {...props} />)
+    strictEqual(wrapper.find('Avatar').prop('src'), avatarUrl)
+  })
 
-    deepEqual(submissionStatusProps.submission, wrapper.props().submission);
-  });
+  test('shows no avatar if avatar is null', () => {
+    mountComponent({
+      student: {id: '27', name: 'Joe', gradesUrl: 'http://gradesUrl/', isConcluded: false}
+    })
+    notOk(avatarDiv())
+  })
 
-  test('passes along isInOtherGradingPeriod prop to SubmissionStatus', function () {
-    mountComponent();
-    const isInOtherGradingPeriod = wrapContent().find('SubmissionStatus').at(0).prop('isInOtherGradingPeriod');
+  test('shows the state of the submission', () => {
+    defaultProps.isNotCountedForScore = true
+    mountComponent()
+    ok(content.textContent.includes('Not calculated in final grade'))
+  })
 
-    deepEqual(isInOtherGradingPeriod, wrapper.prop('isInOtherGradingPeriod'));
-  });
+  test('passes along isInOtherGradingPeriod prop to SubmissionStatus', () => {
+    defaultProps.isInOtherGradingPeriod = true
+    mountComponent()
+    ok(content.textContent.includes('This submission is in another grading period'))
+  })
 
-  test('passes along isInClosedGradingPeriod prop to SubmissionStatus', function () {
-    mountComponent();
-    const isInClosedGradingPeriod = wrapContent().find('SubmissionStatus').at(0).prop('isInClosedGradingPeriod');
+  test('passes along isInClosedGradingPeriod prop to SubmissionStatus', () => {
+    defaultProps.isInClosedGradingPeriod = true
+    mountComponent()
+    ok(content.textContent.includes('This submission is in a closed grading period'))
+  })
 
-    deepEqual(isInClosedGradingPeriod, wrapper.prop('isInClosedGradingPeriod'));
-  });
+  test('passes along isInNoGradingPeriod prop to SubmissionStatus', () => {
+    defaultProps.isInNoGradingPeriod = true
+    mountComponent()
+    ok(content.textContent.includes('This submission is not in any grading period'))
+  })
 
-  test('passes along isInNoGradingPeriod prop to SubmissionStatus', function () {
-    mountComponent();
-    const isInNoGradingPeriod = wrapContent().find('SubmissionStatus').at(0).prop('isInNoGradingPeriod');
+  test('shows student name', () => {
+    mountComponent({
+      student: {id: '27', name: 'Sara', gradesUrl: 'http://gradeUrl/', isConcluded: false}
+    })
+    strictEqual(studentNameDiv().innerText, 'Sara')
+  })
 
-    deepEqual(isInNoGradingPeriod, wrapper.prop('isInNoGradingPeriod'));
-  });
+  QUnit.module('LatePolicyGrade', () => {
+    test('shows the late policy grade when points have been deducted', () => {
+      mountComponent()
+      ok(content.querySelector('#late-penalty-value'))
+    })
 
-  test('shows name', function () {
-    mountComponent({ student: { id: '27', name: 'Sara', gradesUrl: 'http://gradeUrl/', isConcluded: false } });
-    strictEqual(studentNameDiv().innerHTML, 'Sara');
-  });
+    test('uses the submission to show the late policy grade', () => {
+      mountComponent()
+      const $el = content.querySelector('#late-penalty-value')
+      strictEqual($el.textContent, '-3')
+    })
 
-  QUnit.module('LatePolicyGrade', function () {
-    test('shows the late policy grade when points have been deducted', function () {
-      mountComponent();
-      strictEqual(wrapContent().find('LatePolicyGrade').length, 1);
-    });
-
-    test('uses the submission to show the late policy grade', function () {
-      mountComponent();
-      const latePolicyGrade = wrapContent().find('LatePolicyGrade').at(0);
-      equal(latePolicyGrade.prop('submission').grade, '100%');
-      strictEqual(latePolicyGrade.prop('submission').pointsDeducted, 3);
-    });
-
-    test('does not show the late policy grade when zero points have been deducted', function () {
+    test('does not show the late policy grade when zero points have been deducted', () => {
       mountComponent({
         submission: {
-          excused: false, id: '2501', late: true, missing: false, pointsDeducted: 0, secondsLate: 0, assignmentId: '30'
+          excused: false,
+          id: '2501',
+          late: true,
+          missing: false,
+          pointsDeducted: 0,
+          secondsLate: 0,
+          assignmentId: '30'
         }
-      });
-      strictEqual(wrapContent().find('LatePolicyGrade').length, 0);
-    });
+      })
+      notOk(content.querySelector('#late-penalty-value'))
+    })
 
-    test('does not show the late policy grade when points deducted is null', function () {
+    test('does not show the late policy grade when points deducted is null', () => {
       mountComponent({
         submission: {
-          excused: false, id: '2501', late: true, missing: false, pointsDeducted: null, secondsLate: 0, assignmentId: '30'
+          excused: false,
+          id: '2501',
+          late: true,
+          missing: false,
+          pointsDeducted: null,
+          secondsLate: 0,
+          assignmentId: '30'
         }
-      });
-      strictEqual(wrapContent().find('LatePolicyGrade').length, 0);
-    });
+      })
+      notOk(content.querySelector('#late-penalty-value'))
+    })
 
-    test('receives the "enterGradesAs" given to the Tray', function () {
-      mountComponent({ enterGradesAs: 'percent' });
-      strictEqual(wrapContent().find('LatePolicyGrade').prop('enterGradesAs'), 'percent');
-    });
+    test('receives the "enterGradesAs" given to the Tray', () => {
+      mountComponent({enterGradesAs: 'percent'})
+      const $el = content.querySelector('#final-grade-value')
+      strictEqual($el.textContent, '70%')
+    })
 
-    test('receives the "gradingScheme" given to the Tray', function () {
-      const gradingScheme = [['A', 0.90], ['B+', 0.85], ['B', 0.80], ['B-', 0.75], ['C+', 0.70]];
-      mountComponent({ gradingScheme });
-      deepEqual(wrapContent().find('LatePolicyGrade').prop('gradingScheme'), gradingScheme);
-    });
-  });
+    test('receives the "gradingScheme" given to the Tray', () => {
+      const gradingScheme = [['A', 0.9], ['B+', 0.85], ['B', 0.8], ['B-', 0.75], ['C+', 0.7]]
+      mountComponent({enterGradesAs: 'gradingScheme', gradingScheme})
+      const $el = content.querySelector('#final-grade-value')
+      strictEqual($el.textContent, 'C+')
+    })
+  })
 
-  test('shows a radio input group', function () {
-    mountComponent();
-    ok(radioInputGroupDiv());
-  });
+  test('shows a radio input group', () => {
+    mountComponent()
+    ok(radioInputGroupDiv())
+  })
 
-  test('enables the late policy radio input group when gradingDisabled is false', function () {
-    mountComponent({ gradingDisabled: false });
-    strictEqual(wrapContent().find('SubmissionTrayRadioInputGroup').props().disabled, false);
-  });
+  test('enables the late policy radio input group when gradingDisabled is false', () => {
+    mountComponent({gradingDisabled: false})
+    const $inputs = content.querySelectorAll('[name="SubmissionTrayRadioInput"]')
+    $inputs.forEach($input => {
+      assertElementDisabled($input, false)
+    })
+  })
 
-  test('disables the late policy radio input group when gradingDisabled is true', function () {
-    mountComponent({ gradingDisabled: true });
-    strictEqual(wrapContent().find('SubmissionTrayRadioInputGroup').props().disabled, true);
-  });
+  test('disables the late policy radio input group when gradingDisabled is true', () => {
+    mountComponent({gradingDisabled: true})
+    const $inputs = content.querySelectorAll('[name="SubmissionTrayRadioInput"]')
+    $inputs.forEach($input => {
+      assertElementDisabled($input, true)
+    })
+  })
 
-  test('shows assignment carousel', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#assignment-carousel').length, 1);
-  });
+  test('shows assignment carousel', () => {
+    mountComponent()
+    ok(content.querySelector('#assignment-carousel'))
+  })
 
-  test('shows assignment carousel containing given assignment name', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#assignment-carousel').text(), 'Book Report');
-  });
+  test('shows assignment carousel containing given assignment name', () => {
+    mountComponent()
+    const $el = content.querySelector('#assignment-carousel')
+    ok($el.textContent.includes('Book Report'))
+  })
 
-  test('shows assignment carousel with no left arrow when isFirstAssignment and isLastAssignment are true', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#assignment-carousel .left-arrow-button-container button').length, 0);
-  });
+  test('shows assignment carousel with no left arrow when isFirstAssignment and isLastAssignment are true', () => {
+    defaultProps = {...defaultProps, isFirstAssignment: true, isLastAssignment: true}
+    mountComponent()
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('shows assignment carousel with no right arrow when isFirstAssignment and isLastAssignment are true', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#assignment-carousel .right-arrow-button-container button').length, 0);
-  });
+  test('shows assignment carousel with no right arrow when isFirstAssignment and isLastAssignment are true', () => {
+    mountComponent({isFirstAssignment: true, isLastAssignment: true})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('shows assignment carousel with left arrow when isFirstAssignment and isLastAssignment are false', function () {
+  test('shows assignment carousel with left arrow when isFirstAssignment and isLastAssignment are false', () => {
+    mountComponent({isFirstAssignment: false, isLastAssignment: false})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length,
+      1
+    )
+  })
+
+  test('shows assignment carousel with right arrow when isFirstAssignment and isLastAssignment are false', () => {
+    mountComponent({isFirstAssignment: false, isLastAssignment: false})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length,
+      1
+    )
+  })
+
+  test('shows assignment carousel with left arrow when isFirstAssignment is false', () => {
+    mountComponent({isFirstAssignment: false, isLastAssignment: true})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length,
+      1
+    )
+  })
+
+  test('shows assignment carousel with no right arrow when isFirstAssignment is false', () => {
+    mountComponent({isFirstAssignment: false, isLastAssignment: true})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length,
+      0
+    )
+  })
+
+  test('shows assignment carousel with right arrow when isLastAssignment is false', () => {
+    mountComponent({isFirstAssignment: true, isLastAssignment: false})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .right-arrow-button-container button').length,
+      1
+    )
+  })
+
+  test('shows assignment carousel with no left arrow when isLastAssignment is false', () => {
+    mountComponent({isFirstAssignment: true, isLastAssignment: false})
+    strictEqual(
+      content.querySelectorAll('#assignment-carousel .left-arrow-button-container button').length,
+      0
+    )
+  })
+
+  test('shows student carousel', () => {
+    mountComponent()
+    ok(content.querySelector('#student-carousel'))
+  })
+
+  test('shows student carousel containing given student name', () => {
+    mountComponent()
+    const $el = content.querySelector('#student-carousel')
+    ok($el.textContent.includes('Jane Doe'))
+  })
+
+  test('shows student carousel with no left arrow when isFirstStudent and isLastStudent are true', function() {
     mountComponent({
-      isFirstAssignment: false,
-      isLastAssignment: false
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .left-arrow-button-container button').length, 1);
-  });
+      isFirstStudent: true,
+      isLastStudent: true
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('shows assignment carousel with right arrow when isFirstAssignment and isLastAssignment are false', function () {
+  test('shows student carousel with no right arrow when isFirstStudent and isLastStudent are true', function() {
     mountComponent({
-      isFirstAssignment: false,
-      isLastAssignment: false
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .right-arrow-button-container button').length, 1);
-  });
+      isFirstStudent: true,
+      isLastStudent: true
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('shows assignment carousel with left arrow when isFirstAssignment is false', function () {
-    mountComponent({
-      isFirstAssignment: false,
-      isLastAssignment: true
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .left-arrow-button-container button').length, 1);
-  });
-
-  test('shows assignment carousel with no right arrow when isFirstAssignment is false', function () {
-    mountComponent({
-      isFirstAssignment: false,
-      isLastAssignment: true
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .right-arrow-button-container button').length, 0);
-  });
-
-  test('shows assignment carousel with right arrow when isLastAssignment is false', function () {
-    mountComponent({
-      isFirstAssignment: true,
-      isLastAssignment: false
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .right-arrow-button-container button').length, 1);
-  });
-
-  test('shows assignment carousel with no left arrow when isLastAssignment is false', function () {
-    mountComponent({
-      isFirstAssignment: true,
-      isLastAssignment: false
-    });
-    strictEqual(wrapContent().find('#assignment-carousel .left-arrow-button-container button').length, 0);
-  });
-
-  test('shows student carousel', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#student-carousel').length, 1);
-  });
-
-  test('shows student carousel containing given student name', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#student-carousel').text(), 'Jane Doe');
-  });
-
-  test('shows student carousel with no left arrow when isFirstStudent and isLastStudent are true', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#student-carousel .left-arrow-button-container button').length, 0);
-  });
-
-  test('shows student carousel with no right arrow when isFirstStudent and isLastStudent are true', function () {
-    mountComponent();
-    strictEqual(wrapContent().find('#student-carousel .left-arrow-button-container button').length, 0);
-  });
-
-  test('shows student carousel with left arrow when isFirstStudent and isLastStudent are false', function () {
+  test('shows student carousel with left arrow when isFirstStudent and isLastStudent are false', function() {
     mountComponent({
       isFirstStudent: false,
       isLastStudent: false
-    });
-    strictEqual(wrapContent().find('#student-carousel .left-arrow-button-container button').length, 1);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length,
+      1
+    )
+  })
 
-  test('shows student carousel with right arrow when isFirstStudent and isLastStudent are false', function () {
+  test('shows student carousel with right arrow when isFirstStudent and isLastStudent are false', function() {
     mountComponent({
       isFirstStudent: false,
       isLastStudent: false
-    });
-    strictEqual(wrapContent().find('#student-carousel .right-arrow-button-container button').length, 1);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length,
+      1
+    )
+  })
 
-  test('shows student carousel with left arrow when isFirstStudent is false', function () {
+  test('shows student carousel with left arrow when isFirstStudent is false', function() {
     mountComponent({
       isFirstStudent: false,
       isLastStudent: true
-    });
-    strictEqual(wrapContent().find('#student-carousel .left-arrow-button-container button').length, 1);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length,
+      1
+    )
+  })
 
-  test('shows student carousel with no right arrow when isFirstStudent is false', function () {
+  test('shows student carousel with no right arrow when isFirstStudent is false', function() {
     mountComponent({
       isFirstStudent: false,
       isLastStudent: true
-    });
-    strictEqual(wrapContent().find('#student-carousel .right-arrow-button-container button').length, 0);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('shows student carousel with right arrow when isLastStudent is false', function () {
+  test('shows student carousel with right arrow when isLastStudent is false', function() {
     mountComponent({
       isFirstStudent: true,
       isLastStudent: false
-    });
-    strictEqual(wrapContent().find('#student-carousel .right-arrow-button-container button').length, 1);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .right-arrow-button-container button').length,
+      1
+    )
+  })
 
-  test('shows student carousel with no left arrow when isLastStudent is false', function () {
+  test('shows student carousel with no left arrow when isLastStudent is false', function() {
     mountComponent({
       isFirstStudent: true,
       isLastStudent: false
-    });
-    strictEqual(wrapContent().find('#student-carousel .left-arrow-button-container button').length, 0);
-  });
+    })
+    strictEqual(
+      content.querySelectorAll('#student-carousel .left-arrow-button-container button').length,
+      0
+    )
+  })
 
-  test('does not add padding to the carousel container when an avatar is present', function () {
-    const student = {
-      id: '27',
-      name: 'Jane Doe',
-      gradesUrl: 'http://gradeUrl/',
-      avatarUrl: 'http://avatarUrl/',
-      isConcluded: false
-    };
+  QUnit.module('Grade Input', function() {
+    function findGradeInput() {
+      return GradeInputDriver.find(content)
+    }
 
-    mountComponent({
-      student,
-      isFirstStudent: false,
-      isLastStudent: false
-    });
-
-    strictEqual(wrapContent().find('#SubmissionTray__Content').find('Container').at(0).prop('padding'), '0 0 0 0');
-  });
-
-  test('adds padding to the carousel container when no avatar is present', function () {
-    const student = {
-      id: '27',
-      name: 'Jane Doe',
-      gradesUrl: 'http://gradeUrl/',
-      isConcluded: false
-    };
-
-    mountComponent({
-      student,
-      isFirstStudent: false,
-      isLastStudent: false
-    });
-
-    strictEqual(wrapContent().find('#SubmissionTray__Content').find('Container').at(0).prop('padding'), 'small 0 0 0');
-  });
-
-  QUnit.module('Grade Input', function () {
-    test('receives the "assignment" given to the Tray', function () {
+    test('receives the "assignment" given to the Tray', function() {
       const assignment = {
+        anonymizeStudents: false,
         gradingType: 'points',
         htmlUrl: 'http://htmlUrl/',
+        moderatedGrading: false,
         muted: false,
         name: 'Book Report',
+        pointsPossible: 10,
         published: true
-      };
-      mountComponent({ assignment });
-      equal(wrapContent().find('GradeInput').prop('assignment'), assignment);
-    });
+      }
+      mountComponent({assignment})
+      equal(findGradeInput().labelText, 'Grade out of 10')
+    })
 
-    test('is disabled when grading is disabled', function () {
-      mountComponent({ gradingDisabled: true });
-      strictEqual(wrapContent().find('GradeInput').prop('disabled'), true);
-    });
+    test('is disabled when grading is disabled', () => {
+      mountComponent({gradingDisabled: true})
+      strictEqual(findGradeInput().inputIsDisabled, true)
+    })
 
-    test('is not disabled when grading is not disabled', function () {
-      mountComponent({ gradingDisabled: false });
-      strictEqual(wrapContent().find('GradeInput').prop('disabled'), false);
-    });
+    test('is not disabled when grading is not disabled', () => {
+      mountComponent({gradingDisabled: false})
+      strictEqual(findGradeInput().inputIsDisabled, false)
+    })
 
-    test('receives the "onGradeSubmission" callback given to the Tray', function () {
-      function onGradeSubmission () {}
-      mountComponent({ onGradeSubmission });
-      equal(wrapContent().find('GradeInput').prop('onSubmissionUpdate'), onGradeSubmission);
-    });
+    test('receives the "onGradeSubmission" callback given to the Tray', () => {
+      const onGradeSubmission = sinon.stub()
+      mountComponent({onGradeSubmission})
+      const gradeInput = findGradeInput()
+      gradeInput.inputValue('EX')
+      gradeInput.blurInput()
+      strictEqual(onGradeSubmission.callCount, 1)
+    })
 
-    test('receives the "submission" given to the Tray', function () {
-      const submission = {
-        assignmentId: '2301',
-        enteredGrade: '100%',
-        excused: false,
-        grade: '70%',
-        id: '2501',
-        late: false,
-        missing: false,
-        pointsDeducted: 3,
-        secondsLate: 0
-      };
-      mountComponent({ submission });
-      equal(wrapContent().find('GradeInput').prop('submission'), submission);
-    });
-
-    test('receives the "submissionUpdating" given to the Tray', function () {
-      mountComponent({ submissionUpdating: true });
-      strictEqual(wrapContent().find('GradeInput').prop('submissionUpdating'), true);
-    });
-
-    test('receives the "enterGradesAs" given to the Tray', function () {
-      mountComponent({ enterGradesAs: 'percent' });
-      strictEqual(wrapContent().find('GradeInput').prop('enterGradesAs'), 'percent');
-    });
-
-    test('receives the "gradingScheme" given to the Tray', function () {
-      const gradingScheme = [['A', 0.90], ['B+', 0.85], ['B', 0.80], ['B-', 0.75], ['C+', 0.70]];
-      mountComponent({ gradingScheme });
-      deepEqual(wrapContent().find('GradeInput').prop('gradingScheme'), gradingScheme);
-    });
-
-    test('passes along isNotCountedForScore prop to SubmissionStatus', function () {
+    test('receives the "submission" given to the Tray', () => {
       mountComponent()
-      const isNotCountedForScore = wrapContent().find('SubmissionStatus').at(0).prop('isNotCountedForScore')
-      deepEqual(isNotCountedForScore, wrapper.prop('isNotCountedForScore'))
-    });
+      strictEqual(findGradeInput().value, '10')
+    })
 
-    test('receives the "pendingGradeInfo" given to the Tray', function() {
+    test('receives the "submissionUpdating" given to the Tray', () => {
+      mountComponent({submissionUpdating: true})
+      strictEqual(findGradeInput().isReadOnly, true)
+    })
+
+    test('receives the "enterGradesAs" given to the Tray', () => {
+      mountComponent({enterGradesAs: 'percent'})
+      equal(findGradeInput().labelText, 'Grade out of 100%')
+    })
+
+    test('receives the "gradingScheme" given to the Tray', () => {
+      const gradingScheme = [['A', 0.9], ['B+', 0.85], ['B', 0.8], ['B-', 0.75], ['C+', 0.7]]
+      mountComponent({enterGradesAs: 'gradingScheme', gradingScheme})
+      equal(findGradeInput().labelText, 'Letter Grade')
+    })
+
+    test('receives the "pendingGradeInfo" given to the Tray', () => {
       const pendingGradeInfo = {
         excused: false,
-        grade: '10',
+        grade: '15',
         valid: true
-      };
-      mountComponent({ pendingGradeInfo });
-      equal(wrapContent().find('GradeInput').prop('pendingGradeInfo'), pendingGradeInfo);
-    });
-  });
+      }
+      mountComponent({pendingGradeInfo})
+      strictEqual(findGradeInput().value, '15')
+    })
+  })
 
-  test('renders the new comment form if the editedCommentId is null', function () {
-    mountComponent();
-    const form = wrapContent().find(SubmissionCommentCreateForm);
-    strictEqual(form.length, 1);
-  });
+  QUnit.module('Similarity Score', function(similarityHooks) {
+    let submission
 
-  test('does not render the new comment form if the editedCommentId is not null', function () {
-    mountComponent({ editedCommentId: '5' });
-    const form = wrapContent().find(SubmissionCommentCreateForm);
-    strictEqual(form.length, 0);
-  });
+    similarityHooks.beforeEach(function() {
+      submission = defaultProps.submission
+      submission.turnitin_data = {submission_2501: {status: 'scored', similarity_score: 55}}
+    })
 
-  test('cancelCommenting calls editSubmissionComment', function () {
-    const editSubmissionComment = sinon.stub();
-    mountComponent({ editedCommentId: '5', editSubmissionComment });
-    wrapper.instance().cancelCommenting();
-    strictEqual(editSubmissionComment.callCount, 1);
-  });
+    test('does not render if students are anonymized', function() {
+      defaultProps.assignment.anonymizeStudents = true
+      mountComponent()
+      notOk(content.textContent.includes('55.0% similarity score'))
+    })
 
-  test('cancelCommenting sets the edited submission comment id to null', function () {
-    const editSubmissionComment = sinon.stub();
-    mountComponent({ editedCommentId: '5', editSubmissionComment });
-    wrapper.instance().cancelCommenting();
-    const editedCommentId = editSubmissionComment.firstCall.args[0];
-    strictEqual(editedCommentId, null);
-  });
-});
+    test('does not render if the submission has no originality data', function() {
+      submission.turnitin_data = {}
+      mountComponent()
+      notOk(content.textContent.includes('55.0% similarity score'))
+    })
+
+    test('does not render if the showSimilarityScore prop is false', function() {
+      mountComponent({showSimilarityScore: false})
+      notOk(content.textContent.includes('55.0% similarity score'))
+    })
+
+    QUnit.module('when originality data exists and students are not anonymized', function() {
+      test('renders the similarity score with data from the submission', function() {
+        mountComponent()
+        ok(content.textContent.includes('55.0% similarity score'))
+      })
+
+      test('includes a link to the originality report for the submission', function() {
+        mountComponent()
+        ok(content.querySelector('a[href$="/submissions/27/turnitin/submission_2501"]'))
+      })
+
+      test('includes a message when the submission is a file upload submission with multiple reports', function() {
+        submission.submissionType = 'online_upload'
+        submission.attachments = [{id: '1001'}, {id: '1002'}]
+        submission.turnitinData = {
+          attachment_1001: {status: 'pending'},
+          attachment_1002: {status: 'error'}
+        }
+        mountComponent()
+        ok(
+          content.textContent.includes(
+            'This submission has plagiarism data for multiple attachments.'
+          )
+        )
+      })
+
+      test('does not include a "multiple reports" when the submission only has one report', function() {
+        mountComponent()
+        notOk(
+          content.textContent.includes(
+            'This submission has plagiarism data for multiple attachments.'
+          )
+        )
+      })
+    })
+  })
+
+  test('renders the new comment form if the editedCommentId is null', function() {
+    mountComponent()
+    ok(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('renders new comment form if assignment is not muted', () => {
+    const assignment = {
+      anonymizeStudents: false,
+      gradingType: 'points',
+      htmlUrl: 'foo',
+      moderatedGrading: true,
+      muted: false,
+      name: 'foo',
+      published: false
+    }
+    mountComponent({assignment})
+    ok(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('renders new comment form if assignment is muted and not anonymous or moderated', () => {
+    const assignment = {
+      anonymizeStudents: false,
+      gradingType: 'points',
+      htmlUrl: 'foo',
+      moderatedGrading: false,
+      muted: true,
+      name: 'foo',
+      published: false
+    }
+    mountComponent({assignment})
+    ok(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('does not render new comment form if assignment has anonymized students', () => {
+    const assignment = {
+      anonymizeStudents: true,
+      gradingType: 'points',
+      htmlUrl: 'foo',
+      moderatedGrading: false,
+      muted: true,
+      name: 'foo',
+      published: false
+    }
+    mountComponent({assignment})
+    notOk(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('does not render new comment form if assignment is muted and moderated', () => {
+    const assignment = {
+      anonymizeStudents: false,
+      gradingType: 'points',
+      htmlUrl: 'foo',
+      moderatedGrading: true,
+      muted: true,
+      name: 'foo',
+      published: false
+    }
+    mountComponent({assignment})
+    notOk(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('does not render the new comment form if the editedCommentId is not null', () => {
+    mountComponent({editedCommentId: '5'})
+    notOk(content.querySelector('textarea[placeholder="Leave a comment"]'))
+  })
+
+  test('cancelCommenting calls editSubmissionComment', () => {
+    const editSubmissionComment = sinon.stub()
+    mountComponent({editedCommentId: '5', editSubmissionComment})
+    wrapper.instance().cancelCommenting()
+    strictEqual(editSubmissionComment.callCount, 1)
+  })
+
+  test('cancelCommenting sets the edited submission comment id to null', () => {
+    const editSubmissionComment = sinon.stub()
+    mountComponent({editedCommentId: '5', editSubmissionComment})
+    wrapper.instance().cancelCommenting()
+    const editedCommentId = editSubmissionComment.firstCall.args[0]
+    strictEqual(editedCommentId, null)
+  })
+})

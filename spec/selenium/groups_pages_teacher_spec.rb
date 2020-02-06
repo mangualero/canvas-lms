@@ -16,8 +16,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative 'common'
-require_relative 'announcements/announcement_index_page'
-require_relative 'announcements/announcement_new_edit_page'
+require_relative 'announcements/pages/announcement_index_page'
+require_relative 'announcements/pages/announcement_new_edit_page'
 require_relative 'helpers/groups_common'
 require_relative 'helpers/legacy_announcements_common'
 require_relative 'helpers/discussions_common'
@@ -211,14 +211,14 @@ describe "groups" do
 
       it "should allow teachers to create discussions within a group", priority: "1", test_id: 285586 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         # This creates the discussion and also tests its creation
         edit_topic('from a teacher', 'tell me a story')
       end
 
       it "should have three options when creating a discussion", priority: "1", test_id: 285584 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         expect(f('#threaded')).to be_displayed
         expect(f('#allow_rating')).to be_displayed
         expect(f('#podcast_enabled')).to be_displayed
@@ -238,12 +238,14 @@ describe "groups" do
         DiscussionTopic.create!(context: @testgroup.first, user: @teacher,
                                 title: 'Group Discussion', message: 'Group')
         get discussions_page
-        f('.al-trigger-gray').click
-        wait_for_ajaximations
-        f('.icon-trash.ui-corner-all').click
-        driver.switch_to.alert.accept
+        expect(ff('.discussion-title').size).to eq 1
+        f('.discussions-index-manage-menu').click
         wait_for_animations
-        expect(f("#content")).not_to contain_link('Group Discussion')
+        f('#delete-discussion-menu-option').click
+        wait_for_ajaximations
+        f('#confirm_delete_discussions').click
+        wait_for_ajaximations
+        expect(f(".discussions-container__wrapper")).not_to contain_css('.discussion-title')
       end
     end
 
@@ -252,6 +254,7 @@ describe "groups" do
       it_behaves_like 'pages_page', :teacher
 
       it "should allow teachers to create a page", priority: "1", test_id: 289993 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         get pages_page
         manually_create_wiki_page('stuff','it happens')
       end

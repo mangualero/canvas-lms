@@ -20,25 +20,24 @@ import PropTypes from 'prop-types'
 import React from 'react'
 import sortBy from 'lodash/sortBy'
 
-import Container from '@instructure/ui-core/lib/components/Container'
-import Heading from '@instructure/ui-core/lib/components/Heading'
-import Text from '@instructure/ui-core/lib/components/Text'
+import {View} from '@instructure/ui-layout'
+import {Heading, Text} from '@instructure/ui-elements'
 
 export default function RoleTrayTable({title, children}) {
   const sortedChildren = sortBy(React.Children.toArray(children), c => c.props.title)
   return (
-    <Container className="ic-permissions_role_tray" as="div" padding="0 0 medium 0">
+    <View className="ic-permissions_role_tray" as="div" padding="0 0 medium 0">
       <Heading as="h3">
         <Text weight="bold">{title}</Text>
       </Heading>
-      <hr />
+      <hr aria-hidden="true" />
       {sortedChildren.map(child => (
         <span key={child.props.title}>
           {child}
-          <hr />
+          <hr aria-hidden="true" />
         </span>
       ))}
-    </Container>
+    </View>
   )
 }
 

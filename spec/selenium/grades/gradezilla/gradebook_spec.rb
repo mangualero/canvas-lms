@@ -84,7 +84,7 @@ describe "Gradezilla" do
       # make sure you can un-mute
       Gradezilla.toggle_assignment_muting(@second_assignment.id)
 
-      expect(Gradezilla.content_selector).not_to contain_css(".total-cell .icon-muted")
+      expect(Gradezilla.content_selector).not_to contain_css(".total-cell .icon-off")
       expect(@second_assignment.reload).not_to be_muted
     end
   end
@@ -136,7 +136,7 @@ describe "Gradezilla" do
     @fake_student1.update_attribute :workflow_state, "deleted"
     @fake_student2 = @course.student_view_student
     @fake_student1.update_attribute :workflow_state, "registered"
-    @fake_submission = @first_assignment.submit_homework(@fake_student1, :body => 'fake student submission')
+    @fake_submission = @first_assignment.submit_homework(@fake_student1, body: 'fake student submission')
 
     Gradezilla.visit(@course)
 
@@ -151,24 +151,24 @@ describe "Gradezilla" do
   it "excludes non-graded group assignment in group total" do
     gc = group_category
     graded_assignment = @course.assignments.create!({
-                                                      :title => 'group assignment 1',
-                                                      :due_at => (Time.zone.now + 1.week),
-                                                      :points_possible => 10,
-                                                      :submission_types => 'online_text_entry',
-                                                      :assignment_group => @group,
-                                                      :group_category => gc,
-                                                      :grade_group_students_individually => true
+                                                      title: 'group assignment 1',
+                                                      due_at: (Time.zone.now + 1.week),
+                                                      points_possible: 10,
+                                                      submission_types: 'online_text_entry',
+                                                      assignment_group: @group,
+                                                      group_category: gc,
+                                                      grade_group_students_individually: true
                                                     })
     group_assignment = @course.assignments.create!({
-                                                     :title => 'group assignment 2',
-                                                     :due_at => (Time.zone.now + 1.week),
-                                                     :points_possible => 0,
-                                                     :submission_types => 'not_graded',
-                                                     :assignment_group => @group,
-                                                     :group_category => gc,
-                                                     :grade_group_students_individually => true
+                                                     title: 'group assignment 2',
+                                                     due_at: (Time.zone.now + 1.week),
+                                                     points_possible: 0,
+                                                     submission_types: 'not_graded',
+                                                     assignment_group: @group,
+                                                     group_category: gc,
+                                                     grade_group_students_individually: true
                                                    })
-    project_group = group_assignment.group_category.groups.create!(:name => 'g1', :context => @course)
+    project_group = group_assignment.group_category.groups.create!(name: 'g1', context: @course)
     project_group.users << @student_1
     graded_assignment.grade_student @student_1, grade: 10, grader: @teacher # 10 points possible
     group_assignment.grade_student @student_1, grade: 2, grader: @teacher # 0 points possible
@@ -191,20 +191,20 @@ describe "Gradezilla" do
     assignment.mute!
     Gradezilla.visit(@course)
 
-    expect(f("body")).not_to contain_css(".total-cell .icon-muted")
+    expect(f("body")).not_to contain_css(".total-cell .icon-off")
   end
 
   context "downloading and uploading submissions" do
     it "updates the dropdown menu after downloading and processes submission uploads", test_id: 3253285, priority: "1" do
       # Given I have a student with an uploaded submission
-      a = attachment_model(:context => @student_2, :content_type => 'text/plain')
-      @first_assignment.submit_homework(@student_2, :submission_type => 'online_upload', :attachments => [a])
+      a = attachment_model(context: @student_2, content_type:'text/plain')
+      @first_assignment.submit_homework(@student_2, submission_type: 'online_upload', attachments: [a])
 
       # When I go to the gradebook
       Gradezilla.visit(@course)
 
       # chrome fails to find the download submissions link because it does not fit normal screen
-      make_full_screen
+
 
       # And I click the download submissions button
       Gradezilla.click_assignment_header_menu_element(@first_assignment.id,"download submissions")
@@ -296,7 +296,7 @@ describe "Gradezilla" do
     end
     # generate submissions
     let(:essay_submission) { essay_question.generate_submission(student) }
-    let(:essay_text) { {"question_#{essay_question.id}" => "Essay Response!"} }
+    let(:essay_text) { {"question_#{essay_question.id}": "Essay Response!"} }
     let(:file_submission) { file_question.generate_submission(student) }
 
     it 'displays the "needs grading" icon for essay questions', priority: "1", test_id: 229430 do
@@ -309,9 +309,9 @@ describe "Gradezilla" do
 
     it 'displays the "needs grading" icon for file_upload questions', priority: "1", test_id: 498844 do
       file_submission.attachments.create!({
-                                            :filename => "doc.doc",
-                                            :display_name => "doc.doc", :user => @user,
-                                            :uploaded_data => dummy_io
+                                            filename: "doc.doc",
+                                            display_name: "doc.doc", user: @user,
+                                            uploaded_data: dummy_io
                                           })
       file_submission.complete!
       user_session(teacher)

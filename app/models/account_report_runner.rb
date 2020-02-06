@@ -30,20 +30,40 @@ class AccountReportRunner < ActiveRecord::Base
     state :aborted
   end
 
+  attr_accessor :rows
+
+  def initialize(*)
+    @rows = []
+    super
+  end
+
+  def write_rows
+    return unless rows
+    return if rows.empty?
+    Shackles.activate(:master) do
+      self.class.bulk_insert_objects(rows)
+      @rows = []
+    end
+  end
+
   def start
-    self.update_attributes!(workflow_state: 'running', started_at: Time.now.utc)
+    @rows ||= []
+    self.update!(workflow_state: 'running', started_at: Time.now.utc)
   end
 
   def complete
-    self.update_attributes!(workflow_state: 'completed', ended_at: Time.now.utc)
+    write_rows
+    self.update!(workflow_state: 'completed', ended_at: Time.now.utc)
   end
 
   def abort
-    self.update_attributes!(workflow_state: 'aborted', ended_at: Time.now.utc)
+    write_rows
+    self.update!(workflow_state: 'aborted', ended_at: Time.now.utc)
   end
 
   def fail
-    self.update_attributes!(workflow_state: 'error', ended_at: Time.now.utc)
+    write_rows
+    self.update!(workflow_state: 'error', ended_at: Time.now.utc)
   end
 
   scope :in_progress, -> {where(workflow_state: %w(running))}
@@ -51,8 +71,7 @@ class AccountReportRunner < ActiveRecord::Base
   scope :incomplete, -> {where(workflow_state: %w(created running))}
 
   def delete_account_report_rows
-    self.account_report_rows.find_ids_in_batches(batch_size: 10_000) do |batch|
-      AccountReportRow.where(id: batch).delete_all
-    end
+    cleanup = self.account_report_rows.limit(10_000)
+    until cleanup.delete_all < 10_000; end
   end
 end

@@ -17,7 +17,6 @@
  */
 
 import $ from 'jquery'
-import ReactDOM from 'react-dom'
 import PropTypes from 'prop-types'
 import I18n from 'i18n!restrict_student_access'
 import Folder from '../../models/Folder'
@@ -46,7 +45,7 @@ export default {
   },
 
   updateSubmitable() {
-    if (this.refs.restrictedSelection.state && this.refs.restrictedSelection.state.selectedOption) {
+    if (this.restrictedSelection.state && this.restrictedSelection.state.selectedOption) {
       this.setState({submitable: true})
     }
   },
@@ -66,10 +65,10 @@ export default {
       !this.usageRightsOnAll() &&
       !this.allFolders()
     ) {
-      const values = this.refs.usageSelection.getValues()
+      const values = this.usageSelection.getValues()
       // They didn't choose a use justification
       if (values.use_justification === 'choose') {
-        $(ReactDOM.findDOMNode(this.refs.usageSelection.refs.usageRightSelection)).errorBox(
+        $(this.usageSelection.usageRightSelection).errorBox(
           I18n.t('You must specify a usage right.')
         )
         return false
@@ -97,9 +96,9 @@ export default {
   },
 
   setRestrictedAccess() {
-    const attributes = this.refs.restrictedSelection.extractFormValues()
+    const attributes = this.restrictedSelection.extractFormValues()
     if (attributes.unlock_at && attributes.lock_at && attributes.unlock_at > attributes.lock_at) {
-      $(ReactDOM.findDOMNode(this.refs.restrictedSelection.refs.unlock_at)).errorBox(
+      $(this.restrictedSelection.unlock_at).errorBox(
         I18n.t('"Available From" date must precede "Available Until"')
       )
       return false
@@ -117,26 +116,26 @@ export default {
 
     const dfd = $.when(...Array.from(promises || []))
     dfd.done(() => this.props.closeDialog())
-    $(ReactDOM.findDOMNode(this.refs.dialogForm)).disableWhileLoading(dfd)
+    $(this.dialogForm).disableWhileLoading(dfd)
   },
 
   /*
-     * Returns true if all the models passed in have usage rights
-     */
+   * Returns true if all the models passed in have usage rights
+   */
   usageRightsOnAll() {
     return this.props.models.every(model => model.get('usage_rights'))
   },
 
   /*
-     * Returns true if all the models passed in are folders.
-     */
+   * Returns true if all the models passed in are folders.
+   */
   allFolders() {
     return this.props.models.every(model => model instanceof Folder)
   },
 
   /*
-     * Returns true if all the models passed in are folders.
-     */
+   * Returns true if all the models passed in are folders.
+   */
   anyFolders() {
     return this.props.models.filter(model => model instanceof Folder).length
   },

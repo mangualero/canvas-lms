@@ -28,6 +28,7 @@ describe Feature do
   before do
     allow_any_instance_of(User).to receive(:set_default_feature_flags)
     allow(Feature).to receive(:definitions).and_return({
+        'SA' => Feature.new(feature: 'SA', applies_to: 'SiteAdmin', state: 'off'),
         'RA' => Feature.new(feature: 'RA', applies_to: 'RootAccount', state: 'hidden'),
         'A' => Feature.new(feature: 'A', applies_to: 'Account', state: 'on'),
         'C' => Feature.new(feature: 'C', applies_to: 'Course', state: 'off'),
@@ -36,8 +37,18 @@ describe Feature do
   end
 
   describe "applies_to_object" do
+    it "should work for SiteAdmin features" do
+      feature = Feature.definitions['SA']
+      expect(feature.applies_to_object(t_site_admin)).to be_truthy
+      expect(feature.applies_to_object(t_root_account)).to be_falsey
+      expect(feature.applies_to_object(t_sub_account)).to be_falsey
+      expect(feature.applies_to_object(t_course)).to be_falsey
+      expect(feature.applies_to_object(t_user)).to be_falsey
+    end
+
     it "should work for RootAccount features" do
       feature = Feature.definitions['RA']
+      expect(feature.applies_to_object(t_site_admin)).to be_truthy
       expect(feature.applies_to_object(t_root_account)).to be_truthy
       expect(feature.applies_to_object(t_sub_account)).to be_falsey
       expect(feature.applies_to_object(t_course)).to be_falsey
@@ -46,6 +57,7 @@ describe Feature do
 
     it "should work for Account features" do
       feature = Feature.definitions['A']
+      expect(feature.applies_to_object(t_site_admin)).to be_truthy
       expect(feature.applies_to_object(t_root_account)).to be_truthy
       expect(feature.applies_to_object(t_sub_account)).to be_truthy
       expect(feature.applies_to_object(t_course)).to be_falsey
@@ -54,6 +66,7 @@ describe Feature do
 
     it "should work for Course features" do
       feature = Feature.definitions['C']
+      expect(feature.applies_to_object(t_site_admin)).to be_truthy
       expect(feature.applies_to_object(t_root_account)).to be_truthy
       expect(feature.applies_to_object(t_sub_account)).to be_truthy
       expect(feature.applies_to_object(t_course)).to be_truthy
@@ -72,7 +85,7 @@ describe Feature do
 
   describe "applicable_features" do
     it "should work for Site Admin" do
-      expect(Feature.applicable_features(t_site_admin).map(&:feature).sort).to eql %w(A C RA U)
+      expect(Feature.applicable_features(t_site_admin).map(&:feature).sort).to eql %w(A C RA SA U)
     end
 
     it "should work for RootAccounts" do
@@ -115,6 +128,13 @@ describe Feature do
   end
 
   describe "default_transitions" do
+    it "should enumerate SiteAdmin transitions" do
+      fd = Feature.definitions['SA']
+      expect(fd.default_transitions(t_site_admin, 'allowed')).to eql({'off'=>{'locked'=>false},'on'=>{'locked'=>false}})
+      expect(fd.default_transitions(t_site_admin, 'on')).to eql({"allowed"=>{"locked"=>true},'off'=>{'locked'=>false}})
+      expect(fd.default_transitions(t_site_admin, 'off')).to eql({"allowed"=>{"locked"=>true},'on'=>{'locked'=>false}})
+    end
+
     it "should enumerate RootAccount transitions" do
       fd = Feature.definitions['RA']
       expect(fd.default_transitions(t_site_admin, 'allowed')).to eql({'off'=>{'locked'=>false},'on'=>{'locked'=>false}})
@@ -172,7 +192,7 @@ describe "Feature.register" do
   end
 
   let(:t_dev_feature_hash) do
-    t_feature_hash.merge(development: true)
+    t_feature_hash.merge(environments: {production: {state: 'disabled'}})
   end
 
   it "should register a feature" do
@@ -206,12 +226,12 @@ describe "Feature.register" do
       allow(Rails.env).to receive(:test?).and_return(false)
       allow(Rails.env).to receive(:production?).and_return(true)
       Feature.register({dev_feature: t_dev_feature_hash})
-      expect(Feature.definitions['dev_feature']).to be_nil
+      expect(Feature.definitions['dev_feature']).to eq Feature::DISABLED_FEATURE
     end
   end
 
   let(:t_hidden_in_prod_feature_hash) do
-    t_feature_hash.merge(state: 'hidden_in_prod')
+    t_feature_hash.merge(environments: {production: {state: 'hidden'}})
   end
 
   describe 'hidden_in_prod' do
@@ -243,12 +263,12 @@ describe "new_gradebook" do
 
   it "allows admins to enable the new gradebook" do
     ngb_trans_proc.call(admin, course, nil, transitions)
-    expect(transitions).to include({ "on" => UNLOCKED, "off" => UNLOCKED })
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
   end
 
   it "allows teachers to enable the new gradebook" do
     ngb_trans_proc.call(teacher, course, nil, transitions)
-    expect(transitions).to include({ "on" => UNLOCKED, "off" => UNLOCKED })
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
   end
 
   it "doesn't allow tas to enable the new gradebook" do
@@ -256,12 +276,13 @@ describe "new_gradebook" do
     expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
   end
 
-  it "does not allow enabling new gradebook on an entire account" do
-    ngb_trans_proc.call(admin, root_account, nil, transitions)
-    expect(transitions).to include({ "on" => LOCKED })
+  it "allows teachers without change_course_state permission to enable" do
+    course.account.role_overrides.create!(permission: :change_course_state, role: teacher_role, enabled: false)
+    ngb_trans_proc.call(teacher, course, nil, transitions)
+    expect(transitions).to include({ "on" => {}, "off" => UNLOCKED })
   end
 
-  describe "coursel-level backwards compatibility" do
+  describe "course-level backwards compatibility" do
     let(:student) { student_in_course(course: course).user }
     let!(:assignment) { course.assignments.create!(title: 'assignment', points_possible: 10) }
     let(:submission) { assignment.submissions.find_by(user: student) }
@@ -271,7 +292,7 @@ describe "new_gradebook" do
       submission.save!
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "on" => {}, "off" => LOCKED })
     end
 
     it "blocks disabling new gradebook on a course if there are any submissions with a late_policy_status of missing" do
@@ -279,7 +300,7 @@ describe "new_gradebook" do
       submission.save!
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "off" => LOCKED })
     end
 
     it "blocks disabling new gradebook on a course if there are any submissions with a late_policy_status of late" do
@@ -287,26 +308,26 @@ describe "new_gradebook" do
       submission.save!
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "off" => LOCKED })
     end
 
     it "allows disabling new gradebook on a course if there are no submissions with a late_policy_status" do
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => UNLOCKED, "off" => UNLOCKED })
+      expect(transitions).to include({ "off" => UNLOCKED })
     end
 
     it "blocks disabling new gradebook on a course if a late policy is configured" do
       course.late_policy = LatePolicy.new(late_submission_deduction_enabled: true)
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "off" => LOCKED })
     end
 
     it "blocks disabling new gradebook on a course if a missing policy is configured" do
       course.late_policy = LatePolicy.new(missing_submission_deduction_enabled: true)
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "off" => LOCKED })
     end
 
     it "blocks disabling new gradebook on a course if both a late and missing policy is configured" do
@@ -314,7 +335,7 @@ describe "new_gradebook" do
         LatePolicy.new(late_submission_deduction_enabled: true, missing_submission_deduction_enabled: true)
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => LOCKED, "off" => LOCKED })
+      expect(transitions).to include({ "off" => LOCKED })
     end
 
     it "allows disabling new gradebook on a course if both policies are disabled" do
@@ -322,7 +343,7 @@ describe "new_gradebook" do
         LatePolicy.new(late_submission_deduction_enabled: false, missing_submission_deduction_enabled: false)
 
       ngb_trans_proc.call(admin, course, nil, transitions)
-      expect(transitions).to include({ "on" => UNLOCKED, "off" => UNLOCKED })
+      expect(transitions).to include({ "off" => UNLOCKED })
     end
   end
 

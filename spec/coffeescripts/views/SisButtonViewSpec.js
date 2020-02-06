@@ -20,7 +20,6 @@ import $ from 'jquery'
 import SisButtonView from 'compiled/views/SisButtonView'
 import Backbone from 'Backbone'
 
-
 class AssignmentStub extends Backbone.Model {
   constructor() {
     super(...arguments)
@@ -352,7 +351,7 @@ test('model saves if there are due date errors for quiz AND SIS_INTEGRATION_SETT
 test('does not override dates', function() {
   ENV.MAX_NAME_LENGTH = 256
   this.assignment.set('name', 'Gil Faizon')
-  const saveStub = this.stub(this.assignment, 'save').callsFake(() => {})
+  const saveStub = sandbox.stub(this.assignment, 'save').callsFake(() => {})
   this.view = new SisButtonView({model: this.assignment})
   this.view.render()
   this.view.$el.click()
@@ -362,7 +361,7 @@ test('does not override dates', function() {
 test('properly saves model with a custom url if present', function() {
   ENV.MAX_NAME_LENGTH = 256
   this.quiz.set('title', 'George St. Geegland')
-  this.stub(this.quiz, 'save').callsFake(function(attributes, options) {
+  sandbox.stub(this.quiz, 'save').callsFake(function(attributes, options) {
     ok(options.url, '/some_other_url')
   })
   this.quiz.set('post_to_sis', false)

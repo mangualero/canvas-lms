@@ -43,6 +43,27 @@ module IncomingMailProcessor
       @error_reporter = error_reporter
     end
 
+    def self.queue_processors
+      if self.run_periodically?
+        imp = self.new(IncomingMail::MessageHandler.new, ErrorReport::Reporter.new)
+        self.workers.times do |worker_id|
+          if self.dedicated_workers_per_mailbox
+            # Launch one per mailbox
+            self.mailbox_accounts.each do |account|
+              imp.send_later_enqueue_args(:process,
+                {singleton: "IncomingMailProcessor::IncomingMessageProcessor#process:#{worker_id}:#{account.address}", max_attempts: 1},
+                {worker_id: worker_id, mailbox_account_address: account.address})
+            end
+          else
+            # Just launch the one
+            imp.send_later_enqueue_args(:process,
+              {singleton: "IncomingMailProcessor::IncomingMessageProcessor#process:#{worker_id}", max_attempts: 1},
+              {worker_id: worker_id})
+          end
+        end
+      end
+    end
+
     # See config/incoming_mail.yml.example for documentation on how to configure incoming mail
     def self.configure(config)
       configure_settings(config.except(*mailbox_keys))
@@ -128,12 +149,15 @@ module IncomingMailProcessor
     end
 
     def report_stats(incoming_message, mailbox_account)
-      CanvasStatsd::Statsd.increment("incoming_mail_processor.incoming_message_processed.#{mailbox_account.escaped_address}")
-
+      InstStatsd::Statsd.increment("incoming_mail_processor.incoming_message_processed.#{mailbox_account.escaped_address}",
+                                   short_stat: 'incoming_mail_processor.incoming_message_processed',
+                                   tags: {mailbox: mailbox_account.escaped_address})
       age = age(incoming_message)
       if age
         stat_name = "incoming_mail_processor.message_age.#{mailbox_account.escaped_address}"
-        CanvasStatsd::Statsd.timing(stat_name, age)
+        InstStatsd::Statsd.timing(stat_name, age,
+                                  short_stat: 'incoming_mail_processor.message_age',
+                                  tags: {mailbox: mailbox_account.escaped_address})
       end
     end
 
@@ -242,8 +266,11 @@ module IncomingMailProcessor
     def self.utf8ify(string, encoding)
       encoding ||= 'UTF-8'
       encoding = encoding.upcase
+      encoding = "UTF-8" if encoding == "UTF8"
+
       # change encoding; if it throws an exception (i.e. unrecognized encoding), just strip invalid UTF-8
-      Iconv.conv('UTF-8//TRANSLIT//IGNORE', encoding, string) rescue Utf8Cleaner.strip_invalid_utf8(string)
+      new_string = string.encode("UTF-8", encoding) rescue nil
+      new_string&.valid_encoding? ? new_string : Utf8Cleaner.strip_invalid_utf8(string)
     end
 
 
@@ -309,7 +336,7 @@ module IncomingMailProcessor
     def self.extract_address_tag(message, account)
       addr, domain = account.address.split(/@/)
       regex = Regexp.new("#{Regexp.escape(addr)}\\+([^@]+)@#{Regexp.escape(domain)}")
-      message.to.each do |address|
+      message.to&.each do |address|
         if match = regex.match(address)
           return match[1]
         end

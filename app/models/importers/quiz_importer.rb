@@ -173,7 +173,7 @@ module Importers
           item.workflow_state = (hash[:available] || !item.can_unpublish?) ? 'available' : 'unpublished'
           item.saved_by = :migration
           item.quiz_groups.destroy_all
-          item.quiz_questions.destroy_all
+          item.quiz_questions.preload(assessment_question: :assessment_question_bank).destroy_all
           item.save
         end
       end
@@ -292,8 +292,9 @@ module Importers
       end
 
       item.root_entries(true) if !item.available? && !item.survey? # reload items so we get accurate points
+      item.notify_of_update = false
       item.save
-      item.assignment.save if item.assignment && item.assignment.changed?
+      item.assignment.save_without_broadcasting if item.assignment && item.assignment.changed?
 
       migration.add_imported_item(item)
       item.saved_by = nil
@@ -307,14 +308,15 @@ module Importers
 
         if hash[:questions]
           # either the quiz hasn't been changed downstream or we've re-locked it - delete all the questions/question_groups we're not going to (re)import in
-          importing_qgroup_mig_ids = hash[:questions].select{|q| q[:question_type] == "question_group"}.map{|qg| qg[:migration_id]}
-          item.quiz_groups.where.not(:migration_id => importing_qgroup_mig_ids).destroy_all
-
           importing_question_mig_ids = hash[:questions].map{|q| q[:questions] ?
             q[:questions].map{|qq| qq[:quiz_question_migration_id] || qq[:migration_id]} :
             q[:quiz_question_migration_id] || q[:migration_id]
           }.flatten
           item.quiz_questions.active.where.not(:migration_id => importing_question_mig_ids).update_all(:workflow_state => 'deleted')
+
+          # remove the quiz groups afterwards so any of their dependent quiz questions are deleted first and we don't run into any Restrictor errors
+          importing_qgroup_mig_ids = hash[:questions].select{|q| q[:question_type] == "question_group"}.map{|qg| qg[:migration_id]}
+          item.quiz_groups.where.not(:migration_id => importing_qgroup_mig_ids).destroy_all
         end
       end
       return unless question_data

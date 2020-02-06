@@ -18,6 +18,11 @@
 
 import WikiPage from 'compiled/models/WikiPage'
 import WikiPageView from 'compiled/views/wiki/WikiPageView'
+import ReactDOM from 'react-dom'
+import $ from 'jquery'
+import 'helpers/jquery.simulate'
+import 'compiled/jquery/ModuleSequenceFooter'
+import fakeENV from 'helpers/fakeENV'
 
 QUnit.module('WikiPageView')
 
@@ -122,26 +127,74 @@ test('lock_info.unlock_at', () => {
   clock.restore()
 })
 
-test('useAsFrontPage for published wiki_pages_path', function() {
+test('useAsFrontPage for published wiki_pages_path', () => {
   const model = new WikiPage({
     front_page: false,
     published: true
   })
   const view = new WikiPageView({model})
-  const stub = this.stub(model, 'setFrontPage')
+  const stub = sandbox.stub(model, 'setFrontPage')
   view.useAsFrontPage()
   ok(stub.calledOnce)
 })
 
-test('useAsFrontPage should not work on unpublished wiki_pages_path', function() {
+test('useAsFrontPage should not work on unpublished wiki_pages_path', () => {
   const model = new WikiPage({
     front_page: false,
     published: false
   })
   const view = new WikiPageView({model})
-  const stub = this.stub(model, 'setFrontPage')
+  const stub = sandbox.stub(model, 'setFrontPage')
   view.useAsFrontPage()
   notOk(stub.calledOnce)
+})
+
+QUnit.module('WikiPageView: direct share', hooks => {
+  hooks.beforeEach(() => {
+    $('<div id="direct-share-mount-point">').appendTo('#fixtures')
+    fakeENV.setup({DIRECT_SHARE_ENABLED: true})
+    sinon.stub(ReactDOM, 'render')
+  })
+
+  hooks.afterEach(() => {
+    ReactDOM.render.restore()
+    fakeENV.teardown()
+    $('#direct-share-mount-point').remove()
+  })
+
+  test('opens and closes user share modal', () => {
+    const model = new WikiPage({
+      page_id: '42',
+      url: 'foo'
+    })
+    const view = new WikiPageView({model, course_id: '123', PAGE_RIGHTS: {update_content: true}})
+    view.render()
+    view.$('.al-trigger').simulate('click')
+    view.$('.direct-share-send-to-menu-item').simulate('click')
+    const props = ReactDOM.render.firstCall.args[0].props
+    equal(props.open, true)
+    equal(props.sourceCourseId, '123')
+    deepEqual(props.contentShare, {content_type: 'page', content_id: '42'})
+    props.onDismiss()
+    equal(ReactDOM.render.lastCall.args[0].props.open, false)
+  })
+
+  test('opens and closes copy to tray', () => {
+    const model = new WikiPage({
+      page_id: '42',
+      url: 'foo'
+    })
+    const view = new WikiPageView({model, course_id: '123', PAGE_RIGHTS: {update_content: true}})
+    view.render()
+    view.$('.al-trigger').simulate('click')
+    view.$('.direct-share-copy-to-menu-item').simulate('click')
+    const props = ReactDOM.render.firstCall.args[0].props
+    equal(props.open, true)
+    equal(props.sourceCourseId, '123')
+    deepEqual(props.contentSelection, {pages: ['42']})
+    props.onDismiss()
+    equal(ReactDOM.render.lastCall.args[0].props.open, false)
+  })
 })
 
 const testRights = (subject, options) => {

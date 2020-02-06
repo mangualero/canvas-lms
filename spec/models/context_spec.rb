@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
 
 describe Context do
   context "find_by_asset_string" do
@@ -138,6 +138,59 @@ describe Context do
     end
   end
 
+  context 'find_asset_by_url' do
+    before :once do
+      course_factory
+    end
+
+    it 'should find files' do
+      attachment_model(context: @course).update(locked: true)
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/files?preview=#{@attachment.id}")).to eq @attachment
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/files/#{@attachment.id}/download?wrap=1")).to eq @attachment
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/file_contents/course%20files//#{@attachment.name}")).to eq @attachment
+    end
+
+    it 'should find assignments' do
+      assignment_model(course: @course)
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/assignments/#{@assignment.id}")).to eq @assignment
+    end
+
+    it 'should find wiki pages' do
+      wiki_page_model(context: @course, title: 'hi')
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/pages/hi")).to eq @page
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/wiki/hi")).to eq @page
+      group_model
+      wiki_page_model(context: @group, title: 'yo')
+      expect(Context.find_asset_by_url("/groups/#{@group.id}/pages/yo")).to eq @page
+      expect(Context.find_asset_by_url("/groups/#{@group.id}/wiki/yo")).to eq @page
+    end
+
+    it "should find weird wiki pages" do
+      wiki_page_model(context: @course, title: 'pagewitha+init')
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/pages/pagewitha+init")).to eq @page
+    end
+
+    it 'should find discussion_topics' do
+      discussion_topic_model(context: @course)
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/discussion_topics/#{@topic.id}")).to eq @topic
+      group_model
+      discussion_topic_model(context: @group)
+      expect(Context.find_asset_by_url("/groups/#{@group.id}/discussion_topics/#{@topic.id}")).to eq @topic
+    end
+
+    it 'should find quizzes' do
+      quiz_model(course: @course)
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/quizzes/#{@quiz.id}")).to eq @quiz
+    end
+
+    it 'finds module items' do
+      page = @course.wiki_pages.create! title: 'blah'
+      mod = @course.context_modules.create! name: 'bleh'
+      tag = mod.add_item type: 'wiki_page', id: page.id
+      expect(Context.find_asset_by_url("/courses/#{@course.id}/modules/items/#{tag.id}")).to eq tag
+    end
+  end
+
   context "self.names_by_context_types_and_ids" do
     it "should find context names" do
       contexts = []
@@ -203,6 +256,22 @@ describe Context do
       RubricAssociation.create!(context: context, rubric: r, purpose: :bookmark, association_object: context)
     end
 
+    it 'returns rubric for concluded course enrollment' do
+      c1 = Course.create!(:name => 'c1')
+      c2 = Course.create!(:name => 'c1')
+      r = Rubric.create!(context: c1, title: 'testing')
+      user = user_factory(:active_all => true)
+      RubricAssociation.create!(context: c1, rubric: r, purpose: :bookmark, association_object: c1)
+      enroll = c1.enroll_user(user, "TeacherEnrollment", :enrollment_state => "active")
+      enroll.conclude
+      c2.enroll_user(user, "TeacherEnrollment", :enrollment_state => "active")
+      expect(c2.rubric_contexts(user)).to eq([{
+        rubrics: 1,
+        context_code: c1.asset_string,
+        name: c1.name
+      }])
+    end
+
     it 'returns contexts in alphabetically sorted order' do
       great_grandparent = Account.default
       grandparent = Account.create!(name: 'AAA', parent_account: great_grandparent)
@@ -218,6 +287,112 @@ describe Context do
         { name: 'MMM', rubrics: 1},
         { name: 'ZZZ', rubrics: 1}
       ])
+    end
+
+    context "sharding" do
+      specs_require_sharding
+
+      it "should retrieve rubrics from other shard courses the teacher belongs to" do
+        course1 = Course.create!(:name => 'c1')
+        course2 = Course.create!(:name => 'c2')
+        course3 = @shard1.activate do
+          a = Account.create!
+          Course.create!(:name => 'c3', :account => a)
+        end
+        user = user_factory(:active_all => true)
+        [course1, course2, course3].each do |c|
+          c.shard.activate do
+            r = Rubric.create!(context: c, title: 'testing')
+            RubricAssociation.create!(context: c, rubric: r, purpose: :bookmark, association_object: c)
+            c.enroll_user(user, "TeacherEnrollment", :enrollment_state => "active")
+          end
+        end
+        expected = -> { [
+          { name: 'c1', rubrics: 1, context_code: course1.asset_string},
+          { name: 'c2', rubrics: 1, context_code: course2.asset_string},
+          { name: 'c3', rubrics: 1, context_code: course3.asset_string}
+        ] }
+        expect(course1.rubric_contexts(user)).to match_array(expected.call)
+        @shard1.activate do
+          expect(course2.rubric_contexts(user)).to match_array(expected.call)
+        end
+      end
+    end
+  end
+
+  describe "#active_record_types" do
+    let(:course) { Course.create! }
+
+    it "looks at the 'everything' cache if asking for just one thing and doesn't have a cache for that" do
+
+      # it should look first for the cache for just the thing we are asking for
+      expect(Rails.cache).to receive(:read).
+        with(['active_record_types3', [:assignments], course].cache_key).
+        and_return(nil)
+
+      # if that ^ returns nil, it should then look for for the "everything" cache
+      expect(Rails.cache).to receive(:read).
+        with(['active_record_types3', 'everything', course].cache_key).
+        and_return({
+          other_thing_we_are_not_asking_for: true,
+          assignments: "the cached value for :assignments from the 'everything' cache"
+        })
+
+      expect(course.active_record_types(only_check: [:assignments])).to eq({
+        assignments: "the cached value for :assignments from the 'everything' cache"
+      })
+    end
+
+    it "raises an ArgumentError if you pass (only_check: [])" do
+      expect{
+        course.active_record_types(only_check: [])
+      }.to raise_exception ArgumentError
+    end
+
+    it "raises an ArgumentError if you pass bogus values as only_check" do
+      expect{
+        course.active_record_types(only_check: [:bogus_type, :other_bogus_tab])
+      }.to raise_exception ArgumentError
+    end
+  end
+
+  describe "last_updated_at" do
+    before :once do
+      @course1 = Course.create!(name: "course1", updated_at: 1.year.ago)
+      @course2 = Course.create!(name: "course2", updated_at: 1.day.ago)
+      @user1 = User.create!(name: "user1", updated_at: 1.year.ago)
+      @user2 = User.create!(name: "user2", updated_at: 1.day.ago)
+      @group1 = Account.default.groups.create!(:name => "group1", updated_at: 1.year.ago)
+      @group2 = Account.default.groups.create!(:name => "group2", updated_at: 1.day.ago)
+      @account1 = Account.create!(name: "account1", updated_at: 1.year.ago)
+      @account2 = Account.create!(name: "account2", updated_at: 1.day.ago)
+    end
+
+    it "returns the latest updated_at date for a given set of context ids" do
+      expect(Context.last_updated_at(Course, [@course1.id, @course2.id])).to eq @course2.updated_at
+      expect(Context.last_updated_at(User, [@user1.id, @user2.id])).to eq @user2.updated_at
+      expect(Context.last_updated_at(Group, [@group1.id, @group2.id])).to eq @group2.updated_at
+      expect(Context.last_updated_at(Account, [@account1.id, @account2.id])).to eq @account2.updated_at
+    end
+
+    it "raises an error if the class passed is not a context type" do
+      expect {Context.last_updated_at(Hash, [1])}.to raise_error ArgumentError
+    end
+
+    it "ignores contexts with null updated_at values" do
+      @course2.updated_at = nil
+      @course2.save!
+
+      expect(Context.last_updated_at(Course, [@course1.id, @course2.id])).to eq @course1.updated_at
+    end
+
+    it "returns nil when no updated_at is found for the given contexts" do
+      [@course1, @course2].each do |c|
+        c.updated_at = nil
+        c.save!
+      end
+
+      expect(Context.last_updated_at(Course, [@course1.id, @course2.id])).to be_nil
     end
   end
 end

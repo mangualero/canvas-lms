@@ -23,32 +23,73 @@ import CoursesListRow from '../CoursesListRow'
 const props = {
   id: '1',
   name: 'A',
+  showSISIds: false,
   sis_course_id: 'SIS 1',
-  workflow_state: 'alive',
+  subaccount_name: 'dummy_value',
   total_students: 6,
   teachers: [
     {
       id: '1',
+      name: 'Teacher, Testing',
       display_name: 'Testing Teacher'
     }
   ],
   term: {
     name: 'A Term'
-  }
+  },
+  workflow_state: 'alive',
+  concluded: false
 }
 
 it('indicates if a course is a blueprint course', () => {
-  const tooltip = 'Tooltip[tip="This is a blueprint course"] IconBlueprint'
-
+  const tooltip = 'Tooltip[tip="This is a blueprint course"] IconBlueprintLine'
   expect(
     shallow(<CoursesListRow {...props} />)
       .find(tooltip)
       .exists()
-  ).toBeFalsy()
+  ).toBe(false)
 
   expect(
     shallow(<CoursesListRow {...props} blueprint />)
       .find(tooltip)
       .exists()
-  ).toBeTruthy()
+  ).toBe(true)
+})
+
+it('shows add-enrollment if it makes sense', () => {
+  const tooltip = 'Tooltip[tip="Add Users to A"] IconPlusLine'
+  expect(
+    shallow(<CoursesListRow {...props} can_create_enrollments concluded={false} />)
+      .find(tooltip)
+      .exists()
+  ).toBe(true)
+})
+
+it('does not show add-enrollment when not allowed', () => {
+  const tooltip = 'Tooltip[tip="Add Users to A"] IconPlusLine'
+  expect(
+    shallow(
+      <CoursesListRow
+        {...props}
+        can_create_enrollments={false}
+        workflow_state="active"
+        concluded={false}
+      />
+    )
+      .find(tooltip)
+      .exists()
+  ).toBe(false)
+
+  expect(
+    shallow(
+      <CoursesListRow {...props} can_create_enrollments workflow_state="completed" concluded />
+    )
+      .find(tooltip)
+      .exists()
+  ).toBe(false)
+})
+
+it('shows the teacher count when needed', () => {
+  const wrapper = shallow(<CoursesListRow {...props} teacher_count={3} teachers={null} />)
+  expect(wrapper.text()).toContain('3 teachers')
 })

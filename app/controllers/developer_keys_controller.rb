@@ -24,23 +24,29 @@ class DeveloperKeysController < ApplicationController
 
   def index
     raise ActiveRecord::RecordNotFound unless @context.root_account?
-    scope = index_scope.nondeleted.preload(:account).order("id DESC")
-    @keys = Api.paginate(scope, self, account_developer_keys_url(@context))
     respond_to do |format|
       format.html do
         set_navigation
-        js_env(accountEndpoint: api_v1_account_developer_keys_path(@context))
+        js_env(
+          accountEndpoint: api_v1_account_developer_keys_path(@context),
+          enableTestClusterChecks: DeveloperKey.test_cluster_checks_enabled?,
+          validLtiScopes: TokenScopes::LTI_SCOPES,
+          validLtiPlacements: Lti::ResourcePlacement::PLACEMENTS,
+          includesFeatureFlagEnabled: Account.site_admin.feature_enabled?(:developer_key_support_includes)
+        )
 
-        if use_new_dev_key_features?
-          render :index_react
-        else
-          render :index
-        end
+        render :index_react
       end
 
       format.json do
+        @keys = Api.paginate(index_scope, self, account_developer_keys_url(@context))
         render :json => developer_keys_json(
-          @keys, @current_user, session, account_context, use_new_dev_key_features?, inherited: params[:inherited].present?
+          @keys,
+          @current_user,
+          session,
+          account_context,
+          inherited: params[:inherited].present?,
+          include_tool_config: params[:inherited].blank?
         )
       end
     end
@@ -50,7 +56,7 @@ class DeveloperKeysController < ApplicationController
     @key = DeveloperKey.new(developer_key_params)
     @key.account = @context if params[:account_id] && @context != Account.site_admin
     if @key.save
-      render :json => developer_key_json(@key, @current_user, session, account_context, use_new_dev_key_features?)
+      render :json => developer_key_json(@key, @current_user, session, account_context)
     else
       render :json => @key.errors, :status => :bad_request
     end
@@ -60,7 +66,7 @@ class DeveloperKeysController < ApplicationController
     @key.process_event!(params[:developer_key].delete(:event)) if params[:developer_key].key?(:event)
     @key.attributes = developer_key_params unless params[:developer_key].empty?
     if @key.save
-      render :json => developer_key_json(@key, @current_user, session, account_context, use_new_dev_key_features?)
+      render :json => developer_key_json(@key, @current_user, session, account_context)
     else
       render :json => @key.errors, :status => :bad_request
     end
@@ -68,23 +74,20 @@ class DeveloperKeysController < ApplicationController
 
   def destroy
     @key.destroy
-    render :json => developer_key_json(@key, @current_user, session, account_context, use_new_dev_key_features?)
+    render :json => developer_key_json(@key, @current_user, session, account_context)
   end
 
   protected
 
   def set_navigation
-    @active_tab = 'developer_keys'
+    set_active_tab 'developer_keys'
     add_crumb t('#crumbs.developer_keys', "Developer Keys")
   end
 
   private
 
   def index_scope
-    unless use_new_dev_key_features?
-      return @context.site_admin? ? DeveloperKey : @context.developer_keys
-    end
-    if params[:inherited].present?
+    scope = if params[:inherited].present?
       return DeveloperKey.none if @context.site_admin?
       Account.site_admin.shard.activate do
         # site_admin keys have a nil account_id
@@ -95,24 +98,8 @@ class DeveloperKeysController < ApplicationController
     else
       DeveloperKey.where(account_id: @context.id)
     end
-  end
-
-  def account_from_params
-    return Account.site_admin if params[:account_id] == 'site_admin'
-    Account.find_by(id: params[:account_id])
-  end
-
-  def use_new_dev_key_features?
-    @_use_new_dev_key_features ||= begin
-      requested_context = @context || account_from_params || @key&.owner_account
-      return if requested_context.blank?
-      has_site_admin_access?(requested_context) ||
-        requested_context.root_account.feature_enabled?(:developer_key_management_ui_rewrite)
-    end
-  end
-
-  def has_site_admin_access?(requested_context)
-    requested_context.site_admin? && Setting.get(Setting::SITE_ADMIN_ACCESS_TO_NEW_DEV_KEY_FEATURES, nil).present?
+    scope = scope.eager_load(:tool_configuration) unless params[:inherited]
+    scope.nondeleted.preload(:account).order("developer_keys.id DESC")
   end
 
   def set_key
@@ -124,11 +111,15 @@ class DeveloperKeysController < ApplicationController
       return @key.account || Account.site_admin
     elsif params[:account_id]
       require_account_context
-      return @context if @context == @domain_root_account
+      return @context if context_is_domain_root_account?
     end
 
     # failover to what require_site_admin_with_permission uses
     return Account.site_admin
+  end
+
+  def context_is_domain_root_account?
+    @context == @domain_root_account
   end
 
   def require_manage_developer_keys
@@ -136,27 +127,7 @@ class DeveloperKeysController < ApplicationController
   end
 
   def developer_key_params
-    if use_new_dev_key_features?
-      return params.require(:developer_key).permit(
-        :access_token_count,
-        :api_key,
-        :auto_expire_tokens,
-        :email,
-        :icon_url,
-        :name,
-        :notes,
-        :redirect_uri,
-        :redirect_uris,
-        :vendor_code,
-        :visible,
-        :require_scopes,
-        scopes: []
-      )
-    end
-
     params.require(:developer_key).permit(
-      :access_token_count,
-      :api_key,
       :auto_expire_tokens,
       :email,
       :icon_url,
@@ -165,7 +136,11 @@ class DeveloperKeysController < ApplicationController
       :redirect_uri,
       :redirect_uris,
       :vendor_code,
-      :visible
+      :visible,
+      :test_cluster_only,
+      :require_scopes,
+      :allow_includes,
+      scopes: []
     )
   end
 end

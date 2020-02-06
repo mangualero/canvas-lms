@@ -16,19 +16,26 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-define([
-  'react',
-  'react-addons-test-utils',
-  'jsx/dashboard_card/DashboardCardMovementMenu',
-], (React, TestUtils, DashboardCardMovementMenu) => {
-  QUnit.module('DashboardCardMovementMenu');
+import React from 'react'
+import ReactDOM from 'react-dom'
 
-  test('it calls handleMove properly', () => {
-    const handleMoveSpy = sinon.spy();
-    const props = {
+import DashboardCardMovementMenu from 'jsx/dashboard_card/DashboardCardMovementMenu'
+
+QUnit.module('DashboardCardMovementMenu', suiteHooks => {
+  let $container
+  let component
+  let props
+
+  suiteHooks.beforeEach(() => {
+    $container = document.createElement('div')
+    document.body.appendChild($container)
+
+    props = {
       assetString: 'course_1',
       cardTitle: 'Strategery 101',
-      handleMove: handleMoveSpy,
+      handleMove: sinon.spy(),
+      onUnfavorite: sinon.spy(),
+      isFavorited: true,
       menuOptions: {
         canMoveLeft: true,
         canMoveRight: true,
@@ -36,13 +43,68 @@ define([
         canMoveToEnd: true
       }
     }
-    const menu = TestUtils.renderIntoDocument(
-      <DashboardCardMovementMenu {...props} />
-    );
+  })
 
-    // handleMoveCard returns a function that's the actual handler.
-    menu.handleMoveCard(2)();
+  suiteHooks.afterEach(async () => {
+    ReactDOM.unmountComponentAtNode($container)
+    $container.remove()
+  })
 
-    ok(handleMoveSpy.calledWith('course_1', 2));
-  });
-});
+  function mountComponent() {
+    const bindRef = ref => {
+      component = ref
+    }
+    ReactDOM.render(<DashboardCardMovementMenu ref={bindRef} {...props} />, $container)
+  }
+
+  function getMenuElement() {
+    return document.querySelector('[aria-label="Dashboard Card Movement Menu"]')
+  }
+
+  QUnit.module('#handleMoveCard()', () => {
+    test('calls handleMove prop once when #handleMoveCard is called', () => {
+      mountComponent()
+      component.handleMoveCard(2)()
+
+      strictEqual(props.handleMove.callCount, 1)
+    })
+
+    test('calls handleMove prop with assetString parameter', () => {
+      mountComponent()
+      component.handleMoveCard(2)()
+
+      strictEqual(props.handleMove.getCall(0).args[0], 'course_1')
+    })
+
+    test('calls handleMove prop with atIndex parameter', () => {
+      mountComponent()
+      component.handleMoveCard(2)()
+
+      strictEqual(props.handleMove.getCall(0).args[1], 2)
+    })
+  })
+
+  QUnit.module('#onUnfavorite()', () => {
+    test('calls onUnfavorite when Unfavorite option is clicked', () => {
+      mountComponent()
+      const $button = getMenuElement().querySelector('#unfavorite')
+      $button.click()
+      strictEqual(props.onUnfavorite.callCount, 1)
+    })
+  })
+
+  QUnit.module('isFavorited', () => {
+    test('renders Unfavorite option when isFavorited is true', () => {
+      mountComponent()
+      const unfavorite = getMenuElement().querySelector('#unfavorite')
+      ok(unfavorite)
+    })
+
+    test('does not render Unfavorite option when isFavorited is false', () => {
+      props.isFavorited = false
+      mountComponent()
+      const unfavorite = getMenuElement().querySelector('#unfavorite')
+      notOk(unfavorite)
+    })
+  })
+})

@@ -16,8 +16,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
 
-<% content_for :page_title do %><%= t :title, "Jobs CP" %><% end %>
-<% content_for :stylesheets do %>
+<% provide :page_title do %><%= t :title, "Jobs CP" %><% end %>
+
 <style type="text/css">
   #content {
     position: relative;
@@ -70,7 +70,7 @@
   textarea.show-field { width: 850px; height: 630px; }
   .unloaded-id { color: #aaa; }
 </style>
-<% end %>
+
 <% css_bundle :slickgrid %>
 <% js_bundle :jobs %>
 
@@ -118,6 +118,7 @@
   <h4><%= before_label :id, "id" %> <a href="#" id="job-id-link"><span id="job-id" class="show-field">&nbsp;</span></a></h4>
   <h4><%= before_label :tag, "tag" %> <span id='job-tag' class='show-field'>&nbsp;</span></h4>
   <h4><%= before_label :strand, "strand" %> <span id='job-strand' class='show-field'>&nbsp;</span></h4>
+  <h4><%= before_label :shard, "shard" %> <span id='job-shard_id' class='show-field'>&nbsp;</span></h4>
   <table id='job-attributes' cellspacing="0">
     <tr>
       <td width="150"><%= before_label :priority, "Priority" %></td>

@@ -17,122 +17,74 @@
  */
 
 import $ from 'jquery'
-import React from 'react'
+import React, {useState, useRef} from 'react'
 import PropTypes from 'prop-types'
 import I18n from 'i18n!course_wizard'
-import ReactModal from 'react-modal'
+import {Mask, Overlay} from '@instructure/ui-overlays'
 import InfoFrame from './InfoFrame'
 import Checklist from './Checklist'
-import userSettings from 'compiled/userSettings'
 import 'compiled/jquery.rails_flash_notifications'
 
-  const modalOverrides = {
-    overlay : {
-      backgroundColor: 'transparent'
-    },
-    content : {
-      position: 'static',
-      top: '0',
-      left: '0',
-      right: 'auto',
-      bottom: 'auto',
-      borderRadius: '0',
-      border: 'none',
-      padding: '0'
-    }
-  };
-
-  var CourseWizard = React.createClass({
-      displayName: 'CourseWizard',
-
-      propTypes: {
-        showWizard: PropTypes.bool,
-        overlayClassName: PropTypes.string
-      },
-
-      getInitialState: function () {
-        return {
-          showWizard: this.props.showWizard,
-          selectedItem: ''
-        };
-      },
-
-      componentDidMount: function () {
-        this.refs.closeLink.getDOMNode().focus();
-        $(this.refs.wizardBox.getDOMNode()).removeClass('ic-wizard-box--is-closed');
-        $.screenReaderFlashMessageExclusive(I18n.t("Course Setup Wizard is showing."));
-      },
-
-      componentWillReceiveProps: function (nextProps) {
-        this.setState({
-          showWizard: nextProps.showWizard
-        }, () => {
-          $(this.refs.wizardBox.getDOMNode()).removeClass('ic-wizard-box--is-closed');
-          if (this.state.showWizard) {
-            this.refs.closeLink.getDOMNode().focus();
-          }
-        });
-      },
-
-      /**
-       * Handles what should happen when a checklist item is clicked.
-       */
-      checklistClickHandler: function (itemToShowKey) {
-        this.setState({
-          selectedItem: itemToShowKey
-        });
-      },
-
-      closeModal: function (event) {
-        if (event) {
-          event.preventDefault()
-        };
-
-        var pathname = window.location.pathname;
-        userSettings.set('hide_wizard_' + pathname, true);
-
-        this.setState({
-          showWizard: false
-        })
-      },
-
-      render: function () {
-        return (
-          <ReactModal
-            isOpen={this.state.showWizard}
-            onRequestClose={this.closeModal}
-            style={modalOverrides}
-            overlayClassName={this.props.overlayClassName}
-          >
-            <main role='main'>
-              <div ref='wizardBox' className='ic-wizard-box'>
-                <div className='ic-wizard-box__header'>
-                  <a href='/' className='ic-wizard-box__logo-link'>
-                    <span className='screenreader-only'>{I18n.t('My dashboard')}</span>
-                  </a>
-                  <Checklist className='ic-wizard-box__nav'
-                             selectedItem={this.state.selectedItem}
-                             clickHandler={this.checklistClickHandler}
-                  />
-                </div>
-                <div className='ic-wizard-box__main'>
-                  <div className='ic-wizard-box__close'>
-                    <div className='ic-Expand-link ic-Expand-link--from-right'>
-                      <a ref='closeLink' href='#' className='ic-Expand-link__trigger' onClick={this.closeModal}>
-                        <div className='ic-Expand-link__layout'>
-                          <i className='icon-x ic-Expand-link__icon'></i>
-                          <span className='ic-Expand-link__text'>{I18n.t('Close and return to Canvas')}</span>
-                        </div>
-                      </a>
+export default function CourseWizard({onHideWizard}) {
+  const [selectedItem, setSelectedItem] = useState('')
+  const closeLink = useRef()
+  return (
+    <Overlay
+      onOpen={() => {
+        closeLink.current.focus()
+        $.screenReaderFlashMessageExclusive(I18n.t('Course Setup Wizard is showing.'))
+      }}
+      open
+      onDismiss={onHideWizard}
+      label={I18n.t('Course Wizard')}
+      shouldContainFocus
+      shouldReturnFocus
+      unmountOnExit
+    >
+      <Mask theme={{background: 'transparent'}} fullscreen>
+        <main role="main">
+          <div className="ic-wizard-box">
+            <div className="ic-wizard-box__header">
+              <a href="/" className="ic-wizard-box__logo-link">
+                <span className="screenreader-only">{I18n.t('My dashboard')}</span>
+              </a>
+              <Checklist
+                className="ic-wizard-box__nav"
+                selectedItem={selectedItem}
+                clickHandler={setSelectedItem}
+              />
+            </div>
+            <div className="ic-wizard-box__main">
+              <div className="ic-wizard-box__close">
+                <div className="ic-Expand-link ic-Expand-link--from-right">
+                  <button
+                    type="button"
+                    className="ic-Expand-link__trigger"
+                    onClick={onHideWizard}
+                    ref={closeLink}
+                  >
+                    <div className="ic-Expand-link__layout">
+                      <i className="icon-x ic-Expand-link__icon" />
+                      <span className="ic-Expand-link__text">
+                        {I18n.t('Close and return to Canvas')}
+                      </span>
                     </div>
-                  </div>
-                  <InfoFrame className='ic-wizard-box__content' itemToShow={this.state.selectedItem} closeModal={this.closeModal} />
+                  </button>
                 </div>
               </div>
-            </main>
-          </ReactModal>
-          );
-      }
-  });
+              <InfoFrame
+                className="ic-wizard-box__content"
+                itemToShow={selectedItem}
+                closeModal={onHideWizard}
+              />
+            </div>
+          </div>
+        </main>
+      </Mask>
+    </Overlay>
+  )
+}
 
-export default CourseWizard
+CourseWizard.propTypes = {
+  onHideWizard: PropTypes.func.isRequired
+}

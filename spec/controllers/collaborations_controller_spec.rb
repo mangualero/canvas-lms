@@ -48,7 +48,7 @@ describe CollaborationsController do
 
       get 'index', params: {:course_id => @course.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns(:user_has_google_drive)).to eq true
     end
 
@@ -58,7 +58,7 @@ describe CollaborationsController do
 
       get 'index', params: {:course_id => @course.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns(:user_has_google_drive)).to eq false
     end
 
@@ -70,7 +70,7 @@ describe CollaborationsController do
       plugin_setting.save!
       get 'index', params: {:course_id => @course.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns(:user_has_google_drive)).to be false
     end
 
@@ -93,7 +93,7 @@ describe CollaborationsController do
       #allow(controller).to receive(:google_docs_connection).and_return(double(authorized?:false))
 
       get 'index', params: {:group_id => group.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
 
     it "only returns collaborations that the user has access to read" do
@@ -135,6 +135,7 @@ describe CollaborationsController do
       before(:each) do
         pseudonym(@student)
         @student.save!
+        enable_default_developer_key!
         token = @student.access_tokens.create!(purpose: 'test').full_token
         @request.headers['Authorization'] = "Bearer #{token}"
       end
@@ -155,6 +156,16 @@ describe CollaborationsController do
         hash = JSON.parse(@response.body).first
 
         expect(hash['collaborator_lti_id']).to eq @student.lti_context_id
+      end
+
+      it "should include collaborator old_lti_id" do
+        Lti::Asset.opaque_identifier_for(@student)
+        UserPastLtiId.create!(user: @student, context: @collab.context, user_lti_id: @student.lti_id, user_lti_context_id: 'old_lti_id', user_uuid: 'old')
+        get 'members', params: {id: @collab.id, include: ['collaborator_lti_id']}
+        @student.reload
+        hash = JSON.parse(@response.body).first
+
+        expect(hash['collaborator_lti_id']).to eq 'old_lti_id'
       end
 
       it "should include avatar_image_url" do

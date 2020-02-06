@@ -25,7 +25,6 @@ describe "gradebook" do
   include ColorCommon
 
   let(:extra_setup) { }
-  let(:active_element) { driver.switch_to.active_element }
 
   before(:once) do
     gradebook_data_setup
@@ -38,13 +37,14 @@ describe "gradebook" do
 
   context "export menu" do
     before do
-      Gradebook::MultipleGradingPeriods.visit_gradebook(@course)
+      Gradebook.visit_gradebook(@course)
       f('#download_csv').click
     end
 
     it "moves focus to import button during current export", priority: "2", test_id: 720459 do
       f('.generate_new_csv').click
-      expect(active_element).to have_class('ui-button')
+      wait_for_animations
+      expect { driver.switch_to.active_element }.to become(f('#import-csv'))
     end
 
     context "when a csv already exists" do
@@ -61,35 +61,35 @@ describe "gradebook" do
       it "maintains focus on export button during past csv export", priority: "2", test_id: 720460 do
         wait_for_ajax_requests
         f('#csv_export_options .ui-menu-item:not(.generate_new_csv)').click
-        expect(active_element).to have_attribute('id', 'download_csv')
+        expect { driver.switch_to.active_element }.to become(f('#download_csv'))
       end
     end
   end
 
   context "return focus to settings menu when it closes" do
     before do
-      Gradebook::MultipleGradingPeriods.visit_gradebook(@course)
+      Gradebook.visit_gradebook(@course)
       f('#gradebook_settings').click
     end
 
     it "after hide/show student names is clicked", priority: "2", test_id: 720461 do
       f(".student_names_toggle").click
-      expect(active_element).to have_attribute('id', 'gradebook_settings')
+      expect { driver.switch_to.active_element }.to become(f('#gradebook_settings'))
     end
 
     it "after arrange columns is clicked", priority: "2", test_id: 720462 do
       f("[data-arrange-columns-by='due_date']").click
-      expect(active_element).to have_attribute('id', 'gradebook_settings')
+      expect { driver.switch_to.active_element }.to become(f('#gradebook_settings'))
     end
 
     it "after show notes is clicked", priority: "2", test_id: 720463 do
       f('.create').click
-      expect(active_element).to have_attribute('id', 'gradebook_settings')
+      expect { driver.switch_to.active_element }.to become(f('#gradebook_settings'))
     end
   end
 
   context 'settings menu is accessible' do
-    before { Gradebook::MultipleGradingPeriods.visit_gradebook(@course) }
+    before { Gradebook.visit_gradebook(@course) }
 
     it 'hides the icon from screen readers' do
       expect(f('#gradebook_settings .icon-settings')).to have_attribute('aria-hidden', 'true')
@@ -106,21 +106,21 @@ describe "gradebook" do
     context "without high contrast mode" do
       before do
         @teacher.disable_feature!(:high_contrast)
-        Gradebook::MultipleGradingPeriods.visit_gradebook(@course)
+        Gradebook.visit_gradebook(@course)
       end
 
       it 'meets 3:1 contrast for column headers' do
-        bg_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header(assignment_title).style('background-color')
-        text_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header_label(assignment_title).style('color')
+        bg_color = rgba_to_hex Gradebook.assignment_header(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradebook.assignment_header_label(assignment_title).style('color')
 
         expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 3
       end
 
       it 'meets 3:1 contrast for hovered column headers' do
-        hover Gradebook::MultipleGradingPeriods.assignment_header(assignment_title)
+        hover Gradebook.assignment_header(assignment_title)
 
-        bg_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header(assignment_title).style('background-color')
-        text_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header_label(assignment_title).style('color')
+        bg_color = rgba_to_hex Gradebook.assignment_header(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradebook.assignment_header_label(assignment_title).style('color')
 
         expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 3
       end
@@ -129,21 +129,21 @@ describe "gradebook" do
     context "with high contrast mode" do
       before do
         @teacher.enable_feature!(:high_contrast)
-        Gradebook::MultipleGradingPeriods.visit_gradebook(@course)
+        Gradebook.visit_gradebook(@course)
       end
 
       it 'meets 4.5:1 contrast for column headers' do
-        bg_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header(assignment_title).style('background-color')
-        text_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header_label(assignment_title).style('color')
+        bg_color = rgba_to_hex Gradebook.assignment_header(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradebook.assignment_header_label(assignment_title).style('color')
 
         expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 4.5
       end
 
       it 'meets 4.5:1 contrast for hovered column headers' do
-        hover Gradebook::MultipleGradingPeriods.assignment_header(assignment_title)
+        hover Gradebook.assignment_header(assignment_title)
 
-        bg_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header(assignment_title).style('background-color')
-        text_color = rgba_to_hex Gradebook::MultipleGradingPeriods.assignment_header_label(assignment_title).style('color')
+        bg_color = rgba_to_hex Gradebook.assignment_header(assignment_title).style('background-color')
+        text_color = rgba_to_hex Gradebook.assignment_header_label(assignment_title).style('color')
 
         expect(LuminosityContrast.ratio(bg_color, text_color).round(2)).to be >= 4.5
       end
@@ -151,16 +151,16 @@ describe "gradebook" do
   end
 
   context 'cell tooltip' do
-    before { Gradebook::MultipleGradingPeriods.visit_gradebook(@course) }
+    before { Gradebook.visit_gradebook(@course) }
 
     it 'is shown on hover' do
-      Gradebook::MultipleGradingPeriods.cell_hover(0, 0)
-      expect(Gradebook::MultipleGradingPeriods.cell_tooltip(0, 0)).to be_displayed
+      Gradebook.cell_hover(0, 0)
+      expect(Gradebook.cell_tooltip(0, 0)).to be_displayed
     end
 
     it 'is shown on focus' do
-      Gradebook::MultipleGradingPeriods.cell_click(0, 0)
-      expect(Gradebook::MultipleGradingPeriods.cell_tooltip(0, 0)).to be_displayed
+      Gradebook.cell_click(0, 0)
+      expect(Gradebook.cell_tooltip(0, 0)).to be_displayed
     end
   end
 end

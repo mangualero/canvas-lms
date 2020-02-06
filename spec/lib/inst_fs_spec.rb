@@ -23,18 +23,42 @@ describe InstFS do
     before do
       @app_host = 'http://test.host'
       @secret = "supersecretyup"
+      @rotating_secret = "anothersecret"
+      @secrets = [@secret, @rotating_secret]
+      encoded_secrets = @secrets.map{ |secret| Base64.encode64(secret) }.join(" ")
       allow(InstFS).to receive(:enabled?).and_return(true)
       allow(Canvas::DynamicSettings).to receive(:find).with(any_args).and_call_original
       allow(Canvas::DynamicSettings).to receive(:find).
         with(service: "inst-fs", default_ttl: 5.minutes).
         and_return({
           'app-host' => @app_host,
-          'secret' => Base64.encode64(@secret)
+          'secret' => encoded_secrets
         })
     end
 
-    it "returns decoded base 64 secret" do
+    it "returns primary decoded base 64 secret" do
       expect(InstFS.jwt_secret).to eq(@secret)
+    end
+
+    it "returns all decoded base 64 secrets" do
+      expect(InstFS.jwt_secrets).to eq(@secrets)
+    end
+
+    context "validate_capture_jwt" do
+      it "returns true for jwt signed with primary key" do
+        token = Canvas::Security.create_jwt({}, nil, @secret, :HS512)
+        expect(InstFS.validate_capture_jwt(token)).to eq(true)
+      end
+
+      it "returns true for jwt signed with rotating key" do
+        token = Canvas::Security.create_jwt({}, nil, @rotating_secret, :HS512)
+        expect(InstFS.validate_capture_jwt(token)).to eq(true)
+      end
+
+      it "returns false for jwt signed with bogus key" do
+        token = Canvas::Security.create_jwt({}, nil, "boguskey", :HS512)
+        expect(InstFS.validate_capture_jwt(token)).to eq(false)
+      end
     end
 
     context "authenticated_url" do
@@ -42,11 +66,46 @@ describe InstFS do
         @attachment = attachment_with_context(user_model)
         @attachment.instfs_uuid = 1
         @attachment.filename = "test.txt"
+        @attachment.display_name = nil
       end
 
       it "constructs url properly" do
         expect(InstFS.authenticated_url(@attachment, {}))
-          .to match("#{@app_host}/files/#{@attachment.instfs_uuid}")
+          .to match("#{@app_host}/files/#{@attachment.instfs_uuid}/#{@attachment.filename}")
+      end
+
+      it "prefers the display_name over filename if different" do
+        @attachment.display_name = "renamed.txt"
+        expect(InstFS.authenticated_url(@attachment, {}))
+          .to match("#{@app_host}/files/#{@attachment.instfs_uuid}/#{@attachment.display_name}")
+      end
+
+      it "URI encodes the embedded file name" do
+        @attachment.display_name = "안녕 세상"
+        url = InstFS.authenticated_url(@attachment, {})
+        filename_segment = URI.parse(url).path.split('/').last
+        expect(CGI.unescape(filename_segment)).to eq(@attachment.display_name)
+      end
+
+      it "doesn't use `+` for spaces in encoded file name" do
+        @attachment.display_name = "foo bar.txt"
+        url = InstFS.authenticated_url(@attachment, {})
+        filename_segment = URI.parse(url).path.split('/').last
+        expect(filename_segment).to eq("foo%20bar.txt")
+      end
+
+      it "doesn't leave `+` unencoded in encoded file name" do
+        @attachment.display_name = "foo+bar.txt"
+        url = InstFS.authenticated_url(@attachment, {})
+        filename_segment = URI.parse(url).path.split('/').last
+        expect(filename_segment).to eq("foo%2Bbar.txt")
+      end
+
+      it "doesn't leave `?` unencoded in encoded file name" do
+        @attachment.display_name = "foo?bar.txt"
+        url = InstFS.authenticated_url(@attachment, {})
+        filename_segment = URI.parse(url).path.split('/').last
+        expect(filename_segment).to eq("foo%3Fbar.txt")
       end
 
       it "passes download param" do
@@ -72,11 +131,43 @@ describe InstFS do
         end
       end
 
+      it "generates the same url within a cache window of time so it's not unique every time" do
+        url1 = InstFS.authenticated_url(@attachment)
+        url2 = InstFS.authenticated_url(@attachment)
+        expect(url1).to eq(url2)
+
+        Timecop.freeze(1.day.from_now) do
+          url3 = InstFS.authenticated_url(@attachment)
+          expect(url1).to_not eq(url3)
+
+          first_token = url1.split(/token=/).last
+          expect(->{
+            Canvas::Security.decode_jwt(first_token, [ @secret ])
+          }).to raise_error(Canvas::Security::TokenExpired)
+        end
+      end
+
       describe "jwt claims" do
         def claims_for(options={})
           url = InstFS.authenticated_url(@attachment, options)
           token = url.split(/token=/).last
           Canvas::Security.decode_jwt(token, [ @secret ])
+        end
+
+        it "no matter what time it is, the token has no less than 12 hours of validity left and never more than 24" do
+          24.times do |i|
+            Timecop.freeze(i.hours.from_now) do
+              claims = claims_for()
+              now = Time.zone.now
+              exp = Time.zone.at(claims['exp'])
+              expect(exp).to be > now + 12.hours
+              expect(exp).to be < now + 24.hours
+
+              iat = Time.zone.at(claims['iat'])
+              expect(iat).to be <= now
+              expect(iat).to be > now - 12.hours
+            end
+          end
         end
 
         it "includes global user_id claim in the token if user provided" do
@@ -183,6 +274,9 @@ describe InstFS do
       let(:on_duplicate) { 'rename' }
       let(:include_param) { ['avatar'] }
       let(:capture_url) { 'http://canvas.host/api/v1/files/capture' }
+      let(:additional_capture_params) do
+        { additional_note: 'notefull' }
+      end
 
       let(:default_args) do
         {
@@ -197,7 +291,8 @@ describe InstFS do
           quota_exempt: quota_exempt,
           on_duplicate: on_duplicate,
           capture_url: capture_url,
-          include_param: include_param
+          include_param: include_param,
+          additional_capture_params: additional_capture_params,
         }
       end
 
@@ -271,8 +366,12 @@ describe InstFS do
             expect(capture_params['on_duplicate']).to eq on_duplicate
           end
 
-          it "include the inlcude options" do
+          it "include the include options" do
             expect(capture_params['include']).to eq include_param
+          end
+
+          it "include additional_capture_params" do
+            expect(capture_params).to include additional_capture_params
           end
         end
       end
@@ -385,18 +484,56 @@ describe InstFS do
 
     context "direct upload" do
       it "makes a network request to the inst-fs endpoint" do
-        uuid = "1234-abcd"
+        instfs_uuid = "1234-abcd"
         allow(CanvasHttp).to receive(:post).and_return(double(
           class: Net::HTTPCreated,
           code: 200,
-          body: {uuid: uuid}.to_json
+          body: {instfs_uuid: instfs_uuid}.to_json
         ))
 
         res = InstFS.direct_upload(
           file_name: "a.png",
           file_object: File.open("public/images/a.png")
         )
-        expect(res).to eq(uuid)
+        expect(res).to eq(instfs_uuid)
+      end
+
+      it "requests a streaming upload to allow large files" do
+        instfs_uuid = "1234-abcd"
+        expect(CanvasHttp).to receive(:post).with(anything, hash_including(streaming: true)).and_return(double(
+          class: Net::HTTPCreated,
+          code: 200,
+          body: {instfs_uuid: instfs_uuid}.to_json
+        ))
+
+        InstFS.direct_upload(
+          file_name: "a.png",
+          file_object: File.open("public/images/a.png")
+        )
+      end
+    end
+
+    context "duplicate" do
+      it "makes a network request to the inst-fs endpoint" do
+        instfs_uuid = "1234-abcd"
+        new_instfs_uuid = "5678-efgh"
+        allow(CanvasHttp).to receive(:post).with(/\/files\/#{instfs_uuid}\/duplicate/).and_return(double(
+          class: Net::HTTPCreated,
+          code: 200,
+          body: {id: new_instfs_uuid}.to_json
+        ))
+        expect(InstFS.duplicate_file(instfs_uuid)).to eq new_instfs_uuid
+      end
+    end
+
+    context "deletion" do
+      it "makes a network request to the inst-fs endpoint" do
+        instfs_uuid = "1234-abcd"
+        allow(CanvasHttp).to receive(:delete).with(/\/files\/#{instfs_uuid}/).and_return(double(
+          class: Net::HTTPOK,
+          code: 200,
+        ))
+        expect(InstFS.delete_file(instfs_uuid)).to eq true
       end
     end
   end
@@ -416,8 +553,13 @@ describe InstFS do
     it "instfs is not enabled" do
       expect(InstFS.enabled?).to be false
     end
+
     it "doesn't error on jwt_secret" do
       expect(InstFS.jwt_secret).to be_nil
+    end
+
+    it "returns empty list of secrets" do
+      expect(InstFS.jwt_secrets).to eq([])
     end
   end
 end

@@ -16,11 +16,12 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import CommonEvent from '../calendar/CommonEvent'
-import Assignment from '../calendar/CommonEvent.Assignment'
-import AssignmentOverride from '../calendar/CommonEvent.AssignmentOverride'
-import CalendarEvent from '../calendar/CommonEvent.CalendarEvent'
-import PlannerNote from '../calendar/CommonEvent.PlannerNote'
+import CommonEvent from './CommonEvent'
+import Assignment from './CommonEvent.Assignment'
+import AssignmentOverride from './CommonEvent.AssignmentOverride'
+import CalendarEvent from './CommonEvent.CalendarEvent'
+import PlannerNote from './CommonEvent.PlannerNote'
+import ToDoItem from './CommonEvent.ToDoItem'
 import splitAssetString from '../str/splitAssetString'
 
 export default function commonEventFactory(data, contexts) {
@@ -38,8 +39,12 @@ export default function commonEventFactory(data, contexts) {
   const type = data.assignment_overrides
     ? 'assignment_override'
     : data.assignment || data.assignment_group_id
-      ? 'assignment'
-      : data.type === 'planner_note' ? 'planner_note' : 'calendar_event'
+    ? 'assignment'
+    : data.type === 'planner_note'
+    ? 'planner_note'
+    : data.plannable
+    ? 'todo_item'
+    : 'calendar_event'
 
   data = data.assignment_overrides
     ? {assignment: data.assignment, assignment_override: data.assignment_overrides[0]}
@@ -78,6 +83,8 @@ export default function commonEventFactory(data, contexts) {
     obj = new AssignmentOverride(data, contextInfo)
   } else if (type === 'planner_note') {
     obj = new PlannerNote(data, contextInfo, actualContextInfo)
+  } else if (type === 'todo_item') {
+    obj = new ToDoItem(data, contextInfo, actualContextInfo)
   } else {
     obj = new CalendarEvent(data, contextInfo, actualContextInfo)
   }
@@ -134,6 +141,13 @@ export default function commonEventFactory(data, contexts) {
     obj.can_change_context = true // TODO: will change to false when note is linked to an asset
     obj.can_edit = true
     obj.can_delete = true
+  }
+
+  if (type === 'todo_item') {
+    const can_update_object = contextInfo[`can_update_${obj.object.plannable_type}`]
+    const can_manage_todo = contextInfo.can_update_todo_date
+    obj.can_edit = can_update_object && can_manage_todo
+    obj.can_delete = can_update_object
   }
 
   // disable fullcalendar.js dragging unless the user has permissions

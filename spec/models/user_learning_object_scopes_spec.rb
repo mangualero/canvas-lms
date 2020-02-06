@@ -145,7 +145,7 @@ describe UserLearningObjectScopes do
       it "should include assignments with no locks" do
         @quiz.save!
         DueDateCacher.recompute(@quiz.assignment)
-        list = @student.assignments_for_student('submitting', context: [@course])
+        list = @student.assignments_for_student('submitting', contexts: [@course])
         expect(list.size).to be 1
         expect(list.first.title).to eq 'Test Assignment'
       end
@@ -154,7 +154,7 @@ describe UserLearningObjectScopes do
         @quiz.unlock_at = 1.hour.ago
         @quiz.save!
         DueDateCacher.recompute(@quiz.assignment)
-        list = @student.assignments_for_student('submitting', context: [@course])
+        list = @student.assignments_for_student('submitting', contexts: [@course])
         expect(list.size).to be 1
         expect(list.first.title).to eq 'Test Assignment'
       end
@@ -163,7 +163,7 @@ describe UserLearningObjectScopes do
         @quiz.lock_at = 1.hour.from_now
         @quiz.save!
         DueDateCacher.recompute(@quiz.assignment)
-        list = @student.assignments_for_student('submitting', context: [@course])
+        list = @student.assignments_for_student('submitting', contexts: [@course])
         expect(list.size).to be 1
         expect(list.first.title).to eq 'Test Assignment'
       end
@@ -521,10 +521,8 @@ describe UserLearningObjectScopes do
       @course.enroll_user(@reviewee, 'StudentEnrollment',
                     :section => @course_section, :enrollment_state => 'active', :allow_multiple_enrollments => true)
 
-      assignment_model(course: @course, peer_reviews: true, only_visible_to_overrides: true)
+      assignment_model(course: @course, peer_reviews: true)
 
-      @reviewer_submission = submission_model(assignment: @assignment, user: @reviewer)
-      @reviewee_submission = submission_model(assignment: @assignment, user: @reviewee)
       @assessment_request = @assignment.assign_peer_review(@reviewer, @reviewee)
     end
 
@@ -544,6 +542,7 @@ describe UserLearningObjectScopes do
     end
 
     it "should not include assessment requests for users not assigned the assignment" do
+      @assignment.update(only_visible_to_overrides: true)
       # create a new section with only the reviewer student
       # since the reviewee is no longer assigned @assignment, the reviewer should
       # have nothing to do.
@@ -597,6 +596,11 @@ describe UserLearningObjectScopes do
       end
     end
 
+    it 'should not duplicate assignments for teachers in multiple sections' do
+      @course2.enroll_teacher(@teacher, enrollment_state: 'active', section: @section2b, allow_multiple_enrollments: true)
+      expect(@teacher.assignments_needing_grading.count).to eq 2
+    end
+
     it "should count assignments with ungraded submissions across multiple courses" do
       expect(@teacher.assignments_needing_grading.size).to eql(2)
       expect(@teacher.assignments_needing_grading).to be_include(@course1.assignments.first)
@@ -615,6 +619,15 @@ describe UserLearningObjectScopes do
       expect(@teacher.assignments_needing_grading).to be_include(@course2.assignments.first)
     end
 
+    it "should include re-submitted submissions in the list of submissions needing grading" do
+      @course1.assignments.first.grade_student(@student_a, grade: "1", grader: @teacher)
+      @course1.assignments.first.grade_student(@student_b, grade: '1', grader: @teacher)
+      expect(@teacher.assignments_needing_grading.size).to eq 1
+      @course1.assignments.first.submit_homework(@student_a, :body => "Changed my mind!")
+      expect(@teacher.assignments_needing_grading.size).to eq 2
+      expect(@teacher.assignments_needing_grading).to include @course1.assignments.first
+    end
+
     it "should only count submissions in accessible course sections" do
       expect(@ta.assignments_needing_grading.size).to be 2
       expect(@ta.assignments_needing_grading).to be_include(@course1.assignments.first)
@@ -626,6 +639,7 @@ describe UserLearningObjectScopes do
       @course2.assignments.first.grade_student(@student_a, grade: "1", grader: @teacher)
       @ta = User.find(@ta.id)
       expect(@ta.assignments_needing_grading.size).to be 1
+      expect(@ta.assignments_needing_grading(scope_only: true).size).to be 1
       expect(@ta.assignments_needing_grading).to be_include(@course2.assignments.first)
 
       # but if we enroll the TA in both sections of course1, it should be accessible
@@ -633,8 +647,30 @@ describe UserLearningObjectScopes do
                           :allow_multiple_enrollments => true, :limit_privileges_to_course_section => true)
       @ta = User.find(@ta.id)
       expect(@ta.assignments_needing_grading.size).to be 2
+      expect(@ta.assignments_needing_grading(scope_only: true).size).to be 2
       expect(@ta.assignments_needing_grading).to be_include(@course1.assignments.first)
       expect(@ta.assignments_needing_grading).to be_include(@course2.assignments.first)
+    end
+
+    it "should not count submissions for users with a deleted enrollment in the graders's section" do
+      @course1.enroll_student(@student_b, allow_multiple_enrollments: true).update(workflow_state: 'deleted')
+      assignment = @course1.assignments.first
+      assignment.grade_student(@student_a, grade: "1", grader: @teacher)
+      expect(@ta.assignments_needing_grading(scope_only: true)).not_to include assignment
+    end
+
+    it 'should not count submissions for sections where the grader has a deleted enrollment' do
+      @course1.enroll_user(@ta, 'TaEnrollment', allow_multiple_enrollments: true, section: @section1b).update(workflow_state: 'deleted')
+      assignment = @course1.assignments.first
+      assignment.grade_student(@student_a, grade: "1", grader: @teacher)
+      expect(@ta.assignments_needing_grading(scope_only: true)).not_to include assignment
+    end
+
+    it 'should not count submissions for inactive students when they have active enrollments in other courses' do
+      @course1.enroll_student(@student_b).update_attribute(:workflow_state, 'inactive')
+      assignment = @course1.assignments.first
+      assignment.grade_student(@student_a, grade: "1", grader: @teacher)
+      expect(@teacher.assignments_needing_grading(scope_only: true)).not_to include assignment
     end
 
     it "should limit the number of returned assignments" do
@@ -644,7 +680,8 @@ describe UserLearningObjectScopes do
           submission_types: 'online_text_entry',
           workflow_state: "available",
           context_type: "Course",
-          context_id: @course1.id
+          context_id: @course1.id,
+          root_account_id: @course1.root_account_id,
         }
       end)
       create_records(Submission, assignment_ids.map do |id|
@@ -728,6 +765,47 @@ describe UserLearningObjectScopes do
     end
   end
 
+  context "#submissions_needing_grading_count" do
+    before :once do
+      course_with_teacher(active_all: true)
+      @sectionb = @course.course_sections.create!(name: 'section B')
+      @student_a = user_with_pseudonym(active_all: true, name: 'StudentA', username: 'studentA@instructure.com')
+      @student_b = user_with_pseudonym(active_all: true, name: 'StudentB', username: 'studentB@instructure.com')
+      @course.enroll_student(@student_a).update(workflow_state: 'active')
+      @sectionb.enroll_user(@student_b, 'StudentEnrollment', 'active')
+    end
+
+    it 'should show counts for all submissions a grader can see' do
+      assignment_model(course: @course, submission_types: ['online_text_entry'])
+      [@student_a, @student_b].each do |student|
+        @assignment.submit_homework student, body: "submission for #{student.name}"
+      end
+
+      expect(@teacher.submissions_needing_grading_count).to eq 2
+    end
+
+    it 'should not show counts for submissions that a grader can\'t see due to enrollment visibility' do
+      @enrollment.update(limit_privileges_to_course_section: true) # limit the teacher to only see one of the students
+      assignment_model(course: @course, submission_types: ['online_text_entry'])
+      [@student_a, @student_b].each do |student|
+        @assignment.submit_homework student, body: "submission for #{student.name}"
+      end
+
+      expect(@teacher.submissions_needing_grading_count).to eq 1
+    end
+
+    it 'should not show counts for submissions in a section where the grader is enrolled but is not a grader' do
+      @enrollment.update(limit_privileges_to_course_section: true)
+      @sectionb.enroll_user(@teacher, 'StudentEnrollment', 'active')
+      assignment_model(course: @course, submission_types: ['online_text_entry'])
+      [@student_a, @student_b].each do |student|
+        @assignment.submit_homework student, body: "submission for #{student.name}"
+      end
+
+      expect(@teacher.submissions_needing_grading_count).to eq 1
+    end
+  end
+
   context "#assignments_needing_moderation" do
     before :once do
       # create courses and sections
@@ -746,31 +824,53 @@ describe UserLearningObjectScopes do
 
       # make some assignments and submissions
       [@course1, @course2].each do |course|
-        assignment = course.assignments.create!(:title => "some assignment", :submission_types => ['online_text_entry'])
+        assignment = course.assignments.create!(
+          final_grader: @teacher,
+          grader_count: 2,
+          moderated_grading: true,
+          submission_types: ['online_text_entry'],
+          title: 'some assignment'
+        )
         [@student_a, @student_b].each do |student|
           assignment.submit_homework student, body: "submission for #{student.name}"
         end
       end
       @course2.assignments.first.update_attribute(:moderated_grading, true)
+      @course2.assignments.first.update_attribute(:grader_count, 2)
     end
 
     it "should not count assignments with no provisional grades" do
       expect(@teacher.assignments_needing_moderation.length).to eq 0
     end
 
-    it "should count assignments needing moderation" do
+    it "shows a count for final grader" do
       assmt = @course2.assignments.first
-      assmt.grade_student(@student_a, :grade => "1", :grader => @teacher, :provisional => true)
-      expect(@teacher.assignments_needing_moderation.length).to eq 1
+      assmt.update!(final_grader: @teacher)
+      assmt.grade_student(@student_a, grade: "1", grader: @teacher, provisional: true)
+      expect(@teacher.assignments_needing_moderation).to eq [assmt]
+    end
 
-      assmt.update_attribute(:grades_published_at, Time.now.utc)
-      expect(@teacher.assignments_needing_moderation.length).to eq 0 # should not count anymore once grades are published
+    it "does not show a count for admins that can moderate grades but are not final grader" do
+      admin = account_admin_user(account: @course2.account)
+      assmt = @course2.assignments.first
+      assmt.update!(final_grader: @teacher)
+      assmt.grade_student(@student_a, grade: "1", grader: @teacher, provisional: true)
+      expect(admin.assignments_needing_moderation).to be_empty
+    end
+
+    it "does not count assignments whose grades have been published" do
+      assmt = @course2.assignments.first
+      assmt.update!(final_grader: @teacher)
+      assmt.grade_student(@student_a, grade: "1", grader: @teacher, provisional: true)
+      assmt.update!(grades_published_at: Time.now.utc)
+      expect(@teacher.assignments_needing_moderation).to be_empty
     end
 
     it "should not return duplicates" do
       assmt = @course2.assignments.first
-      assmt.grade_student(@student_a, :grade => "1", :grader => @teacher, :provisional => true)
-      assmt.grade_student(@student_b, :grade => "2", :grader => @teacher, :provisional => true)
+      assmt.update!(final_grader: @teacher)
+      assmt.grade_student(@student_a, grade: "1", grader: @teacher, provisional: true)
+      assmt.grade_student(@student_b, grade: "2", grader: @teacher, provisional: true)
       expect(@teacher.assignments_needing_moderation.length).to eq 1
       expect(@teacher.assignments_needing_moderation.first).to eq assmt
     end
@@ -1127,66 +1227,6 @@ describe UserLearningObjectScopes do
         opts = @opts.merge({course_ids: [@course1.id], group_ids: [@group.id]})
         expect(@student.wiki_pages_needing_viewing(opts).order(:id)).to eq [@discussion1, @group_discussion]
       end
-    end
-  end
-
-  describe "submission_statuses" do
-    before :once do
-      course_factory active_all: true
-      student_in_course active_all: true
-      assignment_model(course: @course, submission_types: 'online_text_entry')
-      @assignment.workflow_state = "published"
-      @assignment.save!
-    end
-
-    it 'should indicate that an assignment is submitted' do
-      @assignment.submit_homework(@student, body: "/shrug")
-
-      expect(@student.submission_statuses[:submitted]).to match_array([@assignment.id])
-    end
-
-    it 'should indicate that an assignment is missing' do
-      @assignment.update!(due_at: 1.week.ago)
-
-      expect(@student.submission_statuses[:missing]).to match_array([@assignment.id])
-    end
-
-    it 'should indicate that an assignment is excused' do
-      submission = @assignment.submit_homework(@student, body: "b")
-      submission.excused = true
-      submission.save!
-
-      expect(@student.submission_statuses[:excused]).to match_array([@assignment.id])
-    end
-
-    it 'should indicate that an assignment is graded' do
-      submission = @assignment.submit_homework(@student, body: "o")
-      submission.update(score: 10)
-      submission.grade_it!
-
-      expect(@student.submission_statuses[:graded]).to match_array([@assignment.id])
-      expect(@student.submission_statuses[:has_feedback]).to match_array([])
-    end
-
-    it 'should indicate that an assignment is late' do
-      @assignment.update!(due_at: 1.week.ago)
-      @assignment.submit_homework(@student, body: "d")
-
-      expect(@student.submission_statuses[:late]).to match_array([@assignment.id])
-    end
-
-    it 'should indicate that an assignment needs grading' do
-      @assignment.submit_homework(@student, body: "y")
-
-      expect(@student.submission_statuses[:needs_grading]).to match_array([@assignment.id])
-    end
-
-    it 'should indicate that an assignment has feedback' do
-      submission = @assignment.submit_homework(@student, body: "the stuff")
-      submission.add_comment(user: @teacher, comment: "nice work, fam")
-      submission.grade_it!
-
-      expect(@student.submission_statuses[:has_feedback]).to match_array([@assignment.id])
     end
   end
 end

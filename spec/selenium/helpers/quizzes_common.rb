@@ -270,8 +270,10 @@ module QuizzesCommon
 
   def click_questions_tab
     wait_for_ajaximations
-    dismiss_flash_messages_if_present
-    f("a[href='#questions_tab']").click
+    tab = f("a[href='#questions_tab']")
+    keep_trying_until do
+      tab.click; true
+    end
   end
 
   # Locate an anchor using its text() node value. The anchor is expected to
@@ -524,22 +526,15 @@ module QuizzesCommon
   end
 
   def save_settings
-    f('.save_quiz_button').click
-    wait_for_ajaximations
+    wait_for_new_page_load { f('.save_quiz_button').click }
   end
 
   def edit_quiz
-    expect_new_page_load do
-      wait_for_ajaximations
-      f('.quiz-edit-button').click
-    end
+    expect_new_page_load { f('.quiz-edit-button').click }
   end
 
   def cancel_quiz_edit
-    expect_new_page_load do
-      fj('#cancel_button', 'div#quiz_edit_actions').click
-      wait_for_ajaximations
-    end
+    expect_new_page_load { fj('#cancel_button', 'div#quiz_edit_actions').click }
   end
 
   def edit_first_multiple_choice_answer(text)

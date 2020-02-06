@@ -16,15 +16,21 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import { parse, format } from "url";
+import {parse, format} from 'url'
 
-export function downloadToWrap(url) {
+export function downloadToWrap(url, asLink = false) {
   if (!url) {
-    return url;
+    return url
   }
-  const parsed = parse(url, true);
-  delete parsed.search;
-  delete parsed.query.download_frd;
-  parsed.query.wrap = 1;
-  return format(parsed);
+  const parsed = parse(url, true)
+  if (parsed.host && window.location.host !== parsed.host) {
+    return url
+  }
+  delete parsed.search
+  delete parsed.query.download_frd
+  parsed.query.wrap = 1
+  if (asLink) {
+    parsed.pathname = parsed.pathname.replace(/download$/, '')
+  }
+  return format(parsed)
 }

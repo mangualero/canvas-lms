@@ -22,12 +22,10 @@ describe "calendar2" do
   include_context "in-process server selenium tests"
   include Calendar2Common
 
-  before(:once) do
-    # or some stuff we need to click is "below the fold"
-    make_full_screen
-  end
-
   before(:each) do
+    # or some stuff we need to click is "below the fold"
+
+
     Account.default.tap do |a|
       a.settings[:show_scheduler] = true
       a.save!
@@ -57,7 +55,7 @@ describe "calendar2" do
         expect(all_agenda_items.length).to eq 1
       end
 
-      it "should display agenda events" do
+      it "should display agenda events", :xbrowser do
         load_agenda_view
         expect(fj('.agenda-wrapper:visible')).to be_present
       end
@@ -158,7 +156,7 @@ describe "calendar2" do
 
         agenda_item.click
         delete_event_button.click
-        fj('.ui-dialog:visible .btn-primary').click
+        fj('.ui-dialog:visible .btn-danger').click
 
         expect(f("#content")).not_to contain_css('.agenda-event__item-container')
       end
@@ -171,7 +169,7 @@ describe "calendar2" do
 
         agenda_item.click
         delete_event_button.click
-        fj('.ui-dialog:visible .btn-primary').click
+        fj('.ui-dialog:visible .btn-danger').click
 
         expect(f("#content")).not_to contain_css('.agenda-event__item-container')
       end
@@ -180,9 +178,6 @@ describe "calendar2" do
         assignment_model(course: @course,
                          title: "super important",
                          due_at: Time.zone.now.beginning_of_day + 1.day - 1.minute)
-        calendar_events = @teacher.calendar_events_for_calendar.last
-
-        expect(calendar_events.title).to eq "super important"
         expect(@assignment.due_date).to eq (Time.zone.now.beginning_of_day + 1.day - 1.minute).to_date
 
         load_agenda_view
@@ -279,7 +274,7 @@ describe "calendar2" do
 
           agenda_item.click
           delete_event_button.click
-          fj('.ui-dialog:visible .btn-primary').click
+          fj('.ui-dialog:visible .btn-danger').click
 
           expect(f("#content")).not_to contain_css('.agenda-event__item-container')
         end
@@ -358,6 +353,11 @@ describe "calendar2" do
       agenda_item.click
       expect(f("#content")).not_to contain_css('.event-details .delete_event_link')
     end
+
+    it "should display agenda events" do
+      load_agenda_view
+      expect(fj('.agenda-wrapper:visible')).to be_present
+    end
   end
 
   context "agenda view with BETTER_SCHEDULER enabled" do
@@ -380,7 +380,7 @@ describe "calendar2" do
         wait_for_ajaximations
         expect(f('#content')).not_to contain_css('.agenda-event__item')
         find_appointment_button.click
-        f('.ReactModalPortal button[type="submit"]').click
+        f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
         expect(all_agenda_items.count).to equal(2)
       end
 
@@ -388,7 +388,7 @@ describe "calendar2" do
         get "/calendar2#view_name=agenda&view_start=#{(Time.zone.today + 1.day).strftime}"
         wait_for_ajaximations
         find_appointment_button.click
-        f('.ReactModalPortal button[type="submit"]').click
+        f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
         wait_for_ajaximations
         agenda_item.click
         f('.reserve_event_link').click

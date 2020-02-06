@@ -20,10 +20,22 @@ import sinon from 'sinon'
 
 import FakeServer, {paramsFromRequest} from '../../../../__tests__/FakeServer'
 import * as FlashAlert from '../../../../shared/FlashAlert'
+import * as FinalGradeOverrideApi from '../../FinalGradeOverrides/FinalGradeOverrideApi'
+import CourseSettings from '../../CourseSettings'
+import FinalGradeOverrides from '../../FinalGradeOverrides'
 import StudentContentDataLoader from '../StudentContentDataLoader'
+import NaiveRequestDispatch from '../NaiveRequestDispatch'
 
 describe('Gradebook StudentContentDataLoader', () => {
   const exampleData = {
+    finalGradeOverrides: {
+      1101: {
+        courseGrade: {
+          percentage: 91.23
+        }
+      }
+    },
+
     studentIds: ['1101', '1102', '1103'],
     students: [{id: '1101'}, {id: '1102'}, {id: '1103'}],
     submissions: [{id: '2501'}, {id: '2502'}, {id: '2503'}]
@@ -35,8 +47,10 @@ describe('Gradebook StudentContentDataLoader', () => {
   }
 
   let dataLoader
+  let gradebook
   let options
   let server
+  let dispatch
 
   function latchPromise() {
     const latch = {}
@@ -65,7 +79,24 @@ describe('Gradebook StudentContentDataLoader', () => {
       .for(urls.submissions, {student_ids: exampleData.studentIds.slice(2, 3)})
       .respond([{status: 200, body: exampleData.submissions.slice(1, 3)}])
 
+    sinon
+      .stub(FinalGradeOverrideApi, 'getFinalGradeOverrides')
+      .returns(Promise.resolve({finalGradeOverrides: exampleData.finalGradeOverrides}))
+
+    gradebook = {
+      course: {
+        id: '1201'
+      }
+    }
+
+    gradebook.finalGradeOverrides = new FinalGradeOverrides(gradebook)
+    gradebook.courseSettings = new CourseSettings(gradebook, {allowFinalGradeOverride: true})
+
+    sinon.stub(gradebook.finalGradeOverrides, 'setGrades')
+
     options = {
+      courseId: '1201',
+      gradebook,
       onStudentsChunkLoaded() {},
       onSubmissionsChunkLoaded() {},
       studentsChunkSize: 2,
@@ -74,15 +105,18 @@ describe('Gradebook StudentContentDataLoader', () => {
       submissionsChunkSize: 2,
       submissionsUrl: urls.submissions
     }
+
+    dispatch = new NaiveRequestDispatch()
   })
 
   afterEach(() => {
+    FinalGradeOverrideApi.getFinalGradeOverrides.restore()
     server.teardown()
   })
 
   describe('.load()', () => {
     async function load(studentIds) {
-      dataLoader = new StudentContentDataLoader(options)
+      dataLoader = new StudentContentDataLoader(options, dispatch)
       await dataLoader.load(studentIds || exampleData.studentIds)
     }
 
@@ -182,6 +216,13 @@ describe('Gradebook StudentContentDataLoader', () => {
         expect(params.response_fields).toContain('cached_due_date')
       })
 
+      it('includes "posted_at" in response fields', async () => {
+        await load()
+        const submissionsRequest = server.findRequest(urls.submissions)
+        const params = paramsFromRequest(submissionsRequest)
+        expect(params.response_fields).toContain('posted_at')
+      })
+
       it('calls the submissions chunk callback for each chunk of submissions', async () => {
         const submissionChunks = []
         options.onSubmissionsChunkLoaded = submissionChunks.push.bind(submissionChunks)
@@ -218,6 +259,36 @@ describe('Gradebook StudentContentDataLoader', () => {
         await load(exampleData.studentIds)
         const requests = server.filterRequests(urls.submissions)
         expect(requests).toHaveLength(0)
+      })
+    })
+
+    describe('loading final grade overrides', () => {
+      it('optionally requests final grade overrides', async () => {
+        await load()
+        expect(FinalGradeOverrideApi.getFinalGradeOverrides.callCount).toEqual(1)
+      })
+
+      it('optionally does not request final grade overrides', async () => {
+        gradebook.courseSettings = new CourseSettings(gradebook, {allowFinalGradeOverride: false})
+        await load()
+        expect(FinalGradeOverrideApi.getFinalGradeOverrides.callCount).toEqual(0)
+      })
+
+      it('uses the given course id when loading final grade overrides', async () => {
+        await load()
+        const [courseId] = FinalGradeOverrideApi.getFinalGradeOverrides.lastCall.args
+        expect(courseId).toEqual('1201')
+      })
+
+      it('updates Gradebook when the final grade overrides have loaded', async () => {
+        await load()
+        expect(gradebook.finalGradeOverrides.setGrades.callCount).toEqual(1)
+      })
+
+      it('updates Gradebook with the loaded final grade overrides', async () => {
+        await load()
+        const [finalGradeOverrides] = gradebook.finalGradeOverrides.setGrades.lastCall.args
+        expect(finalGradeOverrides).toEqual(exampleData.finalGradeOverrides)
       })
     })
 
@@ -265,14 +336,14 @@ describe('Gradebook StudentContentDataLoader', () => {
 
         server
           .for(urls.submissions, {student_ids: exampleData.studentIds.slice(0, 2)})
-          .beforeRespond(async request => {
+          .beforeRespond(request => {
             events.push(`request submissions:${joinRequestIds(request, 'student_ids')}`)
           })
           .afterRespond(submissionPromises[0].resolve)
           .respond([{status: 200, body: exampleData.submissions.slice(0, 1)}])
         server
           .for(urls.submissions, {student_ids: exampleData.studentIds.slice(2, 3)})
-          .beforeRespond(async request => {
+          .beforeRespond(request => {
             events.push(`request submissions:${joinRequestIds(request, 'student_ids')}`)
           })
           .afterRespond(submissionPromises[1].resolve)
@@ -356,7 +427,7 @@ describe('Gradebook StudentContentDataLoader', () => {
 
         server
           .for(urls.submissions, {student_ids: exampleData.studentIds.slice(0, 2)})
-          .beforeRespond(async request => {
+          .beforeRespond(request => {
             events.push(`request submissions page ${getPage(request)}`)
           })
           .afterRespond(submissionPromises[0].resolve)
@@ -367,7 +438,7 @@ describe('Gradebook StudentContentDataLoader', () => {
           ])
         server
           .for(urls.submissions, {student_ids: exampleData.studentIds.slice(2, 3)})
-          .beforeRespond(async request => {
+          .beforeRespond(request => {
             events.push(`request submissions:${joinRequestIds(request, 'student_ids')}`)
           })
           .afterRespond(submissionPromises[1].resolve)

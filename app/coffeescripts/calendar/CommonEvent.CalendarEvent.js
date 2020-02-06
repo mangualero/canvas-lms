@@ -20,7 +20,7 @@ import I18n from 'i18n!calendar'
 import $ from 'jquery'
 import fcUtil from '../util/fcUtil'
 import semanticDateRange from '../util/semanticDateRange'
-import CommonEvent from '../calendar/CommonEvent'
+import CommonEvent from './CommonEvent'
 import natcompare from '../util/natcompare'
 import {extend} from '../legacyCoffeesScriptHelpers'
 import 'jquery.instructure_date_and_time'
@@ -89,9 +89,7 @@ Object.assign(CalendarEvent.prototype, {
   },
 
   fullDetailsURL() {
-    if (this.object.plannable && this.object.plannable.html_url) {
-      return this.object.plannable.html_url
-    } else if (this.isAppointmentGroupEvent()) {
+    if (this.isAppointmentGroupEvent()) {
       return `/appointment_groups/${this.object.appointment_group_id}`
     } else {
       return $.replaceTags(
@@ -111,7 +109,7 @@ Object.assign(CalendarEvent.prototype, {
   },
 
   displayTimeString() {
-    if (this.calendarEvent.all_day) {
+    if (this.calendarEvent.all_day && this.calendarEvent.start_at === this.calendarEvent.end_at) {
       return this.formatTime(this.startDate(), true)
     } else {
       return semanticDateRange(this.calendarEvent.start_at, this.calendarEvent.end_at)
@@ -149,10 +147,17 @@ Object.assign(CalendarEvent.prototype, {
   calculateAppointmentGroupEventStatus() {
     let status = I18n.t('Available')
     if (this.calendarEvent.available_slots > 0) {
-      status = I18n.t('%{availableSlots} Available', {availableSlots: I18n.n(this.calendarEvent.available_slots)})
+      status = I18n.t('%{availableSlots} Available', {
+        availableSlots: I18n.n(this.calendarEvent.available_slots)
+      })
     }
-    if (this.calendarEvent.available_slots > 0 && (this.calendarEvent.child_events && this.calendarEvent.child_events.length)) {
-      status = I18n.t('%{availableSlots} more available', {availableSlots: I18n.n(this.calendarEvent.available_slots)})
+    if (
+      this.calendarEvent.available_slots > 0 &&
+      (this.calendarEvent.child_events && this.calendarEvent.child_events.length)
+    ) {
+      status = I18n.t('%{availableSlots} more available', {
+        availableSlots: I18n.n(this.calendarEvent.available_slots)
+      })
     }
     if (this.calendarEvent.available_slots === 0) {
       status = I18n.t('Filled')

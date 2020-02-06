@@ -26,18 +26,9 @@ describe "discussion assignments" do
   include AssignmentsCommon
 
   before(:each) do
+    stub_rcs_config
     @domain_root_account = Account.default
     course_with_teacher_logged_in
-  end
-
-  context "created on the index page" do
-    it "should create a discussion topic when created", priority: "1", test_id: 209964 do
-      ag = @course.assignment_groups.create!(:name => "Stuff")
-      get "/courses/#{@course.id}/assignments"
-      build_assignment_with_type("Discussion", :assignment_group_id => ag.id, :name => "This discussion was created on the assignments page", :submit => true)
-      expect_new_page_load { f("#section-tabs .discussions").click }
-      expect(f('#open-discussions')).to include_text("This discussion was created on the assignments page")
-    end
   end
 
   context "created with 'more options'" do
@@ -80,6 +71,7 @@ describe "discussion assignments" do
       f('.announcement_cog').click
       fln('Delete').click
       driver.switch_to.alert.accept
+      wait_for_ajaximations
       assert_flash_notice_message("#{discussion_title} deleted successfully")
     end
   end

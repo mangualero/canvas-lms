@@ -45,29 +45,29 @@ QUnit.module('SubmissionCell', {
 test('#applyValue escapes html in passed state', function() {
   const item = {whatever: {grade: '1'}}
   const state = dangerousHTML
-  this.stub(this.cell, 'postValue')
+  sandbox.stub(this.cell, 'postValue')
   this.cell.applyValue(item, state)
   equal(item.whatever.grade, escapedDangerousHTML)
 })
 
 test('#applyValue calls flashWarning', function() {
-  this.stub(this.cell, 'postValue')
-  const flashWarningStub = this.stub($, 'flashWarning')
+  sandbox.stub(this.cell, 'postValue')
+  const flashWarningStub = sandbox.stub($, 'flashWarning')
   this.cell.applyValue(this.opts.item, '150')
   ok(flashWarningStub.calledOnce)
 })
 
 test('#applyValue calls numberHelper with points possible', function() {
-  const numberHelperStub = this.stub(numberHelper, 'parse').withArgs(this.pointsPossible)
-  this.stub(this.cell, 'postValue')
+  const numberHelperStub = sandbox.stub(numberHelper, 'parse').withArgs(this.pointsPossible)
+  sandbox.stub(this.cell, 'postValue')
   this.cell.applyValue(this.opts.item, '10')
   strictEqual(numberHelperStub.callCount, 1)
 })
 
 test('#applyValue calls numberHelper with state', function() {
   const state = '10'
-  const numberHelperStub = this.stub(numberHelper, 'parse').withArgs(state)
-  this.stub(this.cell, 'postValue')
+  const numberHelperStub = sandbox.stub(numberHelper, 'parse').withArgs(state)
+  sandbox.stub(this.cell, 'postValue')
   this.cell.applyValue(this.opts.item, state)
   strictEqual(numberHelperStub.callCount, 1)
 })
@@ -79,24 +79,27 @@ test('#loadValue escapes html', function() {
   equal(this.cell.$input[0].defaultValue, escapedDangerousHTML)
 })
 
-test('#class.formatter rounds numbers if they are numbers', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#class.formatter rounds numbers if they are numbers', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs('0.67')
     .returns('ok')
   const formattedResponse = SubmissionCell.formatter(0, 0, {grade: 0.666}, {}, {})
   equal(formattedResponse, 'ok')
 })
 
-test('#class.formatter gives the value to the formatter if submission.grade isnt a parseable number', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#class.formatter gives the value to the formatter if submission.grade isnt a parseable number', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs('happy')
     .returns('ok')
   const formattedResponse = SubmissionCell.formatter(0, 0, {grade: 'happy'}, {}, {})
   equal(formattedResponse, 'ok')
 })
 
-test('#class.formatter adds a percent symbol for assignments with a percent grading_type', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#class.formatter adds a percent symbol for assignments with a percent grading_type', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs('73%')
     .returns('ok')
   const formattedResponse = SubmissionCell.formatter(
@@ -217,16 +220,18 @@ test("#class.formatter, isConcluded doesn't have grayed-out", () => {
   equal(submissionCellResponse.indexOf('grayed-out'), -1)
 })
 
-test('#letter_grade.formatter, shows EX when submission is excused', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#letter_grade.formatter, shows EX when submission is excused', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs('EX')
     .returns('ok')
   const formattedResponse = SubmissionCell.letter_grade.formatter(0, 0, {excused: true}, {}, {})
   equal(formattedResponse, 'ok')
 })
 
-test('#letter_grade.formatter, shows the score and letter grade', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#letter_grade.formatter, shows the score and letter grade', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs("F<span class='letter-grade-points'>0</span>")
     .returns('ok')
   const formattedResponse = SubmissionCell.letter_grade.formatter(
@@ -242,8 +247,9 @@ test('#letter_grade.formatter, shows the score and letter grade', function() {
   equal(formattedResponse, 'ok')
 })
 
-test('#letter_grade.formatter, shows the letter grade', function() {
-  this.stub(SubmissionCell.prototype, 'cellWrapper')
+test('#letter_grade.formatter, shows the letter grade', () => {
+  sandbox
+    .stub(SubmissionCell.prototype, 'cellWrapper')
     .withArgs('B')
     .returns('ok')
   const formattedResponse = SubmissionCell.letter_grade.formatter(0, 0, {grade: 'B'}, {}, {})
@@ -548,24 +554,36 @@ test('#loadValue sets the value to grade when entered_grade is not available', f
   strictEqual(this.cell.val, 'complete')
 })
 
+QUnit.module('SubmissionCell#submissionIcon', () => {
+  test('returns icon class for an attachment with upload_status of pending', () => {
+    const attachments = [{upload_status: 'pending'}]
+    strictEqual(
+      SubmissionCell.submissionIcon('default', attachments),
+      "<i class='icon-upload' ></i>"
+    )
+  })
+
+  test('returns icon class for an attachment with upload_status of failed', () => {
+    const attachments = [{upload_status: 'failed'}]
+    strictEqual(
+      SubmissionCell.submissionIcon('default', attachments),
+      "<i class='icon-warning' ></i>"
+    )
+  })
+
+  test('returns icon class of document for an attachment with no attachments', () => {
+    strictEqual(SubmissionCell.submissionIcon('document'), "<i class='icon-document' ></i>")
+  })
+})
+
 QUnit.module('SubmissionCell#classesBasedOnSubmission', () => {
-  test('returns anonymous when anonymous_grading and moderation_in_progress are set on the assignment', () => {
-    const assignment = {anonymous_grading: true, moderation_in_progress: true}
+  test('returns anonymous when anonymize_students is set on the assignment', () => {
+    const assignment = {anonymize_students: true}
     strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('anonymous'), true)
   })
 
-  test('returns anonymous when anonymous_grading and muted are set on the assignment', () => {
-    const assignment = {anonymous_grading: true, muted: true}
-    strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('anonymous'), true)
-  })
-
-  test('does not return anonymous if anonymous_grading is not set on the assignment', () => {
+  test('does not return anonymous if anonymize_students is not set on the assignment', () => {
     strictEqual(SubmissionCell.classesBasedOnSubmission({}, {}).includes('anonymous'), false)
-  })
-
-  test('does not return anonymous if anonymous_grading is set but not moderation_in_progress or muted', () => {
-    const assignment = {anonymous_grading: true}
-    strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('anonymous'), false)
   })
 
   test('returns moderated when moderation_in_progress is set on the assignment', () => {
@@ -582,9 +600,12 @@ QUnit.module('SubmissionCell#classesBasedOnSubmission', () => {
     strictEqual(SubmissionCell.classesBasedOnSubmission({}, {}).includes('moderated'), false)
   })
 
-  test('does not return moderated if moderation_in_progress and anonymous_grading are set on the assignment', () => {
-    const assignment = {moderation_in_progress: true, anonymous_grading: true}
-    strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('moderated'), false)
+  test('does not return moderated if anonymize_students is set on the assignment', () => {
+    const assignment = {anonymize_students: true}
+    strictEqual(
+      SubmissionCell.classesBasedOnSubmission({}, assignment).includes('moderated'),
+      false
+    )
   })
 
   test('returns muted when muted is set on the assignment', () => {
@@ -597,8 +618,8 @@ QUnit.module('SubmissionCell#classesBasedOnSubmission', () => {
     strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('muted'), false)
   })
 
-  test('does not return muted when muted and anonymous_grading are set on the assignment', () => {
-    const assignment = {anonymous_grading: true, muted: true}
+  test('does not return muted when anonymize_students is set on the assignment', () => {
+    const assignment = {anonymize_students: true}
     strictEqual(SubmissionCell.classesBasedOnSubmission({}, assignment).includes('muted'), false)
   })
 

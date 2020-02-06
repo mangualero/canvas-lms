@@ -19,8 +19,9 @@
 import mockFilesEnv from '../mockFilesENV'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {Simulate} from 'react-addons-test-utils'
+import {Simulate} from 'react-dom/test-utils'
 import $ from 'jquery'
+import wait from 'waait'
 import PublishCloud from 'jsx/shared/PublishCloud'
 import FilesystemObject from 'compiled/models/FilesystemObject'
 
@@ -41,7 +42,7 @@ QUnit.module('PublishCloud', {
     this.publishCloud = ReactDOM.render(<PublishCloud {...props} />, $('#fixtures')[0])
   },
   teardown() {
-    ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
   }
 })
 
@@ -51,9 +52,10 @@ test('model change event updates components state', function() {
   equal(this.publishCloud.state.published, true, 'changing models locked changes it to true')
 })
 
-test('clicking a published cloud opens restricted dialog', function() {
-  this.stub(ReactDOM, 'render')
-  Simulate.click(this.publishCloud.refs.publishCloud.getDOMNode())
+test('clicking a published cloud opens restricted dialog', async function() {
+  sandbox.stub(ReactDOM, 'render')
+  Simulate.click(this.publishCloud.refs.publishCloud)
+  await wait(10)
   ok(ReactDOM.render.calledOnce, 'renders a component inside the dialog')
 })
 
@@ -76,14 +78,13 @@ QUnit.module('PublishCloud Student View', {
     this.publishCloud = ReactDOM.render(<PublishCloud {...props} />, $('#fixtures')[0])
   },
   teardown() {
-    ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
   }
 })
 
 test('should display a non clickable restricted dates icon', function() {
-  equal(this.publishCloud.refs.publishCloud.props.onClick, undefined, 'does not have a click event')
   equal(
-    this.publishCloud.refs.publishCloud.props.title,
+    this.publishCloud.refs.publishCloud.title,
     'Available after Jan 1, 2014 at 12am until Feb 1, 2014 at 12am',
     'has a available from hoverover'
   )
@@ -101,7 +102,7 @@ QUnit.module('PublishCloud#togglePublishedState', {
     this.publishCloud = ReactDOM.render(<PublishCloud {...props} />, $('#fixtures')[0])
   },
   teardown() {
-    ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+    ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
   }
 })
 
@@ -146,7 +147,7 @@ test('sets published initial state based on params model hidden property', funct
   equal(this.publishCloud.state.published, !model.get('locked'), 'not locked is published')
   equal(this.publishCloud.state.restricted, false, 'restricted should be false')
   equal(this.publishCloud.state.hidden, false, 'hidden should be false')
-  ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+  ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
 })
 
 test('restricted is true when lock_at/unlock_at is set', function() {
@@ -159,7 +160,7 @@ test('restricted is true when lock_at/unlock_at is set', function() {
   const props = {model}
   this.publishCloud = ReactDOM.render(<PublishCloud {...props} />, $('#fixtures')[0])
   equal(this.publishCloud.state.restricted, true, 'restricted is true when lock_at/ulock_at is set')
-  ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+  ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
 })
 
 QUnit.module('PublishCloud#extractStateFromModel')
@@ -189,5 +190,5 @@ test('returns object that can be used to set state', function() {
     },
     'returns object to set state with'
   )
-  ReactDOM.unmountComponentAtNode(this.publishCloud.getDOMNode().parentNode)
+  ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.publishCloud).parentNode)
 })

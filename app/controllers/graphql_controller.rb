@@ -16,33 +16,39 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+# pre-build the graphql schema (which is expensive and slow) so that the first
+# request is not slow and terrible
+CanvasSchema.graphql_definition
+
 class GraphQLController < ApplicationController
   include Api::V1
 
   before_action :require_user, except: :execute
 
-
   def execute
     query = params[:query]
     variables = params[:variables] || {}
-    tracers = if request.headers["GraphQL-Metrics"] == "true"
-                domain = request.host_with_port.sub(':', '_')
-                [Tracers::DatadogTracer.new(domain)]
-              else
-                []
-              end
     context = {
       current_user: @current_user,
+      real_current_user: @real_current_user,
       session: session,
       request: request,
-      tracers: tracers
+      domain_root_account: @domain_root_account,
+      access_token: @access_token,
+      in_app: in_app?,
+      deleted_models: {},
+      request_id: (Thread.current[:context] || {})[:request_id],
+      tracers: [
+        Tracers::DatadogTracer.new(
+          request.host_with_port.sub(':', '_'),
+          request.headers["GraphQL-Metrics"] == "true"
+        )
+      ]
     }
     result = nil
 
-    ActiveRecord::Base.transaction do
-      timeout = Integer(Setting.get('graphql_statement_timeout', '60_000'))
-      ActiveRecord::Base.connection.execute "SET statement_timeout = #{timeout}"
-
+    overall_timeout = Setting.get('graphql_overall_timeout', '300').to_i.seconds
+    Timeout.timeout(overall_timeout) do
       result = CanvasSchema.execute(query, variables: variables, context: context)
     end
 
@@ -50,11 +56,7 @@ class GraphQLController < ApplicationController
   end
 
   def graphiql
-    if Rails.env.production? &&
-        !::Account.site_admin.grants_right?(@current_user, session, :read_as_admin)
-       render plain: "unauthorized", status: :unauthorized
-    else
-      render :graphiql, layout: 'bare'
-    end
+    @page_title = "GraphiQL"
+    render :graphiql, layout: 'bare'
   end
 end

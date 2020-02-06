@@ -68,9 +68,9 @@ test('renders', () => {
   ok(view)
 })
 
-test('two entries do not render keyboard shortcuts to the same place', function() {
+test('two entries do not render keyboard shortcuts to the same place', () => {
   const clock = sinon.useFakeTimers()
-  this.stub(Reply.prototype, 'edit')
+  sandbox.stub(Reply.prototype, 'edit')
   $('#fixtures').append($('<div />').attr('id', 'e1'))
   $('#fixtures').append($('<div />').attr('id', 'e2'))
   const entry1 = new Entry({
@@ -99,12 +99,12 @@ test('two entries do not render keyboard shortcuts to the same place', function(
   return clock.restore()
 })
 
-test('should listen on model change:replies', function() {
+test('should listen on model change:replies', () => {
   const entry = new Entry({
     id: 1,
     message: 'a comment, wooper'
   })
-  const spy = this.stub(EntryView.prototype, 'renderTree')
+  const spy = sandbox.stub(EntryView.prototype, 'renderTree')
   const view = new EntryView({model: entry})
   entry.set('replies', [
     new Entry({

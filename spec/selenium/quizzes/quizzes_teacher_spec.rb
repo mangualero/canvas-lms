@@ -39,7 +39,7 @@ describe "quizzes" do
     before(:once) do
       course_with_teacher(active_all: true)
       course_with_student(course: @course, active_enrollment: true)
-      @course.update_attributes(:name => 'teacher course')
+      @course.update(:name => 'teacher course')
       @course.save!
       @course.reload
     end
@@ -56,7 +56,7 @@ describe "quizzes" do
 
       get "/courses/#{@course.id}/quizzes"
       expect(f('.item-group-container .date-available')).to include_text "Multiple Dates"
-      driver.mouse.move_to f('.item-group-container .date-available')
+      driver.action.move_to(f('.item-group-container .date-available')).perform
       wait_for_ajaximations
       tooltip = fj('.ui-tooltip:visible')
       expect(tooltip).to include_text 'New Section'
@@ -74,6 +74,32 @@ describe "quizzes" do
       f('.quiz_details_link').click
       wait_for_ajaximations
       expect(f('#quiz_details')).to be_displayed
+    end
+
+    it "should open and close the send to dialog" do
+      Account.default.enable_feature!(:direct_share)
+      @context = @course
+      quiz_model
+      get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
+      f('.al-trigger').click
+      f('.direct-share-send-to-menu-item').click
+      expect(fj('h2:contains(Send To...)')).to be_displayed
+      fj('button:contains(Cancel)').click
+      expect(f("body")).not_to contain_jqcss('h2:contains(Send To...)')
+      check_element_has_focus(f('.al-trigger'))
+    end
+
+    it "should open and close the copy to tray" do
+      Account.default.enable_feature!(:direct_share)
+      @context = @course
+      quiz_model
+      get "/courses/#{@course.id}/quizzes/#{@quiz.id}"
+      f('.al-trigger').click
+      f('.direct-share-copy-to-menu-item').click
+      expect(fj('h2:contains(Copy To...)')).to be_displayed
+      fj('button:contains(Cancel)').click
+      expect(f("body")).not_to contain_jqcss('h2:contains(Copy To...)')
+      check_element_has_focus(f('.al-trigger'))
     end
 
     it "should create a new question group", priority: "1", test_id: 210060 do
@@ -291,7 +317,7 @@ describe "quizzes" do
         expect(error_displayed?).to be_falsey
         driver.execute_script('$(".numerical_question_input").change()')
         wait_for_ajaximations
-        expect(input).to have_attribute(:value, "1.0000")
+        expect(input).to have_attribute(:value, "1")
       end
       user_session(@user)
     end

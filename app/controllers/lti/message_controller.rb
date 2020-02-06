@@ -131,8 +131,11 @@ module Lti
     end
 
     def assignment
-      if params[:assignment_id].present?
-        @_assignment ||= @context.try(:active_assignments)&.find(params[:assignment_id])
+      @_assignment ||= if params[:assignment_id].present?
+        @context.try(:active_assignments)&.find(params[:assignment_id])
+      elsif params[:module_item_id].present?
+        tag = ContentTag.not_deleted.find_by(id: params[:module_item_id])
+        (tag&.context_type == 'Assignment' && tag.context.context == @context) ? tag.context : nil
       end
     end
 
@@ -176,12 +179,13 @@ module Lti
         custom_param_opts[:secure_params] = params[:secure_params] if params[:secure_params].present?
         variable_expander = create_variable_expander(custom_param_opts.merge(tool: tool_proxy,
                                                                              originality_report: lti_link&.originality_report,
-                                                                             launch: @lti_launch))
+                                                                             launch: @lti_launch,
+                                                                             assignment: assignment))
         launch_attrs.merge! enabled_parameters(tool_proxy, message_handler, variable_expander)
 
         message = IMS::LTI::Models::Messages::BasicLTILaunchRequest.new(launch_attrs)
-        message.user_id = Lti::Asset.opaque_identifier_for(@current_user)
-        @active_tab = message_handler.asset_string
+        message.user_id = Lti::Asset.opaque_identifier_for(@current_user, context: @context)
+        set_active_tab message_handler.asset_string
         @lti_launch.resource_url = message.launch_url
         @lti_launch.link_text = resource_handler.name
         @lti_launch.launch_type = message.launch_presentation_document_target
@@ -191,6 +195,8 @@ module Lti
         message.add_custom_params(custom_params(message_handler.parameters, variable_expander))
         message.add_custom_params(ToolSetting.custom_settings(tool_proxy.id, @context, message.resource_link_id))
         @lti_launch.params = launch_params(tool_proxy: tool_proxy, message: message, private_key: tool_proxy.shared_secret)
+
+        log_asset_access(tool_proxy, "external_tools", "external_tools")
 
         render Lti::AppUtil.display_template(display_override: params[:display]) and return
       end

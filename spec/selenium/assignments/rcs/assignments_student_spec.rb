@@ -28,7 +28,6 @@ describe "assignments" do
 
     before(:each) do
       course_with_student_logged_in
-      enable_all_rcs @course.account
       stub_rcs_config
     end
 
@@ -44,7 +43,7 @@ describe "assignments" do
       end
 
       it "should allow submission when within override locks" do
-        @assignment.update_attributes(:submission_types => 'online_text_entry')
+        @assignment.update(:submission_types => 'online_text_entry')
         # Change unlock dates to be valid for submission
         @override.unlock_at = Time.now.utc - 1.days   # available now
         @override.save!

@@ -150,23 +150,64 @@ test('Returns "calendar-month" for other situations', () => {
 test('Returns "discussion" for ungraded discussion objects with todo dates', () => {
   const event = commonEventFactory(
     {
-      title: 'some title',
-      start_at: '2016-12-01T12:30:00Z',
-      plannable_type: 'discussion_topic'
+      context_code: 'course_1',
+      plannable_type: 'discussion_topic',
+      plannable: {id: '123', title: 'some title', todo_date: '2016-12-01T12:30:00Z'}
     },
-    ['course_1']
+    [{asset_string: 'course_1', can_update_discussion_topic: false, can_update_todo_date: false}]
   )
   equal(event.iconType(), 'discussion')
+  equal(event.can_edit, false)
+  equal(event.can_delete, false)
+  equal(event.can_change_context, false)
 })
 
 test('Returns "document" for wiki pages with todo dates', () => {
   const event = commonEventFactory(
     {
-      title: 'some title',
-      start_at: '2016-12-01T12:30:00Z',
-      plannable_type: 'wiki_page'
+      context_code: 'course_1',
+      plannable_type: 'wiki_page',
+      plannable: {url: 'some_title', title: 'some title', todo_date: '2016-12-01T12:30:00Z'}
     },
-    ['course_1']
+    [{asset_string: 'course_1', can_update_wiki_page: false, can_update_todo_date: false}]
   )
   equal(event.iconType(), 'document')
+  equal(event.can_edit, false)
+  equal(event.can_delete, false)
+  equal(event.can_change_context, false)
+})
+
+test('sets can_edit/can_delete/fullDetailsURL/readableType on discussion_topics', () => {
+  const event = commonEventFactory(
+    {
+      context_code: 'course_1',
+      plannable_type: 'discussion_topic',
+      html_url: 'http://example.org/courses/1/discussion_topics/123',
+      plannable: {id: '123', title: 'some title', todo_date: '2016-12-01T12:30:00Z'}
+    },
+    [{asset_string: 'course_1', can_update_discussion_topic: true, can_update_todo_date: true}]
+  )
+  equal(event.can_edit, true)
+  equal(event.can_delete, true)
+  equal(event.can_change_context, false)
+  equal(event.fullDetailsURL(), 'http://example.org/courses/1/discussion_topics/123')
+  equal(event.readableType(), 'Discussion')
+})
+
+test('sets can_edit/can_delete/fullDetailsURL/readableType on wiki pages', () => {
+  const event = commonEventFactory(
+    {
+      context_code: 'course_1',
+      plannable_type: 'wiki_page',
+      html_url: 'http://example.org/courses/1/pages/some-page',
+      plannable: {url: 'some_page', title: 'some page', todo_date: '2016-12-01T12:30:00Z'}
+    },
+    [{asset_string: 'course_1', can_update_wiki_page: true, can_update_todo_date: true}]
+  )
+  equal(event.iconType(), 'document')
+  equal(event.can_edit, true)
+  equal(event.can_delete, true)
+  equal(event.can_change_context, false)
+  equal(event.fullDetailsURL(), 'http://example.org/courses/1/pages/some-page')
+  equal(event.readableType(), 'Page')
 })

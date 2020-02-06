@@ -51,6 +51,10 @@ class StudentGradesPage
       f('#grading_period_select_menu')
     end
 
+    def hidden_eye_icon(scope:)
+      fxpath("//*[@title='Instructor is working on grades']", scope)
+    end
+
     def select_period_by_name(name)
       click_option(grading_period_dropdown, name)
     end
@@ -85,6 +89,22 @@ class StudentGradesPage
 
     def late_submission_final_score_text(assignment_id)
       f("#submission_#{assignment_id} .assignment_score .grade").text
+    end
+
+    def comment_buttons
+      ffxpath('//a[@aria-label="Read comments"]').select(&:displayed?)
+    end
+
+    def comments(assignment)
+      ff("#comments_thread_#{assignment.id} table tbody tr")
+    end
+
+    def fetch_assignment_score(assignment)
+      if assignment.grading_type == "letter_grade"
+        assignment_row(assignment).find_element(css: '.assignment_score .score_value').text
+      else
+        assignment_row(assignment).find_element(css: '.assignment_score .grade').text[/\d+/]
+      end
     end
   end
 end

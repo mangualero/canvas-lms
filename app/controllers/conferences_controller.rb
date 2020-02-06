@@ -163,6 +163,7 @@ class ConferencesController < ApplicationController
     return unless authorized_action(@context, @current_user, :read)
     return unless tab_enabled?(@context.class::TAB_CONFERENCES)
     return unless @current_user
+    log_api_asset_access([ "conferences", @context ], "conferences", "other")
     conferences = @context.grants_right?(@current_user, :manage_content) ?
       @context.web_conferences.active :
       @current_user.web_conferences.active.shard(@context.shard).where(context_type: @context.class.to_s, context_id: @context.id)
@@ -249,7 +250,7 @@ class ConferencesController < ApplicationController
       respond_to do |format|
         params[:web_conference].try(:delete, :long_running)
         params[:web_conference].try(:delete, :conference_type)
-        if @conference.update_attributes(conference_params)
+        if @conference.update(conference_params)
           # TODO: ability to dis-invite people
           members.uniq.each do |u|
             @conference.add_invitee(u)
@@ -378,8 +379,9 @@ class ConferencesController < ApplicationController
 
   def get_new_members
     members = [@current_user]
-
-    if params[:user] && params[:user][:all] != '1'
+    if params[:observers] && params[:observers][:remove] == '1'
+      ids = @context.user_ids - @context.observers.pluck(:id)
+    elsif params[:user] && params[:user][:all] != '1'
       ids = []
       params[:user].each do |id, val|
         ids << id.to_i if val == '1'

@@ -109,6 +109,7 @@ describe "Folders API", type: :request do
         json = api_call(:get, @folders_path + "/#{@root.id}/folders", @folders_path_options.merge(:id => @root.to_param))
         expect(json.detect { |f| f['id'] == @normal_folder.id }['for_submissions']).to eq false
         expect(json.detect { |f| f['id'] == @student.submissions_folder.id }['for_submissions']).to eq true
+        expect(json.detect { |f| f['id'] == @student.submissions_folder.id }['can_upload']).to eq false
       end
     end
   end
@@ -174,36 +175,83 @@ describe "Folders API", type: :request do
       expect(json).to be_empty
     end
 
+    it "should show if the user can upload files to the folder" do
+      json = api_call(:get, @folders_path + "/#{@root.id}", @folders_path_options.merge(:action => "show"), {})
+      expect(json["can_upload"]).to be true
+      student_in_course(course: @course)
+      json = api_call(:get, @folders_path + "/#{@root.id}", @folders_path_options.merge(:action => "show"), {})
+      expect(json["can_upload"]).to be false
+    end
+
     describe "folder in context" do
       it "should get the root folder for a course" do
-        json = api_call(:get,  "/api/v1/courses/#{@course.id}/folders/root", @folders_path_options.merge(:action => "show", :course_id => @course.id.to_param, :id => 'root'), {})
+        json = api_call(:get, "/api/v1/courses/#{@course.id}/folders/root", @folders_path_options.
+          merge(:action => "show", :course_id => @course.id.to_param, :id => 'root'), {})
         expect(json['id']).to eq @root.id
       end
 
       it "should get a folder in a context" do
         @f1 = @root.sub_folders.create!(:name => "folder1", :context => @course)
-        json = api_call(:get,  "/api/v1/courses/#{@course.id}/folders/#{@f1.id}", @folders_path_options.merge(:action => "show", :course_id => @course.id.to_param, :id => @f1.id.to_param), {})
+        json = api_call(:get, "/api/v1/courses/#{@course.id}/folders/#{@f1.id}", @folders_path_options.
+          merge(:action => "show", :course_id => @course.id.to_param, :id => @f1.id.to_param), {})
         expect(json['id']).to eq @f1.id
       end
 
       it "should 404 for a folder in a different context" do
         group_model(:context => @course)
         group_root = Folder.root_folders(@group).first
-        json = api_call(:get,  "/api/v1/courses/#{@course.id}/folders/#{group_root.id}", @folders_path_options.merge(:action => "show", :course_id => @course.id.to_param, :id => group_root.id.to_param), {}, {}, :expected_status => 404)
+        api_call(:get, "/api/v1/courses/#{@course.id}/folders/#{group_root.id}", @folders_path_options.
+          merge(:action => "show", :course_id => @course.id.to_param, :id => group_root.id.to_param), {}, {}, :expected_status => 404)
       end
 
       it "should get the root folder for a user" do
         @root = Folder.root_folders(@user).first
-        json = api_call(:get,  "/api/v1/users/#{@user.id}/folders/root", @folders_path_options.merge(:action => "show", :user_id => @user.id.to_param, :id => 'root'), {})
+        json = api_call(:get, "/api/v1/users/#{@user.id}/folders/root", @folders_path_options.
+          merge(:action => "show", :user_id => @user.id.to_param, :id => 'root'), {})
         expect(json['id']).to eq @root.id
       end
 
       it "should get the root folder for a group" do
         group_model(:context => @course)
         @root = Folder.root_folders(@group).first
-        json = api_call(:get,  "/api/v1/groups/#{@group.id}/folders/root", @folders_path_options.merge(:action => "show", :group_id => @group.id.to_param, :id => 'root'), {})
+        json = api_call(:get, "/api/v1/groups/#{@group.id}/folders/root", @folders_path_options.
+          merge(:action => "show", :group_id => @group.id.to_param, :id => 'root'), {})
         expect(json['id']).to eq @root.id
       end
+    end
+  end
+
+  describe "#media_folder" do
+    it "should create a media folder for a course" do
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/folders/media", @folders_path_options.
+        merge(:action => "media_folder", :course_id => @course.id.to_param).except(:id), {})
+      folder = @course.folders.where(:name => "Uploaded Media").first
+      expect(folder.unique_type).to eq Folder::MEDIA_TYPE
+      expect(json['id']).to eq folder.id
+
+      # get the same one twice
+      json2 = api_call(:get, "/api/v1/courses/#{@course.id}/folders/media", @folders_path_options.
+        merge(:action => "media_folder", :course_id => @course.id.to_param).except(:id), {})
+      expect(json2['id']).to eq folder.id
+    end
+
+    it "should create a folder in the user's root if user doesn't have upload rights" do
+      course_with_student(:course => @course, :active_all => true)
+      @me = @student
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/folders/media", @folders_path_options.
+        merge(:action => "media_folder", :course_id => @course.id.to_param).except(:id), {})
+      expect(@course.folders.where(:name => "Uploaded Media").first).to be_nil
+      folder = @user.folders.where(:name => "Uploaded Media").first
+      expect(json['id']).to eq folder.id
+      expect(json['can_upload']).to eq true
+    end
+
+    it "should create a media folder for a group" do
+      group_model(:context => @course)
+      json = api_call(:get, "/api/v1/groups/#{@group.id}/folders/media", @folders_path_options.
+        merge(:action => "media_folder", :group_id => @group.id.to_param).except(:id), {})
+      folder = @group.folders.where(:name => "Uploaded Media").first
+      expect(json['id']).to eq folder.id
     end
   end
 
@@ -216,7 +264,8 @@ describe "Folders API", type: :request do
     end
 
     it "should not allow deleting root folder of context" do
-      json = api_call(:delete, @folders_path + "/#{@root.id}", @folders_path_options.merge(:action => "api_destroy", :id => @root.id.to_param), {}, {}, :expected_status => 400)
+      json = api_call(:delete, @folders_path + "/#{@root.id}", @folders_path_options.
+        merge(:action => "api_destroy", :id => @root.id.to_param), {}, {}, :expected_status => 400)
       expect(json['message']).to eq "Can't delete the root folder"
       @root.reload
       expect(@root.workflow_state).to eq 'visible'
@@ -225,8 +274,10 @@ describe "Folders API", type: :request do
     it "should not allow deleting folders with contents without force flag" do
       @f1 = @root.sub_folders.create!(:name => "folder1", :context => @course)
       @f2 = @f1.sub_folders.create!(:name => "folder2", :context => @course)
-      att = Attachment.create!(:filename => 'test.txt', :display_name => "testing.txt", :uploaded_data => StringIO.new('file'), :folder => @f1, :context => @course)
-      json = api_call(:delete, @folders_path + "/#{@f1.id}", @folders_path_options.merge(:action => "api_destroy", :id => @f1.id.to_param), {}, {}, :expected_status => 400)
+      att = Attachment.create!(:filename => 'test.txt', :display_name => "testing.txt",
+        :uploaded_data => StringIO.new('file'), :folder => @f1, :context => @course)
+      json = api_call(:delete, @folders_path + "/#{@f1.id}", @folders_path_options.
+        merge(:action => "api_destroy", :id => @f1.id.to_param), {}, {}, :expected_status => 400)
       expect(json['message']).to eq "Can't delete a folder with content"
       @f1.reload
       expect(@f1.workflow_state).to eq 'visible'
@@ -269,9 +320,9 @@ describe "Folders API", type: :request do
     end
 
     it "should create in unfiled folder" do
-      json = api_call(:post, "/api/v1/users/#{@user.id}/folders",
+      api_call(:post, "/api/v1/users/#{@user.id}/folders",
                @folders_path_options.merge(:user_id => @user.id.to_param),
-               { :name => "f1",  :hidden => 'true'}, {})
+               { :name => "f1", :hidden => 'true'}, {})
 
       unfiled = Folder.unfiled_folder(@user)
       expect(unfiled.sub_folders.count).to eq 1
@@ -285,9 +336,9 @@ describe "Folders API", type: :request do
       @root = Folder.root_folders(@group).first
       @f1 = @root.sub_folders.create!(:name => "folder1", :context => @group)
 
-      json = api_call(:post, "/api/v1/groups/#{@group.id}/folders",
+      api_call(:post, "/api/v1/groups/#{@group.id}/folders",
                @folders_path_options.merge(:group_id => @group.id.to_param),
-               { :name => "sub1",  :locked => 'true', :parent_folder_id => @f1.id.to_param}, {})
+               { :name => "sub1", :locked => 'true', :parent_folder_id => @f1.id.to_param}, {})
       @f1.reload
       sub1 = @f1.sub_folders.first
       expect(sub1.name).to eq 'sub1'
@@ -299,9 +350,9 @@ describe "Folders API", type: :request do
       @root = Folder.root_folders(@group).first
       @f1 = @root.sub_folders.create!(:name => "folder1", :context => @group)
 
-      json = api_call(:post, "/api/v1/folders/#{@f1.id}/folders",
+      api_call(:post, "/api/v1/folders/#{@f1.id}/folders",
                @folders_path_options.merge(:folder_id => @f1.id.to_param),
-               { :name => "sub1",  :locked => 'true' }, {})
+               { :name => "sub1", :locked => 'true' }, {})
       @f1.reload
       sub1 = @f1.sub_folders.first
       expect(sub1.name).to eq 'sub1'
@@ -311,7 +362,7 @@ describe "Folders API", type: :request do
     it "should error with invalid folder id" do
       api_call(:post, "/api/v1/folders/0/folders",
                @folders_path_options.merge(:folder_id => "0"),
-               {:name => "sub1",  :locked => 'true'},
+               {:name => "sub1", :locked => 'true'},
                {},
                :expected_status => 404)
     end
@@ -319,7 +370,7 @@ describe "Folders API", type: :request do
     it "should give error folder is used and path sent" do
       json = api_call(:post, "/api/v1/folders/#{@root.id}/folders",
                @folders_path_options.merge(:folder_id => @root.id.to_param),
-               { :name => "sub1",  :locked => 'true', :parent_folder_path => 'haha/fool'},
+               { :name => "sub1", :locked => 'true', :parent_folder_path => 'haha/fool'},
                {},
                :expected_status => 400)
       expect(json['message']).to eq "Can't set folder path and folder id"
@@ -328,7 +379,7 @@ describe "Folders API", type: :request do
     it "should give error folder is used and id sent" do
       json = api_call(:post, "/api/v1/folders/#{@root.id}/folders",
                @folders_path_options.merge(:folder_id => @root.id.to_param),
-               { :name => "sub1",  :locked => 'true', :parent_folder_id =>  @root.id.to_param},
+               { :name => "sub1", :locked => 'true', :parent_folder_id => @root.id.to_param},
                {},
                :expected_status => 400)
       expect(json['message']).to eq "Can't set folder path and folder id"
@@ -354,7 +405,7 @@ describe "Folders API", type: :request do
     it "should error with invalid parent id" do
       api_call(:post, "/api/v1/courses/#{@course.id}/folders",
                @folders_path_options.merge(:course_id => @course.id.to_param),
-               { :name => "sub1",  :locked => 'true', :parent_folder_id => "0"},
+               { :name => "sub1", :locked => 'true', :parent_folder_id => "0"},
                {},
                :expected_status => 404)
     end
@@ -362,7 +413,7 @@ describe "Folders API", type: :request do
     it "should give error if path and id are passed" do
       json = api_call(:post, "/api/v1/courses/#{@course.id}/folders",
                @folders_path_options.merge(:course_id => @course.id.to_param),
-               { :name => "sub1",  :locked => 'true', :parent_folder_id => "0", :parent_folder_path => 'haha/fool'},
+               { :name => "sub1", :locked => 'true', :parent_folder_id => "0", :parent_folder_path => 'haha/fool'},
                {},
                :expected_status => 400)
       expect(json['message']).to eq "Can't set folder path and folder id"

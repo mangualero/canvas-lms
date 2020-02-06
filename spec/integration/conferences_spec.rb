@@ -58,7 +58,7 @@ describe ConferencesController, type: :request do
     group_conference.add_initiator(@user)
 
     get "/courses/#{@course.id}/groups/#{@group.id}"
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(assigns['current_conferences'].map(&:id)).to eq [group_conference.id]
   end
 
@@ -75,7 +75,7 @@ describe ConferencesController, type: :request do
 
     expect(@enroll1.attributes['workflow_state']).to eq 'active'
     expect(@enroll2.attributes['workflow_state']).to eq 'active'
-    @enroll2.update_attributes('workflow_state' => 'completed')
+    @enroll2.update('workflow_state' => 'completed')
     expect(@enroll2.attributes['workflow_state']).to eq 'completed'
 
     get "/courses/#{@course.id}/conferences"

@@ -50,7 +50,8 @@ module Canvas
       {
         usage_rights_required: (
           context &&
-          context.feature_enabled?(:usage_rights_required)
+          context.respond_to?(:usage_rights_required?) &&
+          context.usage_rights_required?
         ) || false,
         can_upload_files: (
           user &&

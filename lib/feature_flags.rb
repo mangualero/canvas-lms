@@ -69,12 +69,24 @@ module FeatureFlags
 
   # return the feature flag for the given feature that is defined on this object, if any.
   # (helper method.  use lookup_feature_flag to test policy.)
-  def feature_flag(feature)
+  def feature_flag(feature, skip_cache: false)
+    return nil unless self.id
+
     self.shard.activate do
-      result = feature_flag_cache.fetch(feature_flag_cache_key(feature)) do
+      if self.feature_flags.loaded?
+        self.feature_flags.detect{|ff| ff.feature == feature.to_s}
+      elsif skip_cache
         self.feature_flags.where(feature: feature.to_s).first
+      else
+        result = RequestCache.cache("feature_flag", self, feature) do
+          feature_flag_cache.fetch(feature_flag_cache_key(feature)) do
+            # keep have the context association unloaded in case we can't marshal it
+            FeatureFlag.where(feature: feature.to_s).polymorphic_where(:context => self).first
+          end
+        end
+        result.context = self if result
+        result
       end
-      result
     end
   end
 
@@ -96,10 +108,10 @@ module FeatureFlags
 
   # find the feature flag setting that applies to this object
   # it may be defined on the object or inherited
-  def lookup_feature_flag(feature, override_hidden = false)
+  def lookup_feature_flag(feature, override_hidden: false, skip_cache: false)
     feature = feature.to_s
     feature_def = Feature.definitions[feature]
-    return nil unless feature_def
+    raise "no such feature - #{feature}" unless feature_def
     return nil unless feature_def.applies_to_object(self)
 
     return nil if feature_def.visible_on.is_a?(Proc) && !feature_def.visible_on.call(self)
@@ -124,7 +136,7 @@ module FeatureFlags
       account
     end
     (accounts + [self]).each do |context|
-      flag = context.feature_flag(feature)
+      flag = context.feature_flag(feature, skip_cache: skip_cache)
       next unless flag
       retval = flag
       break unless flag.allowed?

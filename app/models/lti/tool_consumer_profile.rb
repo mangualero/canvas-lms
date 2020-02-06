@@ -49,7 +49,9 @@ module Lti
       ToolProxyRegistrationRequest
       Canvas.placements.accountNavigation
       Canvas.placements.courseNavigation
+      Canvas.placements.assignmentEdit
       Canvas.placements.assignmentSelection
+      Canvas.placements.assignmentView
       Canvas.placements.linkSelection
       Canvas.placements.postGrades
       Security.splitSecret
@@ -76,7 +78,7 @@ module Lti
       *Lti::SubscriptionsApiController::SERVICE_DEFINITIONS,
       *Lti::SubmissionsApiController::SERVICE_DEFINITIONS,
       *Lti::UsersApiController::SERVICE_DEFINITIONS,
-      *Lti::AssignmentsApiController::SERVICE_DEFINITIONS
+      *Lti::PlagiarismAssignmentsApiController::SERVICE_DEFINITIONS
     ].freeze
 
     class << self

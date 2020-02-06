@@ -138,6 +138,7 @@
 #
 class OutcomeGroupsApiController < ApplicationController
   include Api::V1::Outcome
+  include Api::V1::Progress
 
   before_action :require_user
   before_action :get_context
@@ -264,7 +265,7 @@ class OutcomeGroupsApiController < ApplicationController
       render :json => 'error'.to_json, :status => :bad_request
       return
     end
-    @outcome_group.update_attributes(params.permit(:title, :description, :vendor_guid))
+    @outcome_group.update(params.permit(:title, :description, :vendor_guid))
     if params[:parent_outcome_group_id] && params[:parent_outcome_group_id] != @outcome_group.learning_outcome_group_id
       new_parent = context_outcome_groups.find(params[:parent_outcome_group_id])
       unless new_parent.adopt_outcome_group(@outcome_group)
@@ -431,10 +432,10 @@ class OutcomeGroupsApiController < ApplicationController
   #   The points corresponding to a rating level for the embedded rubric criterion.
   #
   # @argument calculation_method [String, "decaying_average"|"n_mastery"|"latest"|"highest"]
-  #   The new calculation method.  Defaults to "highest"
+  #   The new calculation method.  Defaults to "decaying_average"
   #
   # @argument calculation_int [Integer]
-  #   The new calculation int.  Only applies if the calculation_method is "decaying_average" or "n_mastery"
+  #   The new calculation int.  Only applies if the calculation_method is "decaying_average" or "n_mastery". Defaults to 65
   #
   # @returns OutcomeLink
   #
@@ -454,7 +455,7 @@ class OutcomeGroupsApiController < ApplicationController
   #        -F 'vendor_guid=customid9000' \
   #        -F 'mastery_points=3' \
   #        -F 'calculation_method=decaying_average' \
-  #        -F 'calculation_int=75' \
+  #        -F 'calculation_int=65' \
   #        -F 'ratings[][description]=Exceeds Expectations' \
   #        -F 'ratings[][points]=5' \
   #        -F 'ratings[][description]=Meets Expectations' \
@@ -641,6 +642,14 @@ class OutcomeGroupsApiController < ApplicationController
   # @argument source_outcome_group_id [Required, Integer]
   #   The ID of the source outcome group.
   #
+  # @argument async [Boolean]
+  #    If true, perform action asynchronously.  In that case, this endpoint
+  #    will return a Progress object instead of an OutcomeGroup.
+  #    Use the {api:ProgressController#show progress endpoint}
+  #    to query the status of the operation.  The imported outcome group id
+  #    and url will be returned in the results of the Progress object
+  #    as "outcome_group_id" and "outcome_group_url"
+  #
   # @returns OutcomeGroup
   #
   # @example_request
@@ -677,8 +686,21 @@ class OutcomeGroupsApiController < ApplicationController
     end
 
     # import the validated source
-    @child_outcome_group = @outcome_group.add_outcome_group(@source_outcome_group)
-    render :json => outcome_group_json(@child_outcome_group, @current_user, session)
+    if value_to_boolean(params[:async])
+      progress = Progress.create!(context: @context, user: @current_user, tag: :import_outcome_group)
+      progress.process_job(
+        self.class,
+        :add_outcome_group_async,
+        {},
+        @outcome_group,
+        @source_outcome_group,
+        polymorphic_path([:api_v1, @context, :outcome_groups])
+      )
+      render json: progress_json(progress, @current_user, session)
+    else
+      @child_outcome_group = @outcome_group.add_outcome_group(@source_outcome_group)
+      render :json => outcome_group_json(@child_outcome_group, @current_user, session)
+    end
   end
 
   protected
@@ -725,4 +747,13 @@ class OutcomeGroupsApiController < ApplicationController
     outcome.save
     outcome
   end
+
+  def self.add_outcome_group_async(progress, target_group, source_group, partial_path)
+    copy = target_group.add_outcome_group(source_group)
+    progress.set_results(
+      outcome_group_id: copy.id,
+      outcome_group_url: "#{partial_path}/#{copy.id}"
+    )
+  end
+  private_class_method :add_outcome_group_async
 end

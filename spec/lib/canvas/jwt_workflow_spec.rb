@@ -22,6 +22,9 @@ module Canvas
   describe JWTWorkflow do
     before(:each) do
       @c = Course.new
+      @a = Account.new
+      @c.account = @a
+      @c.root_account = @a
       @u = User.new
     end
 
@@ -59,6 +62,7 @@ module Canvas
     describe 'workflows' do
       describe ':rich_content' do
         before(:each) do
+          allow(@c).to receive(:respond_to?).and_return(true)
           allow(@c).to receive(:grants_right?)
           allow(@c).to receive(:feature_enabled?)
           @wiki = Wiki.new
@@ -80,13 +84,13 @@ module Canvas
         end
 
         it 'sets usage_rights_required to false' do
-          expect(@c).to receive(:feature_enabled?).with(:usage_rights_required).and_return(false)
+          @c.usage_rights_required = false
           state = JWTWorkflow.state_for([:rich_content], @c, @u)
           expect(state[:usage_rights_required]).to be false
         end
 
         it 'sets usage_rights_required to true' do
-          expect(@c).to receive(:feature_enabled?).with(:usage_rights_required).and_return(true)
+          @c.usage_rights_required = true
           state = JWTWorkflow.state_for([:rich_content], @c, @u)
           expect(state[:usage_rights_required]).to be true
         end

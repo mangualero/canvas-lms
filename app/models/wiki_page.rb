@@ -38,7 +38,7 @@ class WikiPage < ActiveRecord::Base
 
   include MasterCourses::Restrictor
   restrict_columns :content, [:body, :title]
-  restrict_columns :settings, [:editing_roles]
+  restrict_columns :settings, [:editing_roles, :url]
   restrict_assignment_columns
   restrict_columns :state, [:workflow_state]
 
@@ -62,10 +62,6 @@ class WikiPage < ActiveRecord::Base
   after_save  :touch_context
   after_save  :update_assignment,
     if: proc { self.context.try(:feature_enabled?, :conditional_release) }
-
-  scope :without_assignment_in_course, lambda { |course_ids|
-    where(assignment_id: nil).joins(:course).where(courses: {id: course_ids})
-  }
 
   scope :starting_with_title, lambda { |title|
     where('title ILIKE ?', "#{title}%")
@@ -114,15 +110,14 @@ class WikiPage < ActiveRecord::Base
       baddies = self.context.wiki_pages.not_deleted.where(title: "Front Page").select{|p| p.url != "front-page" }
       baddies.each{|p| p.title = to_cased_title.call(p.url); p.save_without_broadcasting! }
     end
-    if existing = self.context.wiki_pages.not_deleted.where(title: self.title).first
-      return if existing == self
+    if existing = self.context.wiki_pages.not_deleted.where(title: self.title).where.not(:id => self.id).first
       real_title = self.title.gsub(/-(\d*)\z/, '') # remove any "-#" at the end
       n = $1 ? $1.to_i + 1 : 2
       begin
         mod = "-#{n}"
         new_title = real_title[0...(TITLE_LENGTH - mod.length)] + mod
         n = n.succ
-      end while self.context.wiki_pages.not_deleted.where(title: new_title).exists?
+      end while self.context.wiki_pages.not_deleted.where(title: new_title).where.not(:id => self.id).exists?
 
       self.title = new_title
     end
@@ -220,7 +215,7 @@ class WikiPage < ActiveRecord::Base
     self.versions.map(&:model)
   end
 
-  scope :deleted_last, -> { order("workflow_state='deleted'") }
+  scope :deleted_last, -> { order(Arel.sql("workflow_state='deleted'")) }
 
   scope :not_deleted, -> { where("wiki_pages.workflow_state<>'deleted'") }
 
@@ -236,7 +231,7 @@ class WikiPage < ActiveRecord::Base
 
   def low_level_locked_for?(user, opts={})
     return false unless self.could_be_locked
-    Rails.cache.fetch([locked_cache_key(user), opts[:deep_check_if_needed]].cache_key, :expires_in => 1.minute) do
+    RequestCache.cache(locked_request_cache_key(user), opts[:deep_check_if_needed]) do
       locked = false
       if item = locked_by_module_item?(user, opts)
         locked = {object: self, :module => item.context_module}
@@ -259,6 +254,7 @@ class WikiPage < ActiveRecord::Base
     end
 
     self.wiki.set_front_page_url!(self.url)
+    self.touch if self.persisted?
   end
 
   def context_module_tag_for(context)
@@ -397,11 +393,13 @@ class WikiPage < ActiveRecord::Base
   end
 
   def increment_view_count(user, context = nil)
-    unless self.new_record?
-      self.with_versioning(false) do |p|
-        context ||= p.context
-        WikiPage.where(id: p).update_all("view_count=COALESCE(view_count, 0) + 1")
-        p.context_module_action(user, context, :read)
+    Shackles.activate(:master) do
+      unless self.new_record?
+        self.with_versioning(false) do |p|
+          context ||= p.context
+          WikiPage.where(id: p).update_all("view_count=COALESCE(view_count, 0) + 1")
+          p.context_module_action(user, context, :read)
+        end
       end
     end
   end
@@ -449,6 +447,10 @@ class WikiPage < ActiveRecord::Base
         })
     end
     result
+  end
+
+  def can_duplicate?
+    true
   end
 
   def initialize_wiki_page(user)

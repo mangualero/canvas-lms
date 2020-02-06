@@ -20,7 +20,7 @@ import I18n from 'i18n!calendar'
 import $ from 'jquery'
 import moment from 'moment'
 import natcompare from '../util/natcompare'
-import commonEventFactory from '../calendar/commonEventFactory'
+import commonEventFactory from './commonEventFactory'
 import ValidatedFormView from '../views/ValidatedFormView'
 import SisValidationHelper from '../util/SisValidationHelper'
 import editAssignmentTemplate from 'jst/calendar/editAssignment'
@@ -30,49 +30,17 @@ import genericSelectOptionsTemplate from 'jst/calendar/genericSelectOptions'
 import datePickerFormat from 'jsx/shared/helpers/datePickerFormat'
 import {showFlashAlert} from 'jsx/shared/FlashAlert'
 import withinMomentDates from 'jsx/shared/helpers/momentDateHelper'
-import {extend} from '../legacyCoffeesScriptHelpers'
 import 'jquery.instructure_date_and_time'
 import 'jquery.instructure_forms'
 import 'jquery.instructure_misc_helpers'
-import '../calendar/fcMomentHandlebarsHelpers'
+import './fcMomentHandlebarsHelpers'
 
-extend(EditAssignmentDetailsRewrite, ValidatedFormView)
-
-export default function EditAssignmentDetailsRewrite() {
-  this.setContext = this.setContext.bind(this)
-  this.activate = this.activate.bind(this)
-  this.moreOptions = this.moreOptions.bind(this)
-  this.setContext = this.setContext.bind(this)
-  this.contextChange = this.contextChange.bind(this)
-  this.setupTimeAndDatePickers = this.setupTimeAndDatePickers.bind(this)
-  this.submitAssignment = this.submitAssignment.bind(this)
-  this.getFormData = this.getFormData.bind(this)
-  this.onSaveSuccess = this.onSaveSuccess.bind(this)
-  this.onSaveFail = this.onSaveFail.bind(this)
-  return EditAssignmentDetailsRewrite.__super__.constructor.apply(this, arguments)
-}
-
-Object.assign(EditAssignmentDetailsRewrite.prototype, {
-  defaults: {
-    width: 440,
-    height: 384
-  },
-
-  events: {
-    ...EditAssignmentDetailsRewrite.prototype.events,
-    'click .save_assignment': 'submitAssignment',
-    'click .more_options_link': 'moreOptions',
-    'change .context_id': 'contextChange'
-  },
-
-  template: editAssignmentTemplate,
-  wrapper,
-
+export default class EditAssignmentDetailsRewrite extends ValidatedFormView {
   initialize(selector, event, contextChangeCB, closeCB) {
     this.event = event
     this.contextChangeCB = contextChangeCB
     this.closeCB = closeCB
-    EditAssignmentDetailsRewrite.__super__.initialize.call(this, {
+    super.initialize({
       title: this.event.title,
       contexts: this.event.possibleContexts(),
       date: this.event.startDate(),
@@ -104,18 +72,18 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
         $.replaceTags(this.event.contextInfo.assignment_url, 'id', this.event.object.id)
       )
     }
-  },
+  }
 
   setContext(newContext) {
     this.$el
       .find('select.context_id')
       .val(newContext)
       .triggerHandler('change', false)
-  },
+  }
 
   contextInfoForCode(code) {
     return this.event.possibleContexts().find(context => context.asset_string === code)
-  },
+  }
 
   activate() {
     this.$el.find('select.context_id').change()
@@ -124,7 +92,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
         .find('.assignment_group_select .assignment_group')
         .val(this.event.assignment.assignment_group_id)
     }
-  },
+  }
 
   moreOptions(jsEvent) {
     jsEvent.preventDefault()
@@ -149,7 +117,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     params.return_to = window.location.href
     pieces[0] += `?${$.param(params)}`
     return (window.location.href = pieces.join('#'))
-  },
+  }
 
   contextChange(jsEvent, propagate) {
     if (this.ignoreContextChange) return
@@ -175,11 +143,11 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
       ? `${this.event.assignment.html_url}/edit`
       : this.currentContextInfo.new_assignment_url
     return this.$el.find('.more_options_link').attr('href', moreOptionsUrl)
-  },
+  }
 
   generateNewEvent() {
     return commonEventFactory({}, [])
-  },
+  }
 
   submitAssignment(e) {
     e.preventDefault()
@@ -190,7 +158,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     } else {
       return this.submitOverride(e, data.assignment_override)
     }
-  },
+  }
 
   unfudgedDate(date) {
     const unfudged = $.unfudgeDateForProfileTimezone(date)
@@ -199,10 +167,10 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     } else {
       return ''
     }
-  },
+  }
 
   getFormData() {
-    const data = EditAssignmentDetailsRewrite.__super__.getFormData.apply(this, arguments)
+    const data = super.getFormData(...arguments)
     if (data.assignment != null) {
       data.assignment.due_at = this.unfudgedDate(data.assignment.due_at)
     } else {
@@ -210,7 +178,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     }
 
     return data
-  },
+  }
 
   submitRegularAssignment(event, data) {
     data.due_at = this.unfudgedDate(data.due_at)
@@ -227,18 +195,18 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
       this.model = this.event
       return this.submit(event)
     }
-  },
+  }
 
   submitOverride(event, data) {
     this.event.start = data.due_at // fudged
     data.due_at = this.unfudgedDate(data.due_at)
     this.model = this.event
     return this.submit(event)
-  },
+  }
 
   onSaveSuccess() {
     return this.closeCB()
-  },
+  }
 
   onSaveFail(xhr) {
     let resp
@@ -247,8 +215,8 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     }
     this.closeCB()
     this.disableWhileLoadingOpts = {}
-    return EditAssignmentDetailsRewrite.__super__.onSaveFail.call(this, xhr)
-  },
+    return super.onSaveFail(xhr)
+  }
 
   validateBeforeSave(data, errors) {
     if (data.assignment != null) {
@@ -259,7 +227,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
     }
     errors = this._validateDueDate(data, errors)
     return errors
-  },
+  }
 
   _validateTitle(data, errors) {
     const post_to_sis = data.post_to_sis === '1'
@@ -289,7 +257,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
       ]
     }
     return errors
-  },
+  }
 
   _validateDueDate(data, errors) {
     let dueDate
@@ -329,7 +297,7 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
       errors[error_tag] = [{message: I18n.t('Due Date is required!')}]
     }
     return errors
-  },
+  }
 
   setupTimeAndDatePickers() {
     const $field = this.$el.find('.datetime_field')
@@ -343,6 +311,20 @@ Object.assign(EditAssignmentDetailsRewrite.prototype, {
       }
     })
   }
-})
+}
+EditAssignmentDetailsRewrite.prototype.defaults = {
+  width: 440,
+  height: 384
+}
+
+EditAssignmentDetailsRewrite.prototype.events = {
+  ...EditAssignmentDetailsRewrite.prototype.events,
+  'click .save_assignment': 'submitAssignment',
+  'click .more_options_link': 'moreOptions',
+  'change .context_id': 'contextChange'
+}
+
+EditAssignmentDetailsRewrite.prototype.template = editAssignmentTemplate
+EditAssignmentDetailsRewrite.prototype.wrapper = wrapper
 
 EditAssignmentDetailsRewrite.optionProperty('assignmentGroup')

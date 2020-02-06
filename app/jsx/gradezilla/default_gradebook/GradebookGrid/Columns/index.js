@@ -16,32 +16,71 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-export default class Columns {
-  constructor (gradebookGrid) {
-    this.gradebookGrid = gradebookGrid;
+function minimize(column) {
+  if (!column.cssClass.includes('minimized')) {
+    column.cssClass += ' minimized'
   }
 
-  initialize () {
-    const { events, grid, gridData, gridSupport } = this.gradebookGrid;
+  if (!column.headerCssClass.includes('minimized')) {
+    column.headerCssClass += ' minimized'
+  }
+
+  const $columnNodes = document.querySelectorAll(`.${column.id}`)
+  for (let i = 0; i < $columnNodes.length; i++) {
+    $columnNodes[i].classList.add('minimized')
+  }
+}
+
+function unminimize(column) {
+  column.cssClass = column.cssClass.replace(/\s*\bminimized\b/, '')
+  column.headerCssClass = column.headerCssClass.replace(/\s*\bminimized\b/, '')
+
+  const $columnNodes = document.querySelectorAll(`.${column.id}`)
+  for (let i = 0; i < $columnNodes.length; i++) {
+    $columnNodes[i].classList.remove('minimized')
+  }
+}
+
+export default class Columns {
+  constructor(gradebookGrid) {
+    this.gradebookGrid = gradebookGrid
+  }
+
+  initialize() {
+    const {events, grid, gridData, gridSupport} = this.gradebookGrid
 
     grid.onColumnsReordered.subscribe((sourceEvent, _object) => {
-      const event = sourceEvent.originalEvent || sourceEvent;
-      const columns = gridSupport.columns.getColumns();
-      const orderChanged = (
+      const event = sourceEvent.originalEvent || sourceEvent
+      const columns = gridSupport.columns.getColumns()
+      const orderChanged =
         columns.frozen.some((column, index) => column.id !== gridData.columns.frozen[index]) ||
         columns.scrollable.some((column, index) => column.id !== gridData.columns.scrollable[index])
-      );
       if (orderChanged) {
-        events.onColumnsReordered.trigger(event, columns);
+        events.onColumnsReordered.trigger(event, columns)
       }
-    });
+    })
 
     gridSupport.events.onColumnsResized.subscribe((event, columns) => {
       for (let i = 0; i < columns.length; i++) {
-        gridData.columns.definitions[columns[i].id] = columns[i];
+        gridData.columns.definitions[columns[i].id] = columns[i]
       }
 
-      events.onColumnsResized.trigger(event, columns);
-    });
+      const assignmentColumns = columns.filter(column => column.type === 'assignment')
+      for (let i = 0; i < assignmentColumns.length; i++) {
+        const column = assignmentColumns[i]
+        if (column.width <= column.minWidth) {
+          minimize(column)
+        } else {
+          unminimize(column)
+        }
+      }
+
+      events.onColumnsResized.trigger(event, columns)
+    })
+  }
+
+  getIndexOfColumn(columnId) {
+    const {frozen, scrollable} = this.gradebookGrid.gridData.columns
+    return [...frozen, ...scrollable].indexOf(columnId)
   }
 }

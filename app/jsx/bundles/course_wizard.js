@@ -17,28 +17,22 @@
  */
 
 import $ from 'jquery'
-import React from 'react'
+import React, {Suspense} from 'react'
 import ReactDOM from 'react-dom'
-import CourseWizard from '../course_wizard/CourseWizard'
+
+const CourseWizard = React.lazy(() => import('../course_wizard/CourseWizard'))
 
 /*
-  * This essentially handles binding the button events and calling out to the
-  * CourseWizard React component that is the actual wizard.
-  */
-
-const $wizard_box = $('#wizard_box')
-
-$('.wizard_popup_link').click((event) => {
+ * This essentially handles binding the button events and calling out to the
+ * CourseWizard React component that is the actual wizard.
+ */
+function renderWizard(showWizard) {
   ReactDOM.render(
-    <CourseWizard overlayClassName="CourseWizard__modalOverlay" showWizard />,
-    $wizard_box[0]
+    <Suspense fallback={<div />}>
+      {showWizard && <CourseWizard onHideWizard={() => renderWizard(false)} />}
+    </Suspense>,
+    document.getElementById('wizard_box')
   )
-})
+}
 
-// We are currently not allowing the wizard to popup automatically,
-// uncommenting the following code will re-enable that functionality.
-//
-// setTimeout( ->
-//   if (!userSettings.get('hide_wizard_' + pathname))
-//     $(".wizard_popup_link.auto_open:first").click()
-// , 500)
+$(document).on('click', '.wizard_popup_link', () => renderWizard(true))

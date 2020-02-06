@@ -15,34 +15,29 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import { createStore, applyMiddleware } from 'redux';
-import reduxThunk from 'redux-thunk';
-import reduxPromise from 'redux-promise';
-import createSagaMiddleware from 'redux-saga';
-import rootReducer from '../reducers';
-import {createDynamicUiMiddleware} from '../dynamic-ui';
-import allSagas from '../actions/sagas';
+import {createStore, applyMiddleware} from 'redux'
+import reduxThunk from 'redux-thunk'
+import reduxPromise from 'redux-promise'
+import createSagaMiddleware from 'redux-saga'
+import {composeWithDevTools} from 'redux-devtools-extension/developmentOnly'
+import rootReducer from '../reducers'
+import {createDynamicUiMiddleware} from '../dynamic-ui'
+import allSagas from '../actions/sagas'
 
-export default function configureStore (uiManager, defaultState) {
-  const sagaMiddleware = createSagaMiddleware();
-  let middlewares = [
+export default function configureStore(uiManager, defaultState) {
+  const sagaMiddleware = createSagaMiddleware()
+  const middlewares = [
     reduxThunk,
     reduxPromise,
     sagaMiddleware,
-    createDynamicUiMiddleware(uiManager),
-  ];
-
-  if ((process.env.NODE_ENV !== 'production') &&
-     (process.env.NODE_ENV !== 'test')) {
-    const reduxLogger = require('redux-logger').default;
-    middlewares = [ ...middlewares, reduxLogger ];
-  }
+    createDynamicUiMiddleware(uiManager)
+  ]
 
   const store = createStore(
     rootReducer,
     defaultState,
-    applyMiddleware(...middlewares)
-  );
-  sagaMiddleware.run(allSagas);
-  return store;
+    composeWithDevTools(applyMiddleware(...middlewares))
+  )
+  sagaMiddleware.run(allSagas)
+  return store
 }

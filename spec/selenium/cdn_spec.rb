@@ -41,7 +41,7 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
           'bundles/common' => false,
           'plugins/analytics/analytics' => false, # to test that it works with plugins
           'jst/tinymce/EquationEditorView' => false, # to test that it works with handlebars-loaded css
-          'jst/tinymce/InsertUpdateImageView' => true
+          'jst/AssignmentGroupWeightsDialog' => true
         }
         sample_bundles.each do |bundle_name, includes_no_variables|
           fingerprints = BrandableCSS.variants.map do |variant|
@@ -52,14 +52,13 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
           end
 
           expect(fingerprints.length).to eq(8), 'We have 8 variants'
-          msg = 'make sure the conbined results match the result of all_fingerprints_for'
+          msg = 'make sure the combined results match the result of all_fingerprints_for'
           expect(fingerprints).to eq(BrandableCSS.all_fingerprints_for(bundle_name).values), msg
+          next unless includes_no_variables
 
-          if includes_no_variables
-            msg = "all variants should outupt the same css if a bundle doesn't pull in the variables file"
-            unique_fingerprints = fingerprints.map{ |f| f[:combinedChecksum] }.uniq
-            expect(unique_fingerprints.length).to eq(1), msg
-          end
+          msg = "all variants should output the same css if a bundle doesn't pull in the variables file"
+          unique_fingerprints = fingerprints.map{ |f| f[:combinedChecksum] }.uniq
+          expect(unique_fingerprints.length).to eq(1), msg
         end
       end
     end
@@ -78,11 +77,13 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
     assert_tag('link', 'href', url)
   end
 
-  def check_asset(tag, asset_path)
-    revved_path = Canvas::Cdn::RevManifest.url_for(asset_path)
-    expect(revved_path).to be_present
+  def check_asset(tag, asset_path, skip_rev=false)
+    unless skip_rev
+      asset_path = Canvas::Cdn::RevManifest.url_for(asset_path)
+      expect(asset_path).to be_present
+    end
     attribute = (tag == 'link') ? 'href' : 'src'
-    url = "#{EXAMPLE_CDN_HOST}#{revved_path}"
+    url = "#{EXAMPLE_CDN_HOST}#{asset_path}"
     assert_tag(tag, attribute, url)
   end
 
@@ -94,14 +95,10 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
     ['images/favicon-yellow.ico', 'images/apple-touch-icon.png'].each { |i| check_asset('link', i) }
     optimized_js_flag = ENV['USE_OPTIMIZED_JS'] == 'true' || ENV['USE_OPTIMIZED_JS'] == 'True'
     js_base_url = optimized_js_flag ? '/dist/webpack-production' : '/dist/webpack-dev'
-    expected_js_bundles = [
-      "#{js_base_url}/vendor.js",
-      '/timezone/Etc/UTC.js',
-      '/timezone/en_US.js',
-      "#{js_base_url}/appBootstrap.js",
-      "#{js_base_url}/common.js",
-      "#{js_base_url}/login.js"
-    ]
-    expected_js_bundles.each { |s| check_asset('script', s) }
+
+    check_asset('script', '/timezone/Etc/UTC.js')
+    check_asset('script', '/timezone/en_US.js')
+    Canvas::Cdn::RevManifest.all_webpack_chunks_for('main').each { |c| check_asset('script', "#{js_base_url}/#{c}", true) }
+    Canvas::Cdn::RevManifest.all_webpack_chunks_for('login').each { |c| check_asset('link', "#{js_base_url}/#{c}", true) }
   end
 end

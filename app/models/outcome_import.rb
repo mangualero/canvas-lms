@@ -18,13 +18,11 @@
 
 class OutcomeImport < ApplicationRecord
   include Workflow
-  belongs_to :context, polymorphic: %i[account course]
+  belongs_to :context, polymorphic: %i[account course], required: true
   belongs_to :attachment
   belongs_to :user
   has_many :outcome_import_errors
 
-  validates :context_type, presence: true
-  validates :context_id, presence: true
   validates :workflow_state, presence: true
 
   workflow do
@@ -116,10 +114,11 @@ class OutcomeImport < ApplicationRecord
 
   def run
     root_account.shard.activate do
-      job_started!
-      I18n.locale = locale if locale.present?
-      file = self.attachment.open(need_local_file: true)
       begin
+        job_started!
+        I18n.locale = locale if locale.present?
+        file = self.attachment.open(need_local_file: true)
+
         Outcomes::CsvImporter.new(self, file).run do |status|
           status[:errors].each do |row, error|
             add_error row, error

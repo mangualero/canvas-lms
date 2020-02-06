@@ -49,13 +49,13 @@ module Api
           else
             link
           end
-        rescue URI::InvalidURIError
+        rescue URI::Error
           link
         end
       end
 
       def strip_verifier_params(local_link)
-        if local_link.include?('verifier=')
+        if local_link.include?('verifier=') && !local_link.match(%r{/assessment_questions/\d+/files/\d+})
           return local_link.gsub(VERIFIER_REGEX, '\1')
         end
 

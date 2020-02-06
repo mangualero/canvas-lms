@@ -34,7 +34,7 @@ describe "jquery ui" do
 
   def create_simple_modal
     driver.execute_script(<<-JS)
-      return $('<div><select /><input /></div>')
+      $('<div><select /><input /></div>')
         .dialog()
         .find('select')
         .focus()
@@ -98,6 +98,7 @@ describe "jquery ui" do
       f(".ui-datepicker-time-hour").send_keys("12")
       f(".ui-datepicker-time-minute").send_keys("00")
       f(".ui-datepicker-ok").click
+      wait_for_ajaximations
 
       f(".ui-datepicker-trigger").click
       wait_for_ajaximations

@@ -35,13 +35,6 @@ describe DiscussionEntry do
       entry
       expect(discussion_topic_participant.reload.subscribed).to be_truthy
     end
-
-    it "should not subscribe the author on create outside of the #subscribe_author method" do
-      discussion_topic_participant = topic.discussion_topic_participants.create!(user: @teacher, subscribed: false)
-      allow_any_instance_of(DiscussionEntry).to receive_messages(subscribe_author: true)
-      entry
-      expect(discussion_topic_participant.reload.subscribed).to be_falsey
-    end
   end
 
   it "should not be marked as deleted when parent is deleted" do
@@ -412,6 +405,24 @@ describe DiscussionEntry do
       expect(DiscussionEntry).to receive(:unique_constraint_retry).once
       @entry.change_read_state("read", @student)
     end
+
+    it "should not increment unread count for students in group topics when posting to the root" do
+      course_with_student(:active_all => true)
+      teacher1 = @teacher
+      teacher2 = teacher_in_course(:course => @course, :active_all => true).user
+
+      group_category = @course.group_categories.create(:name => "new category")
+      @group = @course.groups.create(:name => "group", :group_category => group_category)
+      @group.add_user(@student)
+
+      root_topic = @course.discussion_topics.create!(:title => "parent topic", :message => "msg", :group_category => group_category)
+      student_participant = root_topic.discussion_topic_participants.create!(user: @student)
+      teacher_participant = root_topic.discussion_topic_participants.create!(user: teacher2)
+      root_topic.discussion_entries.create!(message: "message", user: teacher1)
+
+      expect(student_participant.reload.unread_entry_count).to eq 0
+      expect(teacher_participant.reload.unread_entry_count).to eq 1 # still count as unread for the user that can read it
+    end
   end
 
   context "rating" do
@@ -593,8 +604,7 @@ describe DiscussionEntry do
       @topic = @course.discussion_topics.build(:title => "topic")
       @assignment = @course.assignments.build title: @topic.title,
         submission_types: 'discussion_topic',
-        only_visible_to_overrides: true,
-        title: @topic.title
+        only_visible_to_overrides: true
       @assignment.assignment_overrides.build set: @empty_section
       @assignment.saved_by = :discussion_topic
       @topic.assignment = @assignment
@@ -604,6 +614,88 @@ describe DiscussionEntry do
     it "doesn't make stream items for students that aren't assigned" do
       entry = @topic.reply_from(user: @teacher, text: "...")
       expect(@student.stream_item_instances).to be_empty
+    end
+  end
+
+  context 'planner items cache' do
+    before(:once) do
+      course_with_student active_all: true
+      @topic = @course.discussion_topics.build(:title => "topic")
+      @topic.save
+      @topic.discussion_topic_participants.create!(user: @student, subscribed: true)
+    end
+
+    it 'should be cleared for top level replies on a todo discussion' do
+      @topic.todo_date = 1.day.from_now
+      @topic.save
+
+      cache_key = @student.cache_key
+      @topic.discussion_entries.build(parent_id: nil).save!
+      @student.reload
+      expect(@student.cache_key).not_to eql(cache_key)
+    end
+
+    it 'should not be cleared on nested replies for non-assignment non-todo discussions' do
+      entry = @topic.discussion_entries.build(parent_id: nil)
+      entry.save!
+
+      sub_entry = @topic.discussion_entries.build(parent_id: entry.id)
+      sub_entry.save!
+
+      @student.reload
+      cache_key = @student.cache_key
+      sub_entry2 = @topic.discussion_entries.build(parent_id: sub_entry.id)
+      sub_entry2.save!
+      @student.reload
+      expect(@student.cache_key).to eql(cache_key)
+    end
+
+    it 'should be cleared on top level and for graded discussions' do
+      assignment = @course.assignments.build(:submission_types => 'discussion_topic', :title => topic.title, :due_at => 1.day.from_now)
+      assignment.saved_by = :discussion_topic
+      @topic.assignment = assignment
+      @topic.save
+
+      cache_key = @student.cache_key
+      @topic.discussion_entries.build(parent_id: nil).save!
+      @student.reload
+      expect(@student.cache_key).not_to eql(cache_key)
+    end
+
+    it 'should be cleared on nested replies for graded discussions' do
+      assignment = @course.assignments.build(:submission_types => 'discussion_topic', :title => topic.title, :due_at => 1.day.from_now)
+      assignment.saved_by = :discussion_topic
+      @topic.assignment = assignment
+      @topic.save
+
+      entry = @topic.discussion_entries.build(parent_id: nil)
+      entry.save!
+
+      sub_entry1 = @topic.discussion_entries.build(parent_id: entry.id)
+      sub_entry1.save!
+
+      cache_key = @student.cache_key
+      sub_entry2 = @topic.discussion_entries.build(parent_id: sub_entry1.id)
+      sub_entry2.save!
+      @student.reload
+      expect(@student.cache_key).not_to eql(cache_key)
+    end
+
+    it 'should be cleared on nested replies for todo discussions' do
+      @topic.todo_date = 1.day.from_now
+      @topic.save
+
+      entry = @topic.discussion_entries.build(parent_id: nil)
+      entry.save!
+
+      sub_entry1 = @topic.discussion_entries.build(parent_id: entry.id)
+      sub_entry1.save!
+
+      cache_key = @student.cache_key
+      sub_entry2 = @topic.discussion_entries.build(parent_id: sub_entry1.id)
+      sub_entry2.save!
+      @student.reload
+      expect(@student.cache_key).not_to eql(cache_key)
     end
   end
 end

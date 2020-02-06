@@ -193,7 +193,7 @@ YAML
   end
 
   it "should be able to dump and load BigDecimals" do
-    hash = {blah: BigDecimal.new("1.2")}
+    hash = {blah: BigDecimal("1.2")}
     expect(YAML.load(YAML.dump(hash))).to eq hash
   end
 
@@ -204,5 +204,9 @@ YAML
 
   it "dumps and loads singletons" do
     expect(YAML.load(YAML.dump(Mime::NullType.instance))).to eq Mime::NullType.instance
+  end
+
+  it "restores default value on sets on load" do
+    expect(YAML.unsafe_load(YAML.dump(Set.new)).include?("test")).to eq false
   end
 end

@@ -237,7 +237,7 @@ describe AssignmentGroupsController do
           # ensures that check is not an N+1 from the gradebook
           expect_any_instance_of(Assignment).to receive(:students_with_visibility).never
           get 'index', params: {:course_id => @course.id, :include => ['assignments','assignment_visibility']}, :format => :json
-          expect(response).to be_success
+          expect(response).to be_successful
         end
       end
     end
@@ -273,18 +273,128 @@ describe AssignmentGroupsController do
         expect(json[0]['assignments'][0]['submission']['id']).to eq @submission.id
       end
 
-      it 'only makes the call to get effective due dates once when assignments are included' do
-        @course.assignments.create!
-        double = EffectiveDueDates.for_course(@course)
-        expect(EffectiveDueDates).to receive(:for_course).once.and_return(double)
-        api_call_as_user(@teacher, :get,
-          "/api/v1/courses/#{@course.id}/assignment_groups", {
-          controller: 'assignment_groups',
-          action: 'index',
-          format: 'json',
-          course_id: @course.id,
-          include: ['assignments']
-        })
+      context "submission in_closed_grading_period" do
+        before(:once) do
+          @gp_group = @course.account.grading_period_groups.create!
+          @course.enrollment_term.update!(grading_period_group: @gp_group)
+        end
+
+        it "any_assignment_in_closed_grading_period is false if no assignments exist, but a closed grading period does" do
+          @gp_group.grading_periods.create!(
+            start_date: 4.days.ago,
+            end_date: 2.days.ago,
+            close_date: 1.day.ago,
+            title: "closed gp"
+          )
+          @course.assignments.destroy_all
+          json = api_call_as_user(@student, :get,
+            "/api/v1/courses/#{@course.id}/assignment_groups?include[]=assignments&include[]=submission", {
+            controller: 'assignment_groups',
+            action: 'index',
+            format: 'json',
+            course_id: @course.id,
+            include: ['assignments', 'submission']
+          })
+          expect(json.first.fetch("any_assignment_in_closed_grading_period")).to be false
+        end
+
+        it "returns in_closed_grading_period when 'assignments' are included in params" do
+          @course.assignments.create!
+          json = api_call_as_user(@teacher, :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups", {
+            controller: 'assignment_groups',
+              action: 'index',
+              format: 'json',
+              course_id: @course.id,
+              include: ['assignments']
+          })
+          assignment_json = json.first.fetch("assignments").first
+          expect(assignment_json).to have_key "in_closed_grading_period"
+        end
+
+        it "in_closed_grading_period is true when any submission is in a closed grading period" do
+          @gp_group.grading_periods.create!(
+            start_date: 4.days.ago,
+            end_date: 2.days.ago,
+            close_date: 1.day.ago,
+            title: "closed gp"
+          )
+          closed_gp_assignment = @course.assignments.create!(due_at: 2.days.ago)
+          json = api_call_as_user(@teacher, :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups", {
+            controller: 'assignment_groups',
+              action: 'index',
+              format: 'json',
+              course_id: @course.id,
+              include: ['assignments']
+          })
+          assignments_json = json.first.fetch("assignments")
+          assignment_json = assignments_json.find { |a| a.fetch("id") == closed_gp_assignment.id }
+          expect(assignment_json.fetch("in_closed_grading_period")).to be true
+        end
+
+        it "in_closed_grading_period is false when all submissions are in open grading periods" do
+          @gp_group.grading_periods.create!(
+            start_date: 4.days.ago,
+            end_date: 1.day.from_now,
+            close_date: 2.days.from_now,
+            title: "open gp"
+          )
+          open_gp_assignment = @course.assignments.create!(due_at: 2.days.ago)
+          json = api_call_as_user(@teacher, :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups", {
+            controller: 'assignment_groups',
+              action: 'index',
+              format: 'json',
+              course_id: @course.id,
+              include: ['assignments']
+          })
+          assignments_json = json.first.fetch("assignments")
+          assignment_json = assignments_json.find { |a| a.fetch("id") == open_gp_assignment.id }
+          expect(assignment_json.fetch("in_closed_grading_period")).to be false
+        end
+
+        it "submissions with no due date and last period is open do not cause in_closed_grading_period to be true" do
+          @gp_group.grading_periods.create!(
+            start_date: 4.days.ago,
+            end_date: 1.day.from_now,
+            close_date: 2.days.from_now,
+            title: "open gp"
+          )
+          assignment = @course.assignments.create!
+          json = api_call_as_user(@teacher, :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups", {
+            controller: 'assignment_groups',
+              action: 'index',
+              format: 'json',
+              course_id: @course.id,
+              include: ['assignments']
+          })
+          assignments_json = json.first.fetch("assignments")
+          assignment_json = assignments_json.find { |a| a.fetch("id") == assignment.id }
+          expect(assignment_json.fetch("in_closed_grading_period")).to be false
+        end
+
+        it "submissions with no due date and last period is closed cause in_closed_grading_period to be true" do
+          @gp_group.grading_periods.create!(
+            start_date: 4.days.ago,
+            end_date: 2.days.ago,
+            close_date: 1.day.ago,
+            title: "closed gp"
+          )
+          assignment = @course.assignments.create!
+          json = api_call_as_user(@teacher, :get,
+                                  "/api/v1/courses/#{@course.id}/assignment_groups", {
+            controller: 'assignment_groups',
+              action: 'index',
+              format: 'json',
+              course_id: @course.id,
+              include: ['assignments']
+          })
+          assignments_json = json.first.fetch("assignments")
+          assignment_json = assignments_json.find { |a| a.fetch("id") == assignment.id }
+          expect(assignment_json.fetch("in_closed_grading_period")).to be true
+        end
       end
     end
   end
@@ -312,7 +422,7 @@ describe AssignmentGroupsController do
       expect(groups.map(&:position)).to eq [1, 2, 3]
       g1, g2, _ = groups
       post 'reorder', params: {:course_id => @course.id, :order => "#{g2.id},#{g1.id}"}
-      expect(response).to be_success
+      expect(response).to be_successful
       groups.each(&:reload)
       expect(groups.map(&:position)).to eq [2, 1, 3]
     end
@@ -345,7 +455,7 @@ describe AssignmentGroupsController do
     it 'moves the assignment from its current assignment group to another assignment group' do
       user_session(@teacher)
       post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group1.id, order: @order}
-      expect(response).to be_success
+      expect(response).to be_successful
       @assignment3.reload
       expect(@assignment3.assignment_group_id).to eq(@group1.id)
       expect(@group2.assignments.count).to eq(0)
@@ -362,6 +472,22 @@ describe AssignmentGroupsController do
       expect(@quiz.assignment_group_id).to eq(@group1.id)
     end
 
+    it 'marks downstream_changes for master courses' do
+      @quiz = @course.quizzes.create!(title: 'teh quiz', quiz_type: 'assignment', assignment_group_id: @group1)
+      mc_course = Course.create!
+      @template = MasterCourses::MasterTemplate.set_as_master_course(mc_course)
+      sub = @template.add_child_course!(@course)
+      @course.reload.assignments.map{|a| sub.content_tag_for(a)}
+
+      user_session(@teacher)
+      post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group2.id, order: @order + ",#{@quiz.assignment.id}"}
+      expect(response).to be_successful
+      [@assignment1, @assignment2, @quiz].each do |obj|
+        expect(sub.content_tag_for(obj).reload.downstream_changes).to include("assignment_group_id")
+      end
+      expect(sub.content_tag_for(@assignment3).reload.downstream_changes).to be_empty # already was in group2
+    end
+
     context 'with grading periods' do
       before :once do
         group = Factories::GradingPeriodGroupHelper.new.create_for_account(@course.root_account)
@@ -374,7 +500,7 @@ describe AssignmentGroupsController do
         Factories::GradingPeriodHelper.new.create_for_group(group, {
           start_date: 2.days.ago, end_date: 2.days.from_now, close_date: 3.days.from_now
         })
-        @assignment1.update_attributes(due_at: 1.week.ago)
+        @assignment1.update(due_at: 1.week.ago)
       end
 
       it 'does not allow assignments in closed grading periods to be moved into different assignment groups' do
@@ -396,7 +522,7 @@ describe AssignmentGroupsController do
         @order = "#{@assignment3.id},#{@assignment2.id}"
 
         post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group2.id, order: @order}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@assignment1.reload.assignment_group_id).to eq(@group1.id)
         expect(@assignment2.reload.assignment_group_id).to eq(@group2.id)
         expect(@assignment3.reload.assignment_group_id).to eq(@group2.id)
@@ -408,7 +534,7 @@ describe AssignmentGroupsController do
         user_session(@teacher)
         order = "#{@assignment3.id},#{@assignment2.id}"
         post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group2.id, order: order}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@assignment1.reload.assignment_group_id).to eq(@group1.id)
         expect(@assignment2.reload.assignment_group_id).to eq(@group2.id)
         expect(@assignment3.reload.assignment_group_id).to eq(@group2.id)
@@ -420,7 +546,7 @@ describe AssignmentGroupsController do
         user_session(@teacher)
         order = "#{@assignment3.id},#{@assignment1.id},#{@assignment2.id}"
         post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group1.id, order: order}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@assignment1.reload.assignment_group_id).to eq(@group1.id)
         expect(@assignment2.reload.assignment_group_id).to eq(@group1.id)
         expect(@assignment3.reload.assignment_group_id).to eq(@group1.id)
@@ -433,7 +559,7 @@ describe AssignmentGroupsController do
         admin = account_admin_user(account: @course.root_account)
         user_session(admin)
         post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group2.id, order: @order}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@assignment1.reload.assignment_group_id).to eq(@group2.id)
         expect(@assignment2.reload.assignment_group_id).to eq(@group2.id)
         expect(@assignment3.reload.assignment_group_id).to eq(@group2.id)
@@ -443,7 +569,7 @@ describe AssignmentGroupsController do
         @assignment1.destroy
         user_session(@teacher)
         post :reorder_assignments, params: {course_id: @course.id, assignment_group_id: @group2.id, order: @order}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(@assignment1.reload.assignment_group_id).to eq(@group1.id)
         expect(@assignment2.reload.assignment_group_id).to eq(@group2.id)
         expect(@assignment3.reload.assignment_group_id).to eq(@group2.id)
@@ -715,13 +841,13 @@ describe AssignmentGroupsController do
       assignment.copied = true
       assignment.save!
       delete 'destroy', format: :json, params: {course_id: @course.id, id: group.id}
-      expect(response).not_to be_success
+      expect(response).not_to be_successful
     end
 
     it 'returns JSON if requested' do
       user_session(@teacher)
       delete 'destroy', :format => 'json', params: {:course_id => @course.id, :id => @group.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 end

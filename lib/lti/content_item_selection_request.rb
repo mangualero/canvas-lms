@@ -56,9 +56,10 @@ module Lti
         launch_presentation_locale: I18n.locale.to_s || I18n.default_locale.to_s,
         launch_presentation_document_target: 'iframe',
         ext_roles: lti_helper.all_roles,
+        oauth_callback: 'about:blank'
       }
 
-      params[:user_id] = Lti::Asset.opaque_identifier_for(user) if user
+      params[:user_id] = Lti::Asset.opaque_identifier_for(user, context: context) if user
       params
     end
 
@@ -126,6 +127,17 @@ module Lti
       end
     end
 
+    INDEX_MENU_TOOL_TYPES = %w{
+      assignment_index_menu
+      assignment_group_menu
+      discussion_topic_index_menu
+      file_index_menu
+      module_index_menu
+      module_group_menu
+      quiz_index_menu
+      wiki_index_menu
+    }.freeze
+
     def placement_params(placement, assignment: nil)
       case placement
       when 'migration_selection'
@@ -138,6 +150,8 @@ module Lti
         collaboration_params
       when 'homework_submission'
         homework_submission_params(assignment)
+      when *INDEX_MENU_TOOL_TYPES
+        {}
       else
         # TODO: we _could_, if configured, have any other placements return to the content migration page...
         raise "Content-Item not supported at this placement"

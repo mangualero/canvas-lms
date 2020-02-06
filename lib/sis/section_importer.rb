@@ -42,7 +42,7 @@ module SIS
           Shackles.activate(:master) do
             new_data = Enrollment::BatchStateUpdater.destroy_batch(enrollments, sis_batch: @batch)
             importer.roll_back_data.push(*new_data)
-            SisBatchRollBackData.bulk_insert_roll_back_data(importer.roll_back_data) if @batch.using_parallel_importers?
+            SisBatchRollBackData.bulk_insert_roll_back_data(importer.roll_back_data)
             importer.roll_back_data = []
           end
         end
@@ -76,7 +76,7 @@ module SIS
 
         raise ImportError, "No section_id given for a section in course #{course_id}" if section_id.blank?
         raise ImportError, "No course_id given for a section #{section_id}" if course_id.blank?
-        raise ImportError, "No name given for section #{section_id} in course #{course_id}" if name.blank?
+        raise ImportError, "No name given for section #{section_id} in course #{course_id}" if name.blank? && status =~ /\Aactive/i
         raise ImportError, "Improper status \"#{status}\" for section #{section_id} in course #{course_id}" unless status =~ /\Aactive|\Adeleted/i
         return if @batch.skip_deletes? && status =~ /deleted/i
 
@@ -90,7 +90,8 @@ module SIS
         section.course = course if course.id == section.course_id
 
         # only update the name on new records, and ones that haven't been changed since the last sis import
-        section.name = name if section.new_record? || !section.stuck_sis_fields.include?(:name)
+        raise ImportError, "No name given for section #{section_id} in course #{course_id}" if name.blank? && section.new_record?
+        section.name = name if section.new_record? || !section.stuck_sis_fields.include?(:name) && name.present?
 
         # update the course id if necessary
         if section.course_id != course.id
@@ -100,13 +101,13 @@ module SIS
               # but the course id we were given didn't match the crosslist info
               # we have, so, uncrosslist and move
               @course_ids_to_update_associations.merge [course.id, section.course_id, section.nonxlist_course_id]
-              section.uncrosslist(:run_jobs_immediately)
-              section.move_to_course(course, :run_jobs_immediately)
+              section.uncrosslist(run_jobs_immediately: true)
+              section.move_to_course(course, run_jobs_immediately: true)
             end
           elsif !section.stuck_sis_fields.include?(:course_id)
             # this section isn't crosslisted and lives on the wrong course. move
             @course_ids_to_update_associations.merge [section.course_id, course.id]
-            section.move_to_course(course, :run_jobs_immediately)
+            section.move_to_course(course, run_jobs_immediately: true)
           end
         end
         if section.course_id_changed?
@@ -130,6 +131,12 @@ module SIS
         end
 
         if section.changed?
+          if section.workflow_state_changed? && section.workflow_state_was == "deleted"
+            if section.default_section? && CourseSection.active.where(:course_id => section.course_id, :default_section => true).exists?
+              # trying to restore a previously default section but there's one already so undefault the restored one
+              section.default_section = false
+            end
+          end
           section.sis_batch_id = @batch.id
           if section.valid?
             section.save

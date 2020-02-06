@@ -21,34 +21,42 @@ import AssignmentGroupColumnHeaderRenderer from './AssignmentGroupColumnHeaderRe
 import CustomColumnHeaderRenderer from './CustomColumnHeaderRenderer'
 import StudentColumnHeaderRenderer from './StudentColumnHeaderRenderer'
 import TotalGradeColumnHeaderRenderer from './TotalGradeColumnHeaderRenderer'
+import TotalGradeOverrideColumnHeaderRenderer from './TotalGradeOverrideColumnHeaderRenderer'
 
 export default class ColumnHeaderRenderer {
-  constructor (gradebook) {
-    this.gradebook = gradebook;
+  constructor(gradebook) {
+    this.gradebook = gradebook
     this.factories = {
       assignment: new AssignmentColumnHeaderRenderer(gradebook),
       assignment_group: new AssignmentGroupColumnHeaderRenderer(gradebook),
       custom_column: new CustomColumnHeaderRenderer(gradebook),
       student: new StudentColumnHeaderRenderer(gradebook),
-      total_grade: new TotalGradeColumnHeaderRenderer(gradebook)
-    };
-  }
-
-  renderColumnHeader (column, $container, gridSupport) {
-    if (this.factories[column.type]) {
-      const options = {
-        ref: (header) => {
-          this.gradebook.setHeaderComponentRef(column.id, header);
-        }
-      };
-      this.factories[column.type].render(column, $container, gridSupport, options);
+      total_grade: new TotalGradeColumnHeaderRenderer(gradebook),
+      total_grade_override: new TotalGradeOverrideColumnHeaderRenderer(gradebook)
     }
   }
 
-  destroyColumnHeader (column, $container, gridSupport) {
+  renderColumnHeader(column, $container, gridSupport) {
     if (this.factories[column.type]) {
-      this.gradebook.removeHeaderComponentRef(column.id);
-      this.factories[column.type].destroy(column, $container, gridSupport);
+      const options = {
+        ref: header => {
+          this.gradebook.setHeaderComponentRef(column.id, header)
+        }
+      }
+      // The container to render into needs to be slick-column-name because
+      // overwriting slick-column-name can cause slick-resizable-handle to be
+      // ordered as the first child. This causes issues because React expects
+      // to unmount the component at the first child.
+      const $nameNode = $container.querySelector('.slick-column-name')
+      this.factories[column.type].render(column, $nameNode, gridSupport, options)
+    }
+  }
+
+  destroyColumnHeader(column, $container, gridSupport) {
+    if (this.factories[column.type]) {
+      this.gradebook.removeHeaderComponentRef(column.id)
+      const $nameNode = $container.querySelector('.slick-column-name')
+      this.factories[column.type].destroy(column, $nameNode, gridSupport)
     }
   }
 }

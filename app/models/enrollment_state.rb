@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 class EnrollmentState < ActiveRecord::Base
-  belongs_to :enrollment
+  belongs_to :enrollment, inverse_of: :enrollment_state
 
   attr_accessor :skip_touch_user, :user_needs_touch, :is_direct_recalculation
   validates_presence_of :enrollment_id
@@ -102,14 +102,12 @@ class EnrollmentState < ActiveRecord::Base
       self.access_is_current = false
     end
 
-    if self.state_changed? && (self.state == "active" || self.state_was == "active")
-      # we could make this happen on every state change, to expire cached authorization right away but
-      # the permissions cache expires within an hour anyway
-      # this will at least prevent cached unauthorization
+    if self.state_changed?
       self.user_needs_touch = true
       unless self.skip_touch_user
         self.class.connection.after_transaction_commit do
-          self.enrollment.user.touch
+          self.enrollment.user.touch unless User.skip_touch_for_type?(:enrollments)
+          self.enrollment.user.clear_cache_key(:enrollments)
         end
       end
     end
@@ -215,9 +213,7 @@ class EnrollmentState < ActiveRecord::Base
 
     user_ids_to_touch = enrollments.select{|e| e.enrollment_state.user_needs_touch}.map(&:user_id)
     if user_ids_to_touch.any?
-      Shard.partition_by_shard(user_ids_to_touch) do |sliced_user_ids|
-        User.where(:id => sliced_user_ids).touch_all
-      end
+      User.touch_and_clear_cache_keys(user_ids_to_touch, :enrollments)
     end
   end
 
@@ -231,11 +227,17 @@ class EnrollmentState < ActiveRecord::Base
       update_all(["lock_version = COALESCE(lock_version, 0) + 1, state_is_current = ?", false])
   end
 
-  def self.force_recalculation(enrollment_ids)
+  def self.invalidate_states_and_access(enrollment_scope)
+    EnrollmentState.where(:enrollment_id => enrollment_scope, :state => INVALIDATEABLE_STATES).
+      update_all(["lock_version = COALESCE(lock_version, 0) + 1, state_is_current = ?, access_is_current = ?", false, false])
+  end
+
+  def self.force_recalculation(enrollment_ids, strand: nil)
     if enrollment_ids.any?
       EnrollmentState.where(:enrollment_id => enrollment_ids).
         update_all(["lock_version = COALESCE(lock_version, 0) + 1, state_is_current = ?", false])
-      EnrollmentState.send_later_if_production(:process_states_for_ids, enrollment_ids)
+      args = strand ? {n_strand: strand} : {}
+      EnrollmentState.send_later_if_production_enqueue_args(:process_states_for_ids, args, enrollment_ids)
     end
   end
 
@@ -256,14 +258,17 @@ class EnrollmentState < ActiveRecord::Base
     scope = scope.where(:type => enrollment_type) if enrollment_type
     scope.find_ids_in_ranges(:batch_size => ENROLLMENT_BATCH_SIZE) do |min_id, max_id|
       if invalidate_states(scope.where(:id => min_id..max_id)) > 0
-        EnrollmentState.send_later_if_production_enqueue_args(:process_term_states_in_ranges, {:priority => Delayed::LOW_PRIORITY}, min_id, max_id, term, enrollment_type)
+        EnrollmentState.send_later_if_production_enqueue_args(:process_term_states_in_ranges, {
+          :priority => Delayed::LOW_PRIORITY,
+          :n_strand => ['invalidate_states_for_term', term.global_root_account_id]
+        }, min_id, max_id, term, enrollment_type)
       end
     end
   end
 
-  def self.invalidate_states_for_course_or_section(course_or_section)
+  def self.invalidate_states_for_course_or_section(course_or_section, invalidate_access: false)
     scope = course_or_section.enrollments
-    if invalidate_states(scope) > 0
+    if (invalidate_access ? invalidate_states_and_access(scope) : invalidate_states(scope)) > 0
       process_states_for(enrollments_needing_calculation(scope))
     end
   end

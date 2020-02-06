@@ -25,6 +25,7 @@ module CC::Importer::Canvas
     def settings_doc(file, html = false)
       path = @package_root.item_path(COURSE_SETTINGS_DIR, file)
       return nil unless File.exist? path
+      return nil if File.size(path) > Setting.get('course_settings_import_xml_threshold', 25.megabytes).to_i # totally arbitrary hack to keep some broken exports from killing things
       if html
         open_file path
       else
@@ -55,26 +56,27 @@ module CC::Importer::Canvas
       ['title', 'course_code', 'default_wiki_editing_roles',
        'turnitin_comments', 'default_view', 'license', 'locale',
        'group_weighting_scheme', 'storage_quota', 'grading_standard_identifier_ref',
+       'overridden_course_visibility',
        'root_account_uuid', 'image_url', 'image_identifier_ref'].each do |string_type|
         val = get_node_val(doc, string_type)
         course[string_type] = val unless val.nil?
       end
-      ['is_public', 'public_syllabus', 'public_syllabus_to_auth', 'indexed', 'allow_student_wiki_edits',
+      ['is_public', 'is_public_to_auth_users', 'public_syllabus', 'public_syllabus_to_auth', 'indexed', 'allow_student_wiki_edits',
        'allow_student_assignment_edits', 'show_public_context_messages',
        'allow_student_forum_attachments', 'allow_student_organized_groups', 'lock_all_announcements',
        'open_enrollment', 'allow_wiki_comments',
        'self_enrollment', 'hide_final_grade', 'grading_standard_enabled',
        'hide_distribution_graphs', 'allow_student_discussion_topics',
-       'allow_student_discussion_editing', 'show_announcements_on_home_page',
+       'allow_student_discussion_editing', 'show_announcements_on_home_page', 'usage_rights_required',
        'restrict_student_future_view', 'restrict_student_past_view', 'show_total_grade_as_points',
-       'organize_epub_by_content_type', 'enable_offline_web_export'
+       'organize_epub_by_content_type', 'enable_offline_web_export', 'restrict_enrollments_to_course_dates'
       ].each do |bool_val|
         val = get_bool_val(doc, bool_val)
         course[bool_val] = val unless val.nil?
       end
       ['start_at', 'conclude_at'].each do |date_type|
         val = get_time_val(doc, date_type)
-        course[date_type] = val unless val.nil?
+        course[date_type] = val
       end
       ['grading_standard_id', 'home_page_announcement_limit'].each do |int_val|
         if val = get_int_val(doc, int_val)
@@ -93,6 +95,9 @@ module CC::Importer::Canvas
           add_warning(I18n.t('errors.bad_navigation_config', "Invalid course tab configuration"), $!)
         end
       end
+
+      post_manually = get_bool_val(doc, 'default_post_policy post_manually')
+      course[:default_post_policy] = {post_manually: post_manually} unless post_manually.nil?
 
       course
     end

@@ -25,13 +25,12 @@ module Latex
     attr_reader :latex
 
     def parse
-      CanvasStatsd::Statsd.time("#{strategy}.parse_attempt") do
-        CanvasStatsd::Statsd.increment("#{strategy}.parse_attempt.count")
+      InstStatsd::Statsd.time("#{strategy}.parse_attempt") do
+        InstStatsd::Statsd.increment("#{strategy}.parse_attempt.count")
         begin
           send(:"#{strategy}_parse")
-        rescue Racc::ParseError, Ritex::LexError, Ritex::Error,
-          CanvasHttp::Error, Timeout::Error
-          CanvasStatsd::Statsd.increment("#{strategy}.parse_failure.count")
+        rescue Racc::ParseError, Ritex::LexError, Ritex::Error, CanvasHttp::Error, Timeout::Error
+          InstStatsd::Statsd.increment("#{strategy}.parse_failure.count")
           return ""
         end
       end
@@ -39,23 +38,31 @@ module Latex
 
     private
     def mathman_parse
-      url = MathMan.url_for(latex: CGI.escape(latex), target: :mml)
-      request_id = RequestContextGenerator.request_id.to_s
-      request_id_signature = Canvas::Security.sign_hmac_sha512(request_id)
-      Canvas.timeout_protection("mathman") do
-        response = CanvasHttp.get(url, {
-          'X-Request-Context-Id' => Canvas::Security.base64_encode(request_id),
-          'X-Request-Context-Signature' => Canvas::Security.base64_encode(request_id_signature)
-        })
-        if response.code.to_i == 200
-          response.body
-        else
-          Canvas::Errors.capture_exception(
-            :mathman_request,
-            CanvasHttp::InvalidResponseCodeError.new(response.code.to_i)
-          )
-          return ""
+      target = :mml
+      escaped = CGI.escape(latex)
+      cache_key = MathMan.cache_key_for(escaped, target)
+
+      Rails.cache.fetch(cache_key) do
+        url = MathMan.url_for(latex: escaped, target: target)
+        request_id = RequestContextGenerator.request_id.to_s
+        request_id_signature = Canvas::Security.sign_hmac_sha512(request_id)
+        val = Canvas.timeout_protection("mathman") do
+          response = CanvasHttp.get(url, {
+            'X-Request-Context-Id' => Canvas::Security.base64_encode(request_id),
+            'X-Request-Context-Signature' => Canvas::Security.base64_encode(request_id_signature)
+          })
+          if response.code.to_i == 200
+            response.body
+          else
+            Canvas::Errors.capture_exception(
+              :mathman_request,
+              CanvasHttp::InvalidResponseCodeError.new(response.code.to_i)
+            )
+            return ""
+          end
         end
+        return unless val # probably shouldn't cache a nil value
+        val
       end
     end
 

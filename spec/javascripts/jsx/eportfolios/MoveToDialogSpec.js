@@ -18,7 +18,7 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import TestUtils from 'react-addons-test-utils'
+import TestUtils from 'react-dom/test-utils'
 import _ from 'lodash'
 import MoveToDialog from 'jsx/eportfolios/MoveToDialog'
 import assertions from 'helpers/assertions'
@@ -28,19 +28,20 @@ let appRoot
 let applicationElement
 
 const mountDialog = (opts = {}) => {
-  opts = _.extend({}, {
+  opts = {
     header: 'This is a dialog',
-    source: { label: 'foo', id: '0' },
-    destinations: [{ label: 'bar', id: '1' }, { label: 'baz', id: '2' }]
-  }, opts)
+    source: {label: 'foo', id: '0'},
+    destinations: [{label: 'bar', id: '1'}, {label: 'baz', id: '2'}],
+    ...opts
+  }
 
-  const element = React.createElement(MoveToDialog, opts)
+  const element = <MoveToDialog {...opts} />
   const dialog = ReactDOM.render(element, root)
   return dialog
 }
 
 QUnit.module('MoveToDialog', {
-  setup () {
+  setup() {
     root = document.createElement('div')
     appRoot = document.createElement('div')
     applicationElement = document.createElement('div')
@@ -50,30 +51,17 @@ QUnit.module('MoveToDialog', {
     document.getElementById('fixtures').appendChild(applicationElement)
   },
 
-  teardown () {
+  teardown() {
     ReactDOM.unmountComponentAtNode(root)
     appRoot.removeAttribute('aria-hidden')
     document.getElementById('fixtures').innerHTML = ''
   }
 })
 
-test('includes all destinations in select', () => {
-  const dialog = mountDialog()
-  const options = TestUtils.scryRenderedDOMComponentsWithTag(dialog.refs.select, 'option')
-  ok( options.find((opt) => (opt.label === 'bar')) )
-  ok( options.find((opt) => (opt.label === 'baz')) )
-})
-
-test('includes "at the bottom" in select', () => {
-  const dialog = mountDialog()
-  const options = TestUtils.scryRenderedDOMComponentsWithTag(dialog.refs.select, 'option')
-  ok( options.find((opt) => (opt.label === '-- At the bottom --')) )
-})
-
-test('calls onMove with a destination id when selected', (assert) => {
+test('calls onMove with a destination id when selected', assert => {
   const done = assert.async()
   const dialog = mountDialog({
-    onMove: (val) => {
+    onMove: val => {
       ok(val === '1')
       done()
     }
@@ -82,10 +70,10 @@ test('calls onMove with a destination id when selected', (assert) => {
   TestUtils.Simulate.click(button)
 })
 
-test('does not call onMove when cancelled via close button', (assert) => {
+test('does not call onMove when cancelled via close button', assert => {
   const done = assert.async()
   const dialog = mountDialog({
-    onMove: (val) => {
+    onMove: val => {
       ok(false)
     },
     onClose: () => {
@@ -97,7 +85,7 @@ test('does not call onMove when cancelled via close button', (assert) => {
   TestUtils.Simulate.click(button)
 })
 
-test('does not fail when no onMove is specified', (assert) => {
+test('does not fail when no onMove is specified', assert => {
   const done = assert.async()
   const dialog = mountDialog({
     onClose: () => {

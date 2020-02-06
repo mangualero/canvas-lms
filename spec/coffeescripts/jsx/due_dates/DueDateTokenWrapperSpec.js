@@ -18,9 +18,7 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {Simulate, SimulateNative} from 'react-addons-test-utils'
 import DueDateTokenWrapper from 'jsx/due_dates/DueDateTokenWrapper'
-import OverrideStudentStore from 'jsx/due_dates/OverrideStudentStore'
 import fakeENV from 'helpers/fakeENV'
 
 QUnit.module('DueDateTokenWrapper', {
@@ -71,15 +69,15 @@ QUnit.module('DueDateTokenWrapper', {
 })
 
 test('renders', function() {
-  ok(this.DueDateTokenWrapper.isMounted())
+  ok(this.DueDateTokenWrapper)
 })
 
 test('renders a TokenInput', function() {
-  ok(this.TokenInput.isMounted())
+  ok(this.TokenInput)
 })
 
 test('call to fetchStudents on input changes', function() {
-  const fetch = this.stub(this.DueDateTokenWrapper, 'safeFetchStudents')
+  const fetch = sandbox.stub(this.DueDateTokenWrapper, 'safeFetchStudents')
   this.DueDateTokenWrapper.handleInput('to')
   equal(fetch.callCount, 1)
   this.DueDateTokenWrapper.handleInput('tre')
@@ -108,7 +106,7 @@ test('menu options are grouped by type', function() {
 })
 
 test('handleTokenAdd is called when a token is added', function() {
-  const addProp = this.stub(this.props, 'handleTokenAdd')
+  const addProp = sandbox.stub(this.props, 'handleTokenAdd')
   const DueDateTokenWrapperElement = <DueDateTokenWrapper {...this.props} />
   this.DueDateTokenWrapper = ReactDOM.render(DueDateTokenWrapperElement, this.mountPoint)
   this.DueDateTokenWrapper.handleTokenAdd('sene')
@@ -117,7 +115,7 @@ test('handleTokenAdd is called when a token is added', function() {
 })
 
 test('handleTokenRemove is called when a token is removed', function() {
-  const removeProp = this.stub(this.props, 'handleTokenRemove')
+  const removeProp = sandbox.stub(this.props, 'handleTokenRemove')
   const DueDateTokenWrapperElement = <DueDateTokenWrapper {...this.props} />
   this.DueDateTokenWrapper = ReactDOM.render(DueDateTokenWrapperElement, this.mountPoint)
   this.DueDateTokenWrapper.handleTokenRemove('sene')

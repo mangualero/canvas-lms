@@ -224,7 +224,7 @@ module FloatScannerFix
     end
   end
 end
-Psych::ScalarScanner.prepend(FloatScannerFix)
+Psych::ScalarScanner.prepend(FloatScannerFix) unless RUBY_VERSION >= '2.5' # got pulled into psych for later rubies
 
 module ScalarTransformFix
   def to_guessed_type(value, quoted=false, options=nil)
@@ -242,8 +242,13 @@ SafeYAML::Transform.singleton_class.prepend(ScalarTransformFix)
 
 module YAMLSingletonFix
   def revive(klass, node)
-    return klass.instance if klass < Singleton
-    super
+    if klass < Singleton
+      klass.instance
+    elsif klass == Set
+      super.tap{|s| s.instance_variable_get(:@hash).default = false}
+    else
+      super
+    end
   end
 end
 Psych::Visitors::ToRuby.prepend(YAMLSingletonFix)

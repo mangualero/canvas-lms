@@ -47,7 +47,6 @@ describe "discussions" do
 
       before(:each) do
         user_session(teacher)
-        enable_all_rcs @course.account
         stub_rcs_config
       end
 
@@ -114,7 +113,6 @@ describe "discussions" do
 
       it "should save and display all changes", priority: "2", test_id: 270923 do
         course.require_assignment_group
-
         confirm(:off)
         toggle(:on)
         confirm(:on)

@@ -28,6 +28,7 @@ describe "Group Categories API", type: :request do
       'self_signup' => category.self_signup,
       'context_type' => category.context_type,
       "#{category.context_type.downcase}_id" => category.context_id,
+      'created_at' => category.created_at.iso8601,
       'group_limit' => category.group_limit,
       'groups_count' => category.groups.size,
       'unassigned_users_count' => category.unassigned_users.count(:all),
@@ -466,7 +467,7 @@ describe "Group Categories API", type: :request do
                      @category_path_options.merge(:action => 'assign_unassigned_members',
                                                   :group_category_id => category.to_param),
                      {'sync' => true}
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "should otherwise assign ungrouped users to groups in the category" do
@@ -484,7 +485,7 @@ describe "Group Categories API", type: :request do
                      @category_path_options.merge(:action => 'assign_unassigned_members',
                                                   :group_category_id => category.to_param)
 
-        expect(response).to be_success
+        expect(response).to be_successful
 
         run_jobs
 
@@ -500,7 +501,7 @@ describe "Group Categories API", type: :request do
                        @category_path_options.merge(:action => 'assign_unassigned_members',
                                                     :group_category_id => category.to_param)
 
-          expect(response).to be_success
+          expect(response).to be_successful
           json = JSON.parse(response.body)
           expect(json['url']).to match Regexp.new("http://www.example.com/api/v1/progress/\\d+")
           expect(json['completion']).to eq 0

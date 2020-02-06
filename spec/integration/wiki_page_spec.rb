@@ -35,7 +35,7 @@ describe WikiPagesController do
     course_with_teacher_logged_in(:active_all => true, :user => user_with_pseudonym)
 
     get "/courses/#{@course.id}/pages/windurs%203.won/edit?titleize=1"
-    expect(response).to be_success
+    expect(response).to be_successful
   end
 
   it "should not render wiki page body at all if it was deleted" do
@@ -54,7 +54,7 @@ describe WikiPagesController do
 
     def test_page(url)
       get url
-      expect(response).to be_success
+      expect(response).to be_successful
 
       html = Nokogiri::HTML(response.body)
       html.css('#breadcrumbs a').each do |link|
@@ -94,7 +94,7 @@ describe WikiPagesController do
     it "should render /wiki as the front page if there is one" do
       @wiki_page.set_as_front_page!
       get @base_url + "wiki"
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:page]).to eq @wiki_page
     end
 
@@ -118,18 +118,6 @@ describe WikiPagesController do
       expect(response).to redirect_to(course_wiki_page_revisions_url(@course, "a-page"))
     end
 
-  end
-
-  describe "wiki_sidebar" do
-
-    it "should load as many pages as the setting allows" do
-      Setting.get('wiki_sidebar_item_limit', 3)
-      4.times{ |i| @course.wiki_pages.create!(:title => "Page #{i}") }
-      get "/courses/#{@course.id}/pages/page-1/edit"
-      doc = Nokogiri::HTML(response.body)
-
-      expect(doc.css('#pages_accordion #pages_tab_panel li a').count).to eql(3)
-    end
   end
 end
 

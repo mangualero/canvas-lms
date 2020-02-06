@@ -205,7 +205,7 @@ describe 'Student Gradebook' do
         submission_types: 'online_upload'
       )
     end
-    let_once(:file_attachment) { attachment_model(:content_type => 'application/pdf', :context => student) }
+    let_once(:file_attachment) { attachment_model(content_type: 'application/pdf', context: student) }
     let_once(:student_submission) do
       assignment.submit_homework(
         student,
@@ -234,7 +234,7 @@ describe 'Student Gradebook' do
       user_session(student)
 
       get "/courses/#{published_course.id}/grades"
-      expect(fj('.score_details_table span:first')).not_to include_text('good job')
+      expect(f("#comments_thread_#{assignment.id}")).not_to include_text('good job')
     end
 
     it 'should display comments from a teacher on assignment show page if assignment is muted', priority: "1", test_id: 537868 do

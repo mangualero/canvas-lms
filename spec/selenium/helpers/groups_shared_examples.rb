@@ -109,7 +109,7 @@ shared_examples 'announcements_page' do |context|
   it "should only access group files in announcements right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273624, teacher: 324931) do
     add_test_files
     get announcements_page
-    expect_new_page_load { f('.btn-primary').click }
+    expect_new_page_load { f('#add_announcement').click }
     expand_files_on_content_pane
     expect(ffj('.file .text:visible').size).to eq 1
   end
@@ -130,12 +130,16 @@ shared_examples 'announcements_page_v2' do
   include GroupsCommon
   include SharedExamplesCommon
 
+  before(:each) do
+    stub_rcs_config
+  end
+
   it "should display the announcement button" do
     get announcements_page
     expect(f('#add_announcement')).to be_displayed
   end
 
-  it "should list all announcements" do
+  it "should list all announcements", ignore_js_errors: true do
     # Create 5 announcements in the group
     announcements = []
     5.times do |n|
@@ -150,7 +154,7 @@ shared_examples 'announcements_page_v2' do
     expect(ff('.ic-announcement-row').size).to eq 5
   end
 
-  it "should only list in-group announcements in the content right pane" do
+  it "should only list in-group announcements in the content right pane", ignore_js_errors: true do
     # create group and course announcements
     @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @teacher)
     @course.announcements.create!(title: 'Course Announcement', message: 'Course',user: @teacher)
@@ -158,29 +162,29 @@ shared_examples 'announcements_page_v2' do
     get announcements_page
     expect_new_page_load { f('#add_announcement').click }
     expect(f('#editor_tabs')).to be_displayed
-    fj(".ui-accordion-header a:contains('Announcements')").click
+
+    fj('[role="tabpanel"] button:contains("Announcements")').click
+    wait_for_ajaximations
     expect(fln('Group Announcement')).to be_displayed
     expect(f("#content")).not_to contain_link('Course Announcement')
   end
 
-  it "should only access group files in announcements right content pane" do
+  it "should only access group files in announcements right content pane", ignore_js_errors: true do
     add_test_files
     get announcements_page
     expect_new_page_load { f('#add_announcement').click }
     expand_files_on_content_pane
-    expect(ffj('.file .text:visible').size).to eq 1
+    expect(ff('svg[name=IconDocument]').size).to eq 1
   end
 
-  it "should have an Add External Feed link on announcements" do
+  it "should have an Add External Feed link on announcements", ignore_js_errors: true do
     get announcements_page
     f('#external_feed').click
-    wait_for_ajaximations
     f('#external-rss-feed__toggle-button').click
-    wait_for_ajaximations
     expect(f('#external-rss-feed__submit-button-group')).to be_displayed
   end
 
-  it "should have an RSS feed button on announcements" do
+  it "should have an RSS feed button on announcements", ignore_js_errors: true do
     @testgroup.first.announcements.create!(title: 'Group Announcement', message: 'Group',user: @teacher)
     get announcements_page
     expect(f('button[id="external_feed"]')).to be_displayed
@@ -191,6 +195,10 @@ end
 shared_examples 'pages_page' do |context|
   include GroupsCommon
   include SharedExamplesCommon
+
+  before(:each) do
+    stub_rcs_config
+  end
 
   it "should load pages index and display all pages", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273610, teacher: 324927) do
     @testgroup.first.wiki_pages.create!(title: "Page 1", user: @teacher)
@@ -209,10 +217,10 @@ shared_examples 'pages_page' do |context|
     get pages_page
     f('.btn-primary').click
     wait_for_ajaximations
-    expect(f("#pages_accordion")).to be_displayed
-    fj(".ui-accordion-header a:contains('Pages')").click
-    expect(fln("#{group_page.title}")).to be_displayed
-    expect(f("#content")).not_to contain_link("#{course_page.title}")
+    fj('button:contains("Pages")').click
+    wait_for_ajaximations
+    expect(fln(group_page.title.to_s)).to be_displayed
+    expect(f("#content")).not_to contain_link(course_page.title.to_s)
   end
 
   it "should only access group files in pages right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303700, teacher: 324932) do
@@ -221,7 +229,7 @@ shared_examples 'pages_page' do |context|
     f('.btn-primary').click
     wait_for_ajaximations
     expand_files_on_content_pane
-    expect(ffj('.file .text:visible').size).to eq 1
+    expect(ff('svg[name=IconDocument]').size).to eq 1
   end
 end
 
@@ -246,7 +254,11 @@ shared_examples 'discussions_page' do |context|
   include GroupsCommon
   include SharedExamplesCommon
 
-  it "should only list in-group discussions in the content right pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273622, teacher: 324930) do
+  before(:each) do
+    stub_rcs_config
+  end
+
+  it "should only list in-group discussions in the content right pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 273622, teacher: 324930), ignore_js_errors: true do
     # create group and course announcements
     group_dt = DiscussionTopic.create!(context: @testgroup.first, user: @teacher,
                                        title: 'Group Discussion', message: 'Group')
@@ -254,33 +266,20 @@ shared_examples 'discussions_page' do |context|
                                         title: 'Course Discussion', message: 'Course')
 
     get discussions_page
-    expect_new_page_load { f('.btn-primary').click }
+    expect_new_page_load { f('#add_discussion').click }
     expect(f('#editor_tabs')).to be_displayed
-    fj(".ui-accordion-header a:contains('Discussions')").click
-    expect(fln("#{group_dt.title}")).to be_displayed
-    expect(f("#content")).not_to contain_link("#{course_dt.title}")
+    fj('button:contains("Discussions")').click
+    wait_for_ajaximations
+    expect(fln(group_dt.title.to_s)).to be_displayed
+    expect(f("#content")).not_to contain_link(course_dt.title.to_s)
   end
 
-  it "should only access group files in discussions right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303701, teacher: 324933) do
+  it "should only access group files in discussions right content pane", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 303701, teacher: 324933), ignore_js_errors: true do
     add_test_files
     get discussions_page
-    expect_new_page_load { f('.btn-primary').click }
+    expect_new_page_load { f('#add_discussion').click }
     expand_files_on_content_pane
-    expect(ffj('.file .text:visible').size).to eq 1
-  end
-
-  it "should allow group users to reply to group discussions", priority: pick_priority(context, student: "1", teacher: "2"), test_id: pick_test_id(context, student: 312868, teacher: 312870) do
-    DiscussionTopic.create!(context: @testgroup.first, user: @teacher,
-                            title: 'Group Discussion', message: 'Group')
-    get discussions_page
-    fln('Group Discussion').click
-    wait_for_ajaximations
-    f('.discussion-reply-action').click
-    type_in_tiny('textarea', 'Good discussion')
-    fj('.btn-primary:contains("Post Reply")').click
-    wait_for_ajaximations
-    expect(f('.entry')).to be_present
-    expect(ff('.message.user_content')[1]).to include_text 'Good discussion'
+    expect(ff('svg[name=IconDocument]').size).to eq 1
   end
 end
 

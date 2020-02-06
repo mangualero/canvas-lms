@@ -18,13 +18,13 @@
 
 import React from 'react'
 import {func, string} from 'prop-types'
-import I18n from 'i18n!gradebook'
-import Alert from '@instructure/ui-core/lib/components/Alert'
-import Button from '@instructure/ui-core/lib/components/Button'
-import Grid, {GridCol, GridRow} from '@instructure/ui-core/lib/components/Grid'
-import Mask from '@instructure/ui-core/lib/components/Mask'
-import Overlay from '@instructure/ui-core/lib/components/Overlay'
-import Text from '@instructure/ui-core/lib/components/Text'
+import I18n from 'i18n!gradezilla'
+import {Alert} from '@instructure/ui-alerts'
+import {Button} from '@instructure/ui-buttons'
+import {Grid} from '@instructure/ui-layout'
+import {Mask, Overlay} from '@instructure/ui-overlays'
+
+import {Text} from '@instructure/ui-elements'
 
 class AnonymousSpeedGraderAlert extends React.Component {
   static propTypes = {
@@ -37,25 +37,25 @@ class AnonymousSpeedGraderAlert extends React.Component {
 
     this.state = {isOpen: false}
 
-    this.open = this.open.bind(this);
-    this.close = this.close.bind(this);
+    this.open = this.open.bind(this)
+    this.close = this.close.bind(this)
 
     this.bindOpenButton = ref => {
-      this.openButton = ref;
-    };
+      this.openButton = ref
+    }
 
     this.bindCancelButton = ref => {
-      this.cancelButton = ref;
-    };
+      this.cancelButton = ref
+    }
   }
 
-  open () {
+  open() {
     this.setState({isOpen: true})
   }
 
-  close () {
+  close() {
     this.setState({isOpen: false})
-    this.props.onClose();
+    this.props.onClose()
   }
 
   renderAlert() {
@@ -63,8 +63,8 @@ class AnonymousSpeedGraderAlert extends React.Component {
       <Alert open={this.state.isOpen} variant="error">
         <div id="anonymous-speed-grader-alert-container" className="overlay_screen">
           <Grid>
-            <GridRow>
-              <GridCol>
+            <Grid.Row>
+              <Grid.Col>
                 <Text weight="bold">{I18n.t('Anonymous Mode On:')}</Text>
 
                 <br />
@@ -72,15 +72,12 @@ class AnonymousSpeedGraderAlert extends React.Component {
                 <Text>
                   {I18n.t('Unable to access specific student. Go to assignment in SpeedGrader?')}
                 </Text>
-              </GridCol>
-            </GridRow>
+              </Grid.Col>
+            </Grid.Row>
 
-            <GridRow hAlign="end">
-              <GridCol width="auto">
-                <Button
-                  ref={this.bindCancelButton}
-                  onClick={this.close}
-                >
+            <Grid.Row hAlign="end">
+              <Grid.Col width="auto">
+                <Button ref={this.bindCancelButton} onClick={this.close}>
                   {I18n.t('Cancel')}
                 </Button>
 
@@ -92,8 +89,8 @@ class AnonymousSpeedGraderAlert extends React.Component {
                 >
                   {I18n.t('Open SpeedGrader')}
                 </Button>
-              </GridCol>
-            </GridRow>
+              </Grid.Col>
+            </Grid.Row>
           </Grid>
         </div>
       </Alert>
@@ -108,7 +105,6 @@ class AnonymousSpeedGraderAlert extends React.Component {
         label={I18n.t('Anonymous Mode On')}
         shouldReturnFocus
         onDismiss={this.close}
-        applicationElement={() => document.getElementById('application')}
       >
         <Mask fullscreen onClick={this.close}>
           {this.renderAlert()}

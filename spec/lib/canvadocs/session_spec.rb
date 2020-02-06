@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require_relative '../../spec_helper'
+require 'spec_helper'
 
 describe Canvadocs::Session do
   include Canvadocs::Session
@@ -95,49 +95,59 @@ describe Canvadocs::Session do
   end
 
   describe ".canvadoc_permissions_for_user" do
+    before(:once) do
+      @course = course_factory(active_all: true)
+      @student = user_factory(active_all: true, active_state: 'active')
+      @assignment = @course.assignments.create!(title: 'assignment 1', name: 'assignment 1', submission_types: 'online_upload')
+      @submission = submission_model(user: @student, course: @course, assignment: @assignment)
+    end
+
     it "should return read permissions for observers" do
-      course = course_factory(active_all: true)
-      student = user_factory(active_all: true, active_state: 'active')
       observer = user_factory(active_all: true, active_state: 'active')
-      assignment = course.assignments.create!(title: 'assignment 1', name: 'assignment 1')
-      section = course.course_sections.create!(name: 'Section A')
-      observer_enrollment = course.enroll_user(
+      section = @course.course_sections.create!(name: 'Section A')
+      observer_enrollment = @course.enroll_user(
         observer,
         'ObserverEnrollment',
         enrollment_state: 'active',
         section: section
       )
-      observer_enrollment.update!(associated_user_id: student.id)
-      assignment.update!(submission_types: 'online_upload')
-      @submission = submission_model(user: student, course: course, assignment: assignment)
+      observer_enrollment.update!(associated_user_id: @student.id)
       permissions = canvadoc_permissions_for_user(observer, true)
       expect(permissions[:permissions]).to eq "read"
     end
+
     it "should return readwrite permissions for owner" do
-      course = course_factory(active_all: true)
-      student = user_factory(active_all: true, active_state: 'active')
-      assignment = course.assignments.create!(title: 'assignment 1', name: 'assignment 1')
-      assignment.update!(submission_types: 'online_upload')
-      @submission = submission_model(user: student, course: course, assignment: assignment)
-      permissions = canvadoc_permissions_for_user(student, true)
+      permissions = canvadoc_permissions_for_user(@student, true)
       expect(permissions[:permissions]).to eq "readwrite"
     end
+
     it "should return readwritemanage permissions for teacher" do
-      course = course_factory(active_all: true)
-      student = user_factory(active_all: true, active_state: 'active')
       teacher = user_factory(active_all: true, active_state: 'active')
-      assignment = course.assignments.create!(title: 'assignment 1', name: 'assignment 1')
-      section = course.course_sections.create!(name: 'Section A')
-      course.enroll_user(
+      section = @course.course_sections.create!(name: 'Section A')
+      @course.enroll_user(
         teacher,
         'TeacherEnrollment',
         enrollment_state: 'active',
         section: section
       )
-      assignment.update!(submission_types: 'online_upload')
-      @submission = submission_model(user: student, course: course, assignment: assignment)
       permissions = canvadoc_permissions_for_user(teacher, true)
       expect(permissions[:permissions]).to eq "readwritemanage"
+    end
+
+    it "includes a user_filter if the user cannot read grades" do
+      PostPolicy.enable_feature!
+      @assignment.course.enable_feature!(:new_gradebook)
+      @assignment.ensure_post_policy(post_manually: true)
+      permissions = canvadoc_permissions_for_user(@student, true)
+      expect(permissions).to have_key(:user_filter)
+    end
+
+    it "does not include a user_filter if the user can read grades" do
+      PostPolicy.enable_feature!
+      @course.enable_feature!(:new_gradebook)
+      @assignment.ensure_post_policy(post_manually: false)
+      permissions = canvadoc_permissions_for_user(@student, true)
+      expect(permissions).not_to have_key(:user_filter)
     end
   end
 end

@@ -263,7 +263,7 @@ XML
   end
 
   def check_failure(failure_type = 'unsupported', error_message = nil)
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response.content_type).to eq 'application/xml'
     xml = Nokogiri::XML.parse(response.body)
     expect(xml.at_css('imsx_POXEnvelopeResponse > imsx_POXHeader > imsx_POXResponseHeaderInfo > imsx_statusInfo > imsx_codeMajor').content).to eq failure_type
@@ -274,7 +274,7 @@ XML
   end
 
   def check_success
-    expect(response).to be_success
+    expect(response).to be_successful
     expect(response.content_type).to eq 'application/xml'
     expect(Nokogiri::XML.parse(response.body).at_css('imsx_POXEnvelopeResponse > imsx_POXHeader > imsx_POXResponseHeaderInfo > imsx_statusInfo > imsx_codeMajor').content).to eq 'success'
   end
@@ -348,7 +348,7 @@ XML
 
     it "should fail if no score and not submission data" do
       make_call('body' => replace_result(score: nil, sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^No score given/
@@ -358,7 +358,7 @@ XML
 
     it "should fail if bad score given" do
       make_call('body' => replace_result(score: '1.5', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^Score is not between 0 and 1/
@@ -367,16 +367,16 @@ XML
     end
 
     it "should fail if assignment has no points possible" do
-      @assignment.update_attributes(:points_possible => nil, :grading_type => 'percent')
+      @assignment.update(:points_possible => nil, :grading_type => 'percent')
       make_call('body' => replace_result(score: '0.75', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('imsx_codeMajor').content).to eq 'failure'
       expect(xml.at_css('imsx_description').content).to match /^Assignment has no points possible\./
     end
 
     it "should pass if assignment has 0 points possible" do
-      @assignment.update_attributes(:points_possible => 0, :grading_type => 'percent')
+      @assignment.update(:points_possible => 0, :grading_type => 'percent')
       make_call('body' => replace_result(score: '0.75', sourceid: nil))
       check_success
 
@@ -390,9 +390,9 @@ XML
 
 
     it "should notify users if it fails because the assignment has no points" do
-      @assignment.update_attributes(:points_possible => nil, :grading_type => 'percent')
+      @assignment.update(:points_possible => nil, :grading_type => 'percent')
       make_call('body' => replace_result(score: '0.75', sourceid: nil))
-      expect(response).to be_success
+      expect(response).to be_successful
       submissions = @assignment.submissions.where(user_id: @student).to_a
       comments    = submissions.first.submission_comments
       expect(submissions.count).to eq 1
@@ -426,12 +426,12 @@ to because the assignment has no points possible.
     it "should reject non-numeric scores" do
       expect(@assignment.submissions.not_placeholder.where(user_id: @student)).not_to be_exists
       make_call('body' => replace_result(score: "OHAI SCORES"))
-      check_failure('failure')
+      check_failure('failure', 'Unable to parse resultScore: OHAI SCORES')
     end
 
     context "pass_fail zero point assignments" do
       it "should succeed with incomplete grade when score < 1" do
-        @assignment.update_attributes(:points_possible => 10, :grading_type => 'pass_fail')
+        @assignment.update(:points_possible => 10, :grading_type => 'pass_fail')
         make_call('body' => replace_result(score: '0.75', sourceid: nil))
         check_success
 
@@ -447,7 +447,7 @@ to because the assignment has no points possible.
       end
 
       it "should succeed with incomplete grade when score < 1 for a 0 point assignment" do
-        @assignment.update_attributes(:points_possible => 0, :grading_type => 'pass_fail')
+        @assignment.update(:points_possible => 0, :grading_type => 'pass_fail')
         make_call('body' => replace_result(score: '0.75', sourceid: nil))
         check_success
 
@@ -463,7 +463,7 @@ to because the assignment has no points possible.
       end
 
       it "should succeed with complete grade when score = 1" do
-        @assignment.update_attributes(:points_possible => 0, :grading_type => 'pass_fail')
+        @assignment.update(:points_possible => 0, :grading_type => 'pass_fail')
         make_call('body' => replace_result(score: '1', sourceid: nil))
         check_success
 
@@ -594,7 +594,7 @@ to because the assignment has no points possible.
   end
 
   it "should reject if the assignment is no longer a tool assignment" do
-    @assignment.update_attributes(:submission_types => 'online_upload')
+    @assignment.update(:submission_types => 'online_upload')
     @assignment.reload.external_tool_tag.destroy_permanently!
     make_call('body' => replace_result(score: '0.5'))
     check_failure('failure', 'Assignment is no longer associated with this tool')
@@ -680,7 +680,7 @@ to because the assignment has no points possible.
     end
 
     def check_success
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.content_type).to eq 'application/xml'
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('message_response > statusinfo > codemajor').content).to eq 'Success'
@@ -689,7 +689,7 @@ to because the assignment has no points possible.
     end
 
     def check_failure(failure_type = 'Failure', error_message = nil)
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.content_type).to eq 'application/xml'
       xml = Nokogiri::XML.parse(response.body)
       expect(xml.at_css('message_response > statusinfo > codemajor').content).to eq failure_type
@@ -806,7 +806,7 @@ to because the assignment has no points possible.
     end
 
     it "should reject if the assignment is no longer a tool assignment" do
-      @assignment.update_attributes(:submission_types => 'online_upload')
+      @assignment.update(:submission_types => 'online_upload')
       @assignment.reload.external_tool_tag.destroy_permanently!
       make_call('body' => update_result('0.5'))
       check_failure

@@ -44,8 +44,8 @@ module CanvasRails
     config.action_dispatch.rescue_responses['AuthenticationMethods::AccessTokenError'] = 401
     config.action_dispatch.rescue_responses['AuthenticationMethods::AccessTokenScopeError'] = 401
     config.action_dispatch.rescue_responses['AuthenticationMethods::LoggedOutError'] = 401
-    config.action_dispatch.default_headers['X-UA-Compatible'] = "IE=Edge,chrome=1"
     config.action_dispatch.default_headers.delete('X-Frame-Options')
+    config.action_dispatch.default_headers.delete('Referrer-Policy')
     config.action_controller.forgery_protection_origin_check = true
     ActiveSupport.to_time_preserves_timezone = true
 
@@ -99,6 +99,7 @@ module CanvasRails
 
     # Activate observers that should always be running
     config.active_record.observers = [:cacher, :stream_item_cache, :live_events_observer, :conditional_release_observer ]
+    config.active_record.allow_unsafe_raw_sql = :disabled
 
     config.active_support.encode_big_decimal_as_string = false
 
@@ -110,6 +111,11 @@ module CanvasRails
     config.eager_load_paths -= %W(#{Rails.root}/app/coffeescripts
                                   #{Rails.root}/app/stylesheets)
 
+    config.middleware.use Rack::Chunked
+    config.middleware.use Rack::Deflater, if: -> (*) {
+      ::Canvas::DynamicSettings.find(tree: :private)["enable_rack_deflation"]
+    }
+
     # we don't know what middleware to make SessionsTimeout follow until after
     # we've loaded config/initializers/session_store.rb
     initializer("extend_middleware_stack", after: "load_config_initializers") do |app|
@@ -119,6 +125,8 @@ module CanvasRails
       app.config.middleware.insert_before(Rack::Head, RequestThrottle)
       app.config.middleware.insert_before(Rack::MethodOverride, PreventNonMultipartParse)
     end
+
+    config.i18n.load_path << Rails.root.join('config', 'locales', 'locales.yml')
 
     config.to_prepare do
       require_dependency 'canvas/plugins/default_plugins'
@@ -142,9 +150,9 @@ module CanvasRails
             connection_parameters[:host] = host
             @connection = PG::Connection.connect(connection_parameters)
 
-            raise "Canvas requires PostgreSQL 9.5 or newer" unless postgresql_version >= 90500
-
             configure_connection
+
+            raise "Canvas requires PostgreSQL 9.5 or newer" unless postgresql_version >= 90500
 
             break
           rescue ::PG::Error => error
@@ -160,22 +168,12 @@ module CanvasRails
     end
 
     module TypeMapInitializerExtensions
-      if CANVAS_RAILS5_1
-        def query_conditions_for_initial_load(type_map)
-          known_type_names = type_map.keys.map { |n| "'#{n}'" } + type_map.keys.map { |n| "'_#{n}'" }
-          <<-SQL % [known_type_names.join(", "),]
-            WHERE
-              t.typname IN (%s)
-          SQL
-        end
-      else
-        def query_conditions_for_initial_load
-          known_type_names = @store.keys.map { |n| "'#{n}'" } + @store.keys.map { |n| "'_#{n}'" }
-          <<-SQL % [known_type_names.join(", "),]
-            WHERE
-              t.typname IN (%s)
-          SQL
-        end
+      def query_conditions_for_initial_load
+        known_type_names = @store.keys.map { |n| "'#{n}'" } + @store.keys.map { |n| "'_#{n}'" }
+        <<-SQL % [known_type_names.join(", "),]
+          WHERE
+            t.typname IN (%s)
+        SQL
       end
     end
 

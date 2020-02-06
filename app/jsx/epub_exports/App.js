@@ -17,44 +17,42 @@
  */
 
 import React from 'react'
-import CourseStore from '../epub_exports/CourseStore'
-import CourseList from '../epub_exports/CourseList'
+import CourseStore from './CourseStore'
+import CourseList from './CourseList'
 
-  var EpubExportApp = React.createClass({
-    displayName: 'EpubExportApp',
+class EpubExportApp extends React.Component {
+  static displayName = 'EpubExportApp'
 
-    //
-    // Preparation
-    //
+  //
+  // Preparation
+  //
 
-    getInitialState: function() {
-      return CourseStore.getState();
-    },
-    handleCourseStoreChange () {
-      this.setState(CourseStore.getState());
-    },
+  state = CourseStore.getState()
 
-    //
-    // Lifecycle
-    //
+  handleCourseStoreChange = () => {
+    this.setState(CourseStore.getState())
+  }
 
-    componentDidMount () {
-      CourseStore.addChangeListener(this.handleCourseStoreChange);
-      CourseStore.getAll();
-    },
-    componentWillUnmount () {
-      CourseStore.removeChangeListener(this.handleCourseStoreChange);
-    },
+  //
+  // Lifecycle
+  //
 
-    //
-    // Rendering
-    //
+  componentDidMount() {
+    CourseStore.addChangeListener(this.handleCourseStoreChange)
+    CourseStore.getAll()
+  }
 
-    render() {
-      return (
-        <CourseList courses={this.state} />
-      );
-    }
-  });
+  componentWillUnmount() {
+    CourseStore.removeChangeListener(this.handleCourseStoreChange)
+  }
+
+  //
+  // Rendering
+  //
+
+  render() {
+    return <CourseList courses={this.state} />
+  }
+}
 
 export default EpubExportApp

@@ -15,12 +15,11 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
-
 <% content_for(:page_title) do %>
-  <%= join_title t("User Settings"), @user.name %>
+  <%= t("User Settings") %>
 <% end %>
 
-<% content_for :right_side do %>
+<% provide :right_side do %>
   <% if @current_user.registered? %>
   <%= render :partial => "ways_to_contact" %>
   <div>
@@ -37,13 +36,13 @@
         <a href="<%= one_time_passwords_path %>" class="btn button-sidebar-wide" id="otp_backup_codes_link" target="_blank"><i class="icon-lock" aria-hidden="true"></i> <%= t('links.otp_backup_codes', "Multi-Factor Authentication Backup Codes") %></a>
     <% end %>
     <a href="<%= dashboard_content_exports_path %>" class="btn button-sidebar-wide"><i class="icon-download" aria-hidden="true"></i> <%= t("Download Submissions") %></a>
+    <% if @user.has_student_enrollment? && @domain_root_account && @domain_root_account.self_registration? && @user.grants_right?(@current_user, :generate_observer_pairing_code) %>
+      <div id="pairing-code"></div>
+    <% end %>
     <% if @domain_root_account.feature_allowed?(:epub_export) && !@domain_root_account.enable_offline_web_export? %>
         <%= link_to  epub_exports_path, class: 'btn button-sidebar-wide' do %>
           <i class="icon-download" aria-hidden="true"></i> <%= t("Download Course Content") %>
         <% end %>
-    <% end %>
-    <% if show_request_delete_account %>
-       <a href="<%= request_delete_account_link %>" class="btn button-sidebar-wide"> <%= t('Delete My Account') %></a>
     <% end %>
   </div>
   <% end %>
@@ -56,7 +55,7 @@
           INTERNATIONAL_SMS_ENABLED: @user.account.feature_enabled?(:international_sms)
 %>
 <% js_bundle :profile %>
-<% css_bundle :profile_edit %>
+<% css_bundle :profile_edit, :pairing_code %>
 
 <% if service_enabled?(:avatars) %>
   <% if @user_data[:can_edit_avatar] %>
@@ -64,7 +63,7 @@
         title: t('titles.click_to_change_profile_pic', "Click to change profile pic"),
         sr_content: t('Click to change profile picture for %{display_name}', :display_name => @user.short_name)) %>
   <% else %>
-    <%= avatar(@user, url: nil, edit: false) %>
+    <%= avatar(@user, url: nil, edit: false, class: "profile_pic") %>
   <% end %>
 <% end %>
 <h1 style="padding-top: 0.3em;"><%= t("%{user}'s Settings", :user => @user.short_name) %></h1>
@@ -95,6 +94,22 @@
       <span id="hints_sortable_name" class="edit_or_show_data data_description"><br/><%= t('hints.sortable_name', "This name appears in sorted lists.") %></span>
     </td>
   </tr>
+  <%# even if @domain_root_account.settings[:can_add_pronouns] is false, we still want to let someone that has pronouns set to see this so they can unset them  %>
+  <% if @user.pronouns || @domain_root_account.settings[:can_add_pronouns] %>
+    <tr>
+      <th scope="row"><%= f.blabel :pronouns, :en => "Pronouns" %></th>
+      <td>
+        <span id="pronouns" class="<%= editable_name ? 'display_data' : 'edit_or_show_data' %>"><%= @user.pronouns || t("None") %></span>
+        <span class="edit_data">
+          <%= f.select(:pronouns, options_for_select(([[t("None"), '']] + @domain_root_account.pronouns), @user.pronouns) ) %>
+        </span>
+        <span class="edit_or_show_data data_description">
+          <br/>
+          <%= t("These pronouns will appear after your name when shown in the UI") %>
+        </span>
+      </td>
+    </tr>
+  <% end %>
   <% active_email_channels = @email_channels.select { |cc| cc.active? } %>
   <% if active_email_channels.length > 1 %>
     <tr>
@@ -243,7 +258,7 @@ TEXT
     <h3><%= t('headers.registered_services', "Registered Services") %></h3>
     <div style="margin-<%= direction('left') %>: 20px; margin-bottom: 20px;">
     <ul id="registered_services" class="unstyled_list">
-      <% @user.user_services.select{|s| !UserService.configured_service?(s.service) || feature_and_service_enabled?(s.service) }.each do |service| %>
+      <% @user.user_services.select{|s| feature_and_service_enabled?(s.service) }.each do |service| %>
         <li class="service clearfix" id="service_<%= service.service %>">
           <a href="<%= profile_user_service_url(service.id) %>" class="delete_service_link no-hover" style="float: <%= direction('right') %>; padding-top: 0.5em; padding-<%= direction('right') %>: 10px;" title="<%= t('titles.unregister_service', "Unregister Service") %>"><%= image_tag "delete_circle.png", :alt => t('Unregister Service') %></a>
           <a href="<%= service.service_user_link %>">
@@ -330,28 +345,6 @@ TEXT
               </tr>
             </table>
             <% end %>
-          </div>
-        </div>
-      </li>
-      <li id="unregistered_service_linked_in" class="service" style="<%= hidden if services.include?("linked_in") || !feature_and_service_enabled?(:linked_in) %>">
-        <a href="#" class="btn btn-small"><%= image_tag "linked_in_icon.png", :alt => '' %> <%= t('links.linkedin', "LinkedIn") %></a>
-        <div style="display: none; text-align: <%= direction('left') %>;" class="content" title="<%= t('titles.authorize_linkedin', "Authorize LinkedIn") %>" id="unregistered_service_linked_in_dialog">
-          <div>
-            <%= image_tag "linked_in.png", :style => "float: #{direction('left')}; padding-#{ direction('right') }: 5px;", :alt => '' %>
-            <div style="font-size: 1.2em; font-weight: bold;"><%= t('headers.linkedin_access', "LinkedIn Access") %></div>
-            <%= t(:linkedin_description, <<-TEXT)
-            LinkedIn is a great resources for business networking, and can be
-            helpful long after you've finished your education.
-            If you have a LinkedIn account, you can register it here.  Then if you
-            allow fellow course/group members to see your registered services, they
-            can easily invite you to link with them without having to search LinkedIn
-            for your profile.
-            TEXT
-            %>
-            <div class="clear"></div>
-          </div>
-          <div style="text-align: center; font-size: 1.2em; margin-top: 10px;">
-            <a class="btn btn-primary" href="<%= oauth_url(:service => "linked_in", :return_to => settings_profile_url) %>"><%= t('buttons.register_linkedin_account', "Register Your LinkedIn Account") %></a>
           </div>
         </div>
       </li>
@@ -455,7 +448,7 @@ TEXT
 <% end %>
 <h2><%= before_label(:'headers.approved_integrations', "Approved Integrations") %></h2>
 <div style="margin-<%= direction('left') %>: 20px;">
-  <% if @user.access_tokens.empty? %>
+  <% if AccessToken.visible_tokens(@user.access_tokens).empty? %>
     <div id="no_approved_integrations"><%= t(:no_approved_integrations, <<-TEXT)
       Third-party applications can request permission to access
       the Canvas site on your behalf.  As you begin authorizing
@@ -463,7 +456,7 @@ TEXT
       TEXT
     %></div>
   <% end %>
-  <div id="access_tokens_holder" style="<%= hidden if @user.access_tokens.empty? %>">
+  <div id="access_tokens_holder" style="<%= hidden if AccessToken.visible_tokens(@user.access_tokens).empty? %>">
     <%= t(:approved_integrations, <<-TEXT)
     These are the third-party applications you have authorized
     to access the Canvas site on your behalf:
@@ -480,7 +473,7 @@ TEXT
         </tr>
       </thead>
       <tbody>
-        <%= render :partial => "access_token", :collection => @user.access_tokens %>
+        <%= render :partial => "access_token", :collection => AccessToken.visible_tokens(@user.access_tokens) %>
         <%= render :partial => "access_token" %>
       </tbody>
     </table>

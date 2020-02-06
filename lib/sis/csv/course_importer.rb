@@ -33,20 +33,21 @@ module SIS
       def process(csv, index=nil, count=nil)
         messages = []
         count = SIS::CourseImporter.new(@root_account, importer_opts).process(messages) do |importer|
-          update_progress
           csv_rows(csv, index, count) do |row|
-            start_date = nil
-            end_date = nil
+            start_date = (row.key? 'start_date') ? nil : 'not_present'
+            end_date = (row.key? 'end_date') ? nil : 'not_present'
             begin
-              start_date = DateTime.parse(row['start_date']) if row['start_date'].present?
-              end_date = DateTime.parse(row['end_date']) if row['end_date'].present?
+              start_date = Time.zone.parse(row['start_date']) if row['start_date'].present?
+              end_date = Time.zone.parse(row['end_date']) if row['end_date'].present?
             rescue
               messages << SisBatch.build_error(csv, "Bad date format for course #{row['course_id']}", sis_batch: @batch, row: row['lineno'], row_info: row)
             end
             course_format = row.key?('course_format') && (row['course_format'] || 'not_set')
+            grade_passback_setting = row.key?('grade_passback_setting') && (row['grade_passback_setting'] || 'not_set')
             begin
               importer.add_course(row['course_id'], row['term_id'], row['account_id'], row['fallback_account_id'], row['status'], start_date, end_date,
-                                  row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'], course_format, row['blueprint_course_id'])
+                                  row['abstract_course_id'], row['short_name'], row['long_name'], row['integration_id'], course_format, row['blueprint_course_id'],
+                                  grade_passback_setting)
             rescue ImportError => e
               messages << SisBatch.build_error(csv, e.to_s, sis_batch: @batch, row: row['lineno'], row_info: row)
             end

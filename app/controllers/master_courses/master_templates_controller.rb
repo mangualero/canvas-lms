@@ -47,7 +47,7 @@
 #        },
 #       "latest_migration": {
 #         "description": "Details of the latest migration",
-#         "type": "BlueprintMigration"
+#         "$ref": "BlueprintMigration"
 #        }
 #     }
 #   }
@@ -154,7 +154,7 @@
 #         "format": "int64"
 #       },
 #       "asset_type": {
-#         "description": "The type of the learning object that was changed in the blueprint course.  One of 'assignment', 'attachment', 'discussion_topic', 'external_tool', 'quiz', or 'wiki_page'.",
+#         "description": "The type of the learning object that was changed in the blueprint course.  One of 'assignment', 'attachment', 'discussion_topic', 'external_tool', 'quiz', 'wiki_page', 'syllabus', or 'settings'.  For 'syllabus' or 'settings', the asset_id is the course id.",
 #         "example": "assignment",
 #         "type": "string"
 #       },
@@ -206,10 +206,40 @@
 #       }
 #     }
 #   }
+#
+# @model BlueprintSubscription
+#  {
+#    "id" : "BlueprintSubscription",
+#    "description" : "Associates a course with a blueprint",
+#    "properties": {
+#      "id": {
+#        "description": "The ID of the blueprint course subscription",
+#        "example": 101,
+#        "type": "integer",
+#        "format": "int64"
+#      },
+#      "template_id": {
+#        "description": "The ID of the blueprint template the associated course is subscribed to",
+#        "example": 1,
+#        "type": "integer",
+#        "format": "int64"
+#      },
+#      "blueprint_course": {
+#        "description": "The blueprint course subscribed to",
+#        "type": "object",
+#        "example": {
+#          "id": 2,
+#          "name": "Biology 100 Blueprint",
+#          "course_code": "BIOL 100 BP",
+#          "term_name": "Default term"
+#        }
+#      }
+#    }
+#  }
+#
 class MasterCourses::MasterTemplatesController < ApplicationController
-  before_action :require_master_courses
   before_action :get_course
-  before_action :get_template, :except => [:import_details, :imports_index, :imports_show]
+  before_action :get_template, :except => [:import_details, :imports_index, :imports_show, :subscriptions_index]
   before_action :get_subscription, :only => [:import_details, :imports_index, :imports_show]
   before_action :require_course_level_manage_rights
   before_action :require_account_level_manage_rights, :only => [:update_associations]
@@ -250,12 +280,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
     can_read_sis = @course.account.grants_any_right?(@current_user, :read_sis, :manage_sis)
 
     json = courses.map do |course|
-      # could use course_json but at this point it's got so much overhead...
-      hash = api_json(course, @current_user, session, :only => %w{id name course_code})
-      hash['sis_course_id'] = course.sis_source_id if can_read_sis
-      hash['term_name'] = course.enrollment_term.name
-      hash['teachers'] = course.teachers.map { |teacher| user_display_json(teacher) }
-      hash
+      course_summary_json(course, can_read_sis: can_read_sis, include_teachers: true)
     end
     render :json => json
   end
@@ -266,6 +291,8 @@ class MasterCourses::MasterTemplatesController < ApplicationController
   # Send a list of course ids to add or remove new associations for the template.
   # Cannot add courses that do not belong to the blueprint course's account. Also cannot add
   # other blueprint courses or courses that already have an association with another blueprint course.
+  #
+  # After associating new courses, {api:MasterCourses::MasterTemplatesController#queue_migration start a sync} to populate their contents from the blueprint.
   #
   # @argument course_ids_to_add [Array]
   #   Courses to add as associated courses
@@ -284,8 +311,8 @@ class MasterCourses::MasterTemplatesController < ApplicationController
     if authorized_action(@course.account, @current_user, :manage_courses)
       # note that I'm additionally requiring course management rights on the account
       # since (for now) we're only allowed to associate courses derived from it
-      ids_to_add = Array(params[:course_ids_to_add]).map(&:to_i)
-      ids_to_remove = Array(params[:course_ids_to_remove]).map(&:to_i)
+      ids_to_add = api_find_all(Course, Array(params[:course_ids_to_add])).pluck(:id)
+      ids_to_remove = api_find_all(Course, Array(params[:course_ids_to_remove])).pluck(:id)
       if (ids_to_add & ids_to_remove).any?
         return render :json => {:message => "cannot add and remove a course at the same time"}, :status => :bad_request
       end
@@ -310,7 +337,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
       end
 
       if ids_to_remove.any?
-        @template.child_subscriptions.active.where(:child_course_id => ids_to_remove).preload(:child_course => :wiki).each(&:destroy)
+        @template.child_subscriptions.active.where(:child_course_id => ids_to_remove).preload(:child_course).each(&:destroy)
       end
 
       render :json => {:success => true}
@@ -463,6 +490,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
       locked = !!tag&.restrictions&.values&.any?
       changed_asset_json(asset, action, locked)
     end
+    changes << changed_syllabus_json(@course) if @course.syllabus_updated_at&.>(cutoff_time)
 
     render :json => changes
   end
@@ -519,6 +547,23 @@ class MasterCourses::MasterTemplatesController < ApplicationController
     tag_association = @template.content_tags
 
     return render_changes(tag_association, subscriptions)
+  end
+
+  # @API List blueprint subscriptions
+  # @subtopic Associated Course History
+  #
+  # Returns a list of blueprint subscriptions for the given course. (Currently a course may have no more than one.)
+  #
+  # @example_request
+  #     curl https://<canvas>/api/v1/courses/2/blueprint_subscriptions \
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @returns [BlueprintSubscription]
+  def subscriptions_index
+    scope = @course.master_course_subscriptions.active
+    subs = Api.paginate(scope, self, api_v1_course_blueprint_subscriptions_url)
+    # TODO preload subscription -> master template -> course if we ever support multiple subscriptions
+    render :json => subs.map { |sub| child_subscription_json(sub) }
   end
 
   # @API List blueprint imports
@@ -586,10 +631,6 @@ class MasterCourses::MasterTemplatesController < ApplicationController
   end
 
   protected
-  def require_master_courses
-    render_unauthorized_action unless master_courses?
-  end
-
   def require_account_level_manage_rights
     !!authorized_action(@course.account, @current_user, :manage_master_courses)
   end
@@ -631,6 +672,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
       next unless result = results[sub.id]
       skipped_items = result[:skipped]
       next unless skipped_items.present?
+      get_syllabus_exception!(skipped_items, sub, exceptions)
       sub.content_tags.where(:migration_id => skipped_items).each do |child_tag|
         exceptions[child_tag.migration_id] ||= []
         exceptions[child_tag.migration_id] << { :course_id => sub.child_course_id,
@@ -641,9 +683,17 @@ class MasterCourses::MasterTemplatesController < ApplicationController
     exceptions
   end
 
+  def get_syllabus_exception!(skipped_items, child_subscription, exceptions)
+    if skipped_items.delete(:syllabus)
+      exceptions['syllabus'] ||= []
+      exceptions['syllabus'] << { :course_id => child_subscription.child_course_id, :conflicting_changes => ['content'] }
+    end
+  end
+
   def render_changes(tag_association, subscriptions)
     changes = []
     exceptions = get_exceptions_by_subscription(subscriptions)
+    updated_syllabus = @mm.export_results[:selective][:updated].delete('syllabus')
 
     [:created, :updated, :deleted].each do |action|
       migration_ids = @mm.export_results[:selective][action].values.flatten
@@ -655,7 +705,8 @@ class MasterCourses::MasterTemplatesController < ApplicationController
                                       tag.migration_id, exceptions)
       end
     end
-
+    changes << changed_syllabus_json(@course, exceptions) if updated_syllabus
+    changes << changed_settings_json(@course) if @mm.migration_settings[:copy_settings]
     render :json => changes
   end
 
@@ -676,7 +727,7 @@ class MasterCourses::MasterTemplatesController < ApplicationController
     # if we skipped it because it's deleted, there's no sense
     # in going on and seeing if they also edited it first
     return ['deleted'] if columns.include?("manually_deleted")
-    
+
     classes = []
     columns.each do |col|
       klass.restricted_column_settings.each do |k, v|

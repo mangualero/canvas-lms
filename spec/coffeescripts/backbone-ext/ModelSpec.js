@@ -25,7 +25,7 @@ QUnit.module('Backbone.Model', {
 })
 
 test('@mixin', function() {
-  const initSpy = this.spy()
+  const initSpy = sinon.spy()
   const mixable = {
     defaults: {cash: 'money'},
     initialize: initSpy
@@ -34,6 +34,7 @@ test('@mixin', function() {
     static initClass() {
       this.mixin(mixable)
     }
+
     initialize() {
       initSpy.apply(this, arguments)
       super.initialize(...arguments)

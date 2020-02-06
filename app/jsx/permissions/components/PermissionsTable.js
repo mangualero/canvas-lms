@@ -22,26 +22,62 @@ import {arrayOf, func} from 'prop-types'
 import {connect} from 'react-redux'
 import $ from 'jquery'
 // For screenreaderFlashMessageExclusive  Maybe there's a better way
-import 'compiled/jquery.rails_flash_notifications' // eslint-disable-line
+import 'compiled/jquery.rails_flash_notifications'
 
-import Button from '@instructure/ui-buttons/lib/components/Button'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import {Button} from '@instructure/ui-buttons'
+import {Text} from '@instructure/ui-elements'
+import {Tooltip} from '@instructure/ui-overlays'
+import {View} from '@instructure/ui-layout'
 
 import actions from '../actions'
 import {ConnectedPermissionButton} from './PermissionButton'
 import propTypes from '../propTypes'
 
+const rowTypes = {
+  create: I18n.t('create'),
+  read: I18n.t('read'),
+  update: I18n.t('update'),
+  delete: I18n.t('delete')
+}
+
 export default class PermissionsTable extends Component {
   static propTypes = {
     roles: arrayOf(propTypes.role).isRequired,
     permissions: arrayOf(propTypes.permission).isRequired,
-    setAndOpenRoleTray: func.isRequired
+    setAndOpenRoleTray: func.isRequired,
+    setAndOpenPermissionTray: func.isRequired
   }
 
   state = {
-    leftOffset: 0,
-    topOffset: 0,
     expanded: {}
+  }
+
+  // just a heads up: these likely break in RTL. the best thing would be to
+  // change the css so you don't manually have to scroll the table in JS but
+  // if you do have to do this in JS, you need to use something like
+  // 'normalize-scroll-left' from npm (grep for where we use it in the graebook)
+  // so that it works cross browser in RTL
+  fixScroll = (leftOffset, leftScroll) => {
+    if (!this.contentWrapper) return
+    const sidebarWidth = 300
+    if (leftOffset - sidebarWidth < leftScroll) {
+      const newScroll = Math.max(0, leftScroll - sidebarWidth)
+      this.contentWrapper.scrollLeft = newScroll
+    }
+  }
+
+  fixScrollButton = e => {
+    if (!this.contentWrapper) return
+    const leftOffset = e.target.offsetParent.offsetLeft
+    const leftScroll = this.contentWrapper.scrollLeft
+    this.fixScroll(leftOffset, leftScroll)
+  }
+
+  fixScrollHeader = e => {
+    if (!this.contentWrapper) return
+    const leftOffset = e.target.offsetParent.offsetParent.offsetLeft
+    const leftScroll = this.contentWrapper.scrollLeft
+    this.fixScroll(leftOffset, leftScroll)
   }
 
   toggleExpanded(id) {
@@ -65,16 +101,17 @@ export default class PermissionsTable extends Component {
     //      how this should look, so I should check there for inspiration.
     this.props.setAndOpenRoleTray(role)
   }
+
   renderTopHeader() {
     return (
       <tr className="ic-permissions__top-header">
-        <td className="ic-permissions__corner-stone">
+        <th scope="col" className="ic-permissions__corner-stone">
           <span className="ic-permission-corner-text">
             <Text weight="bold" size="small">
               {I18n.t('Permissions')}
             </Text>
           </span>
-        </td>
+        </th>
         {this.props.roles.map(role => (
           <th
             key={role.id}
@@ -84,12 +121,21 @@ export default class PermissionsTable extends Component {
           >
             <div className="ic-permissions__top-header__col-wrapper">
               <div
-                style={{top: `${this.state.topOffset}px`}}
-                className="ic-permissions__header-content ic-permissions__header-content-col "
+                className="ic-permissions__header-content ic-permissions__header-content-col"
+                id={`ic-permissions__role-header-for-role-${role.id}`}
               >
-                <Button variant="link" onClick={() => this.openRoleTray(role)}>
-                  <Text size="small">{role.label} </Text>
-                </Button>
+                <Tooltip tip={role.label}>
+                  <Button
+                    id={`role_${role.id}`}
+                    variant="link"
+                    onClick={() => this.openRoleTray(role)}
+                    onFocus={this.fixScrollHeader}
+                    size="small"
+                    theme={{smallPadding: '0', smallHeight: 'normal'}}
+                  >
+                    {role.label}
+                  </Button>
+                </Tooltip>
               </div>
             </div>
           </th>
@@ -102,10 +148,7 @@ export default class PermissionsTable extends Component {
     return (
       <th scope="row" className="ic-permissions__main-left-header" aria-label={perm.label}>
         <div className="ic-permissions__left-header__col-wrapper">
-          <div
-            style={{left: `${this.state.leftOffset}px`}}
-            className="ic-permissions__header-content"
-          >
+          <div className="ic-permissions__header-content">
             {/*
             This button is for the expanding of permissions.  When we get more granular
             we will uncomment this to allow that functionality to still stand
@@ -113,7 +156,17 @@ export default class PermissionsTable extends Component {
               {this.state.expanded[perm.permission_name] ? 'v' : '>'}
             </button>
             */}
-            <a href="#">{perm.label}</a>
+            <View maxWidth="17rem" as="div" padding="small">
+              <Button
+                variant="link"
+                onClick={() => this.props.setAndOpenPermissionTray(perm)}
+                id={`permission_${perm.permission_name}`}
+                theme={{mediumPadding: '0', mediumHeight: 'normal'}}
+                fluidWidth
+              >
+                {perm.label}
+              </Button>
+            </View>
           </div>
         </div>
       </th>
@@ -121,21 +174,11 @@ export default class PermissionsTable extends Component {
   }
 
   renderExapndedRows() {
-    const rowTypes = {
-      create: I18n.t('create'),
-      read: I18n.t('read'),
-      update: I18n.t('update'),
-      delete: I18n.t('delete')
-    }
-
     return Object.keys(rowTypes).map(rowType => (
       <tr key={rowType}>
         <th scope="row" className="ic-permissions__left-header__expanded">
           <div className="ic-permissions__left-header__col-wrapper">
-            <div
-              style={{left: `${this.state.leftOffset}px`}}
-              className="ic-permissions__header-content"
-            >
+            <div className="ic-permissions__header-content">
               <Text>{rowTypes[rowType]}</Text>
             </div>
           </div>
@@ -143,7 +186,7 @@ export default class PermissionsTable extends Component {
         {this.props.roles.map(role => (
           <td key={role.id}>
             <div className="ic-permissions__cell-content">
-              <input type="checkbox" aria-label="toggle some mini permission" />
+              <input type="checkbox" aria-label="toggle sub-permission" />
             </div>
           </td>
         ))}
@@ -160,12 +203,16 @@ export default class PermissionsTable extends Component {
             <tr>
               {this.renderLeftHeader(perm)}
               {this.props.roles.map(role => (
-                <td key={role.id}>
+                <td key={role.id} id={`${perm.permission_name}_role_${role.id}`}>
                   <div className="ic-permissions__cell-content">
                     <ConnectedPermissionButton
                       permission={role.permissions[perm.permission_name]}
                       permissionName={perm.permission_name}
-                      courseRoleId={role.id}
+                      permissionLabel={perm.label}
+                      roleId={role.id}
+                      roleLabel={role.label}
+                      inTray={false}
+                      onFocus={this.fixScrollButton}
                     />
                   </div>
                 </td>
@@ -180,12 +227,7 @@ export default class PermissionsTable extends Component {
 
   render() {
     return (
-      <div
-        className="ic-permissions__table-container"
-        ref={c => {
-          this.contentWrapper = c
-        }}
-      >
+      <div className="ic-permissions__table-container" ref={c => (this.contentWrapper = c)}>
         {this.renderTable()}
       </div>
     )
@@ -201,9 +243,11 @@ function mapStateToProps(state, ownProps) {
 }
 
 const mapDispatchToProps = {
-  setAndOpenRoleTray: actions.setAndOpenRoleTray
+  setAndOpenRoleTray: actions.setAndOpenRoleTray,
+  setAndOpenPermissionTray: actions.setAndOpenPermissionTray
 }
 
-export const ConnectedPermissionsTable = connect(mapStateToProps, mapDispatchToProps)(
-  PermissionsTable
-)
+export const ConnectedPermissionsTable = connect(
+  mapStateToProps,
+  mapDispatchToProps
+)(PermissionsTable)

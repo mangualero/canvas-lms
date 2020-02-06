@@ -17,6 +17,8 @@
 #
 
 class AnonymousSubmissionsController < SubmissionsBaseController
+  include Submissions::ShowHelper
+
   before_action :require_context
 
   def show
@@ -25,9 +27,50 @@ class AnonymousSubmissionsController < SubmissionsBaseController
       anonymous_id: params.fetch(:anonymous_id),
       context: @context
     )
-    @assignment = @submission_for_show.assignment
-    @submission = @submission_for_show.submission
+    begin
+      @assignment = @submission_for_show.assignment
+      @submission = @submission_for_show.submission
+    rescue ActiveRecord::RecordNotFound
+      return render_user_not_found
+    end
+
+    return render_user_not_found unless @submission.can_view_details?(@current_user)
 
     super
+  end
+
+  def update
+    @assignment = @context.assignments.active.find(params.fetch(:assignment_id))
+    @submission = @assignment.submissions.find_by!(anonymous_id: params.fetch(:anonymous_id))
+    @user = @submission.user
+
+    super
+  end
+
+  def plagiarism_report(type)
+    return head(:bad_request) unless params_are_integers?(:assignment_id)
+
+    @assignment = @context.assignments.active.find(params.require(:assignment_id))
+    @submission = @assignment.submissions.find_by(anonymous_id: params.require(:anonymous_id))
+
+    super(type)
+  end
+
+  def resubmit_to_plagiarism(type)
+    return head(:bad_request) unless params_are_integers?(:assignment_id)
+
+    @assignment = @context.assignments.active.find(params.require(:assignment_id))
+    @submission = @assignment.submissions.find_by(anonymous_id: params.require(:anonymous_id))
+
+    super(type)
+  end
+
+  private
+  def default_plagiarism_redirect_url
+    speed_grader_course_gradebook_url(
+      @context,
+      assignment_id: @assignment.id,
+      anonymous_id: @submission.anonymous_id
+    )
   end
 end

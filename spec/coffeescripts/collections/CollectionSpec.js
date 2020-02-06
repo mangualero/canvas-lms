@@ -34,7 +34,7 @@ TestCollection.prototype.model = Backbone.Model.extend()
 QUnit.module('Backbone.Collection', {
   setup() {
     this.xhr = sinon.useFakeXMLHttpRequest()
-    this.ajaxSpy = this.spy($, 'ajax')
+    this.ajaxSpy = sandbox.spy($, 'ajax')
   },
   teardown() {
     this.xhr.restore
@@ -94,9 +94,9 @@ test('uses conventional default url', () => {
   )
 })
 
-test('triggers setParam event', function() {
+test('triggers setParam event', () => {
   const collection = new Backbone.Collection()
-  const spy = this.spy()
+  const spy = sinon.spy()
   collection.on('setParam', spy)
   collection.setParam('foo', 'bar')
   ok(spy.calledOnce, 'event triggered')
@@ -114,9 +114,9 @@ test('setParams', () => {
   deepEqual(collection.options.params, {foo: 'bar', baz: 'qux'})
 })
 
-test('triggers setParams event', function() {
+test('triggers setParams event', () => {
   const collection = new Backbone.Collection()
-  const spy = this.spy()
+  const spy = sinon.spy()
   collection.on('setParams', spy)
   const params = {
     foo: 'bar',

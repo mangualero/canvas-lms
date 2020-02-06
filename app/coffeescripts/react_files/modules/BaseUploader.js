@@ -24,10 +24,6 @@ import 'jquery.ajaxJSON'
 
 export default class BaseUploader {
   constructor(fileOptions, folder) {
-    this.onPreflightComplete = this.onPreflightComplete.bind(this)
-    this.onUploadPosted = this.onUploadPosted.bind(this)
-    this.trackProgress = this.trackProgress.bind(this)
-
     this.file = fileOptions.file
     this.options = fileOptions
     this.folder = folder
@@ -53,7 +49,7 @@ export default class BaseUploader {
     return `/api/v1/folders/${this.folder.id}/files`
   }
 
-  onPreflightComplete(data) {
+  onPreflightComplete = data => {
     this.uploadData = data
     return this._actualUpload()
   }
@@ -83,10 +79,11 @@ export default class BaseUploader {
       .catch(this.deferred.reject)
   }
 
-  onUploadPosted(event) {}
+  onUploadPosted = event => {}
+
   // should be implemented in extensions
 
-  trackProgress(e) {
+  trackProgress = e => {
     this.progress = e.loaded / e.total
     return this.onProgress(this.progress, this.file)
   }

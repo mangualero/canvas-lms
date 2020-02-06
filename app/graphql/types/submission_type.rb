@@ -16,64 +16,52 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+
+#############################################################################
+# NOTE: In most cases you shouldn't add new fields here, instead they should
+#       be added to interfaces/submission_interface.rb so that they work for
+#       both submissions and submission histories
+#############################################################################
+
+
 module Types
-  SubmissionType = GraphQL::ObjectType.define do
-    name "Submission"
+  class SubmissionHistoryFilterInputType < Types::BaseInputObject
+    graphql_name 'SubmissionHistoryFilterInput'
 
-    implements GraphQL::Relay::Node.interface
-    interfaces [Interfaces::TimestampInterface]
+    argument :states, [SubmissionStateType], required: false,
+      default_value: DEFAULT_SUBMISSION_HISTORY_STATES
 
-    global_id_field :id
-    # not doing a legacy canvas id since they aren't used in the rest api
-
-    field :assignment, AssignmentType,
-      resolve: ->(s, _, _) { Loaders::IDLoader.for(Assignment).load(s.assignment_id) }
-
-    field :user, UserType, resolve: ->(s, _, _) { Loaders::IDLoader.for(User).load(s.user_id) }
-
-    field :score, types.Float, resolve: SubmissionHelper.protect_submission_grades(:score)
-    field :grade, types.String, resolve: SubmissionHelper.protect_submission_grades(:grade)
-
-    field :enteredScore, types.Float,
-      "the submission score *before* late policy deductions were applied",
-      resolve: SubmissionHelper.protect_submission_grades(:entered_score)
-    field :enteredGrade, types.String,
-      "the submission grade *before* late policy deductions were applied",
-      resolve: SubmissionHelper.protect_submission_grades(:entered_grade)
-
-    field :deductedPoints, types.Float,
-      "how many points are being deducted due to late policy",
-      resolve: SubmissionHelper.protect_submission_grades(:points_deducted)
-
-    field :excused, types.Boolean,
-      "excused assignments are ignored when calculating grades",
-      property: :excused?
-
-    field :submittedAt, DateTimeType, property: :submitted_at
-    field :gradedAt, DateTimeType, property: :graded_at
-
-    field :state, SubmissionStateType, property: :workflow_state
-
-    field :submissionStatus, types.String, resolve: ->(submission, _, _) {
-      if submission.submission_type == "online_quiz"
-        Loaders::AssociationLoader.for(Submission, :quiz_submission).
-          load(submission).
-          then { submission.submission_status }
-      else
-        submission.submission_status
-      end
-    }
-
-    field :gradingStatus, types.String, property: :grading_status
+    argument :include_current_submission, Boolean, <<~DESC, required: false, default_value: true
+      If the most current submission should be included in the submission
+      history results. Defaults to true.
+    DESC
   end
 
-  class SubmissionHelper
-    def self.protect_submission_grades(attr)
-      ->(submission, _, ctx) {
-        submission.user_can_read_grade?(ctx[:current_user], ctx[:session]) ?
-          submission.send(attr) :
-          nil
-      }
+  class SubmissionType < ApplicationObjectType
+    graphql_name 'Submission'
+
+    implements GraphQL::Types::Relay::Node
+    implements Interfaces::TimestampInterface
+    implements Interfaces::SubmissionInterface
+    implements Interfaces::LegacyIDInterface
+
+    global_id_field :id
+
+    field :submission_histories_connection, SubmissionHistoryType.connection_type, null: true do
+      argument :filter, SubmissionHistoryFilterInputType, required: false, default_value: {}
+    end
+    def submission_histories_connection(filter:)
+      filter = filter.to_h
+      states, include_current_submission = filter.values_at(:states, :include_current_submission)
+
+      Promise.all([
+        load_association(:versions),
+        load_association(:assignment)
+      ]).then do
+        histories = object.submission_history
+        histories.pop unless include_current_submission
+        histories.select{ |h| states.include?(h.workflow_state) }
+      end
     end
   end
 end

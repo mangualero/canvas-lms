@@ -42,13 +42,15 @@ module Importers
       assignment_records = []
       context = migration.context
 
-      Assignment.suspend_callbacks(:update_submissions_later) do
-        assignments.each do |assign|
-          if migration.import_object?("assignments", assign['migration_id'])
-            begin
-              assignment_records << import_from_migration(assign, context, migration, nil, nil)
-            rescue
-              migration.add_import_warning(t('#migration.assignment_type', "Assignment"), assign[:title], $!)
+      AssignmentGroup.suspend_callbacks(:update_student_grades) do
+        Assignment.suspend_callbacks(:update_submissions_later) do
+          assignments.each do |assign|
+            if migration.import_object?("assignments", assign['migration_id'])
+              begin
+                assignment_records << import_from_migration(assign, context, migration, nil, nil)
+              rescue
+                migration.add_import_warning(t('#migration.assignment_type', "Assignment"), assign[:title], $!)
+              end
             end
           end
         end
@@ -77,7 +79,7 @@ module Importers
         end
       end
 
-      context.touch_admins if context.respond_to?(:touch_admins)
+      context.clear_todo_list_cache(:admins) if context.is_a?(Course)
     end
 
     def self.create_tool_settings(tool_setting_hash, tool_proxy, assignment)
@@ -96,11 +98,19 @@ module Importers
         context: assignment.course
       )
 
-      tool_setting.update_attributes!(
+      tool_setting.update!(
         custom: ts_custom,
         custom_parameters: ts_custom_params,
         vendor_code: ts_vendor_code,
         product_code: ts_product_code
+      )
+    end
+
+    def self.create_default_line_item(assignment, migration)
+      assignment.create_assignment_line_item!
+    rescue
+      migration.add_warning(
+        t('Error associating assignment "%{assignment_name}" with an LTI tool.', assignment_name: assignment.title)
       )
     end
 
@@ -111,6 +121,7 @@ module Importers
       item ||= Assignment.where(context_type: context.class.to_s, context_id: context, migration_id: hash[:migration_id]).first if hash[:migration_id]
       item ||= context.assignments.temp_record #new(:context => context)
 
+      item.saved_by = :migration
       item.mark_as_importing!(migration)
       master_migration = migration&.for_master_course_import?  # propagate null dates only for blueprint syncs
 
@@ -186,11 +197,13 @@ module Importers
       if hash[:assignment_group_migration_id]
         item.assignment_group = context.assignment_groups.where(migration_id: hash[:assignment_group_migration_id]).first
       end
-      item.assignment_group ||= context.assignment_groups.where(name: t(:imported_assignments_group, "Imported Assignments")).first_or_create
+      item.assignment_group ||= context.assignment_groups.active.where(name: t(:imported_assignments_group, "Imported Assignments")).first_or_create
 
       if item.points_possible.to_i < 0
         item.points_possible = 0
       end
+
+      item.allowed_attempts = hash[:allowed_attempts] if hash[:allowed_attempts]
 
       if !item.new_record? && item.is_child_content? && (item.editing_restricted?(:due_dates) || item.editing_restricted?(:availability_dates))
         # is a date-restricted master course item - clear their old overrides because we're mean
@@ -203,26 +216,28 @@ module Importers
       # workflow_state) that it did
       item.reload
 
-      rubric = nil
-      rubric = context.rubrics.where(migration_id: hash[:rubric_migration_id]).first if hash[:rubric_migration_id]
-      rubric ||= context.available_rubric(hash[:rubric_id]) if hash[:rubric_id]
-      if rubric
-        assoc = rubric.associate_with(item, context, :purpose => 'grading', :skip_updating_points_possible => true)
-        assoc.use_for_grading = !!hash[:rubric_use_for_grading] if hash.key?(:rubric_use_for_grading)
-        assoc.hide_score_total = !!hash[:rubric_hide_score_total] if hash.key?(:rubric_hide_score_total)
-        assoc.hide_points = !!hash[:rubric_hide_points] if hash.key?(:rubric_hide_points)
-        assoc.hide_outcome_results = !!hash[:rubric_hide_outcome_results] if hash.key?(:rubric_hide_outcome_results)
-        if hash[:saved_rubric_comments]
-          assoc.summary_data ||= {}
-          assoc.summary_data[:saved_comments] ||= {}
-          assoc.summary_data[:saved_comments] = hash[:saved_rubric_comments]
-        end
-        assoc.skip_updating_points_possible = true
-        assoc.save
+      unless master_migration && migration.master_course_subscription.content_tag_for(item)&.downstream_changes&.include?("rubric")
+        rubric = nil
+        rubric = context.rubrics.where(migration_id: hash[:rubric_migration_id]).first if hash[:rubric_migration_id]
+        rubric ||= context.available_rubric(hash[:rubric_id]) if hash[:rubric_id]
+        if rubric
+          assoc = rubric.associate_with(item, context, :purpose => 'grading', :skip_updating_points_possible => true)
+          assoc.use_for_grading = !!hash[:rubric_use_for_grading] if hash.key?(:rubric_use_for_grading)
+          assoc.hide_score_total = !!hash[:rubric_hide_score_total] if hash.key?(:rubric_hide_score_total)
+          assoc.hide_points = !!hash[:rubric_hide_points] if hash.key?(:rubric_hide_points)
+          assoc.hide_outcome_results = !!hash[:rubric_hide_outcome_results] if hash.key?(:rubric_hide_outcome_results)
+          if hash[:saved_rubric_comments]
+            assoc.summary_data ||= {}
+            assoc.summary_data[:saved_comments] ||= {}
+            assoc.summary_data[:saved_comments] = hash[:saved_rubric_comments]
+          end
+          assoc.skip_updating_points_possible = true
+          assoc.save
 
-        item.points_possible ||= rubric.points_possible if item.infer_grading_type == "points"
-      elsif master_migration && item.rubric
-        item.rubric_association.destroy
+          item.points_possible ||= rubric.points_possible if item.infer_grading_type == "points"
+        elsif master_migration && item.rubric
+          item.rubric_association.destroy
+        end
       end
 
       if hash[:assignment_overrides]
@@ -285,13 +300,34 @@ module Importers
         item.group_category ||= context.group_categories.active.where(:name => t("Project Groups")).first_or_create
       end
 
+      if hash.has_key?(:moderated_grading) && context.feature_enabled?(:moderated_grading)
+        item.moderated_grading = hash[:moderated_grading]
+      end
+      if hash.has_key?(:anonymous_grading) && context.feature_enabled?(:anonymous_marking)
+        item.anonymous_grading = hash[:anonymous_grading]
+      end
+
       [:peer_reviews,
        :automatic_peer_reviews, :anonymous_peer_reviews,
        :grade_group_students_individually, :allowed_extensions,
-       :position, :peer_review_count, :moderated_grading,
-       :omit_from_final_grade, :intra_group_peer_reviews, :post_to_sis
+       :position, :peer_review_count,
+       :omit_from_final_grade, :intra_group_peer_reviews,
+       :grader_count, :grader_comments_visible_to_graders,
+       :graders_anonymous_to_graders, :grader_names_visible_to_final_grader,
+       :anonymous_instructor_annotations
       ].each do |prop|
         item.send("#{prop}=", hash[prop]) unless hash[prop].nil?
+      end
+
+      if hash[:post_to_sis] && item.grading_type != 'not_graded' && AssignmentUtil.due_date_required_for_account?(context) &&
+        (item.due_at.nil? || (migration.date_shift_options && Canvas::Plugin.value_to_boolean(migration.date_shift_options[:remove_dates])))
+        # check if it's going to fail the weird post_to_sis validation requiring due dates
+        # either because the date is already nil or we're going to remove it later
+        migration.add_warning(
+          t("The Sync to SIS setting could not be enabled for the assignment \"%{assignment_name}\" without a due date.",
+            :assignment_name => item.title))
+      elsif !hash[:post_to_sis].nil?
+        item.post_to_sis = hash[:post_to_sis]
       end
 
       [:turnitin_enabled, :vericite_enabled].each do |prop|
@@ -331,24 +367,33 @@ module Importers
       item.save_without_broadcasting!
       item.skip_schedule_peer_reviews = nil
 
-      if item.submission_types == 'external_tool'
-        tag = item.create_external_tool_tag(:url => hash[:external_tool_url], :new_tab => hash[:external_tool_new_tab])
-        if hash[:external_tool_id] && migration && !migration.cross_institution?
-          tool_id = hash[:external_tool_id].to_i
-          tag.content_id = tool_id if ContextExternalTool.all_tools_for(context).where(id: tool_id).exists?
-        elsif hash[:external_tool_migration_id]
-          tool = context.context_external_tools.where(migration_id: hash[:external_tool_migration_id]).first
-          tag.content_id = tool.id if tool
-        end
-        tag.content_type = 'ContextExternalTool'
-        if !tag.save
-          if tag.errors["url"]
-            migration.add_warning(t('errors.import.external_tool_url',
-              "The url for the external tool assignment \"%{assignment_name}\" wasn't valid.",
-              :assignment_name => item.title))
+      if item.submission_types == 'external_tool' && (hash[:external_tool_url] || hash[:external_tool_id] || hash[:external_tool_migration_id])
+        current_tag = item.external_tool_tag
+        needs_new_tag = !current_tag ||
+          (hash[:external_tool_url] && current_tag.url != hash[:external_tool_url]) ||
+          (hash[:external_tool_id] && current_tag.content_id != hash[:external_tool_id].to_i) ||
+          (hash[:external_tool_migration_id] && current_tag.content&.migration_id != hash[:external_tool_migration_id])
+
+        if needs_new_tag
+          tag = item.create_external_tool_tag(:url => hash[:external_tool_url], :new_tab => hash[:external_tool_new_tab])
+          if hash[:external_tool_id] && migration && !migration.cross_institution?
+            tool_id = hash[:external_tool_id].to_i
+            tag.content_id = tool_id if ContextExternalTool.all_tools_for(context).where(id: tool_id).exists?
+          elsif hash[:external_tool_migration_id]
+            tool = context.context_external_tools.where(migration_id: hash[:external_tool_migration_id]).first
+            tag.content_id = tool.id if tool
           end
-          item.association(:external_tool_tag).target = nil # otherwise it will trigger destroy on the tag
+          tag.content_type = 'ContextExternalTool'
+          if !tag.save
+            if tag.errors["url"]
+              migration.add_warning(t('errors.import.external_tool_url',
+                "The url for the external tool assignment \"%{assignment_name}\" wasn't valid.",
+                :assignment_name => item.title))
+            end
+            item.association(:external_tool_tag).target = nil # otherwise it will trigger destroy on the tag
+          end
         end
+        create_default_line_item(item, migration)
       end
 
       if hash["similarity_detection_tool"].present?
@@ -356,15 +401,16 @@ module Importers
         vendor_code = similarity_tool["vendor_code"]
         product_code = similarity_tool["product_code"]
         resource_type_code = similarity_tool["resource_type_code"]
-        item.assignment_configuration_tool_lookups.create(
+        item.assignment_configuration_tool_lookups.find_or_create_by!(
           tool_vendor_code: vendor_code,
           tool_product_code: product_code,
           tool_resource_type_code: resource_type_code,
-          tool_type: 'Lti::MessageHandler'
+          tool_type: 'Lti::MessageHandler',
+          context_type: context.class.name
         )
         active_proxies = Lti::ToolProxy.find_active_proxies_for_context_by_vendor_code_and_product_code(
           context: context, vendor_code: vendor_code, product_code: product_code
-        ).preload(:tool_settings)
+        )
 
 
         if active_proxies.blank?
@@ -377,6 +423,12 @@ module Importers
           create_tool_settings(hash['tool_setting'], active_proxies.first, item)
         end
       end
+
+      # Ensure anonymous and moderated assignments always start out manually
+      # posted, even if the moderated assignment in the old course was switched
+      # to automatically post after it had grades published
+      post_manually = hash.dig(:post_policy, :post_manually) || item.anonymous_grading || item.moderated_grading
+      item.post_policy.update!(post_manually: !!post_manually)
 
       item
     end

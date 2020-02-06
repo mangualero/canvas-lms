@@ -23,9 +23,21 @@ module Canvas
       end
 
       def fetch(key, **_)
-        @data[key]
+        # use .to_s, to act like consul where booleans aren't
+        # first class data types
+        @data[key]&.to_s
       end
       alias [] fetch
+
+      # Set multiple key value pairs
+      #
+      # @param kvs [Hash] Key value pairs where the hash key is the key
+      #   and the hash value is the value
+      # @param global [nil] Has no effect
+      # @return [Hash]
+      def set_keys(kvs, global: nil)
+        @data.merge!(kvs)
+      end
 
       # TODO: Make this return something API compatible with
       #   Imperium::KVGETResponse once we're actually using Consul's metadata

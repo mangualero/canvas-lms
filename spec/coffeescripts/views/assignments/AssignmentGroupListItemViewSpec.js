@@ -242,8 +242,8 @@ test('does not parse response with multiple due dates', function() {
   const a1 = models[0]
   const a2 = models[1]
 
-  this.spy(a1, 'doNotParse')
-  this.spy(a2, 'doNotParse')
+  sandbox.spy(a1, 'doNotParse')
+  sandbox.spy(a2, 'doNotParse')
 
   createView(this.model)
 
@@ -290,7 +290,7 @@ test('toJSON includes group weight', function() {
 
 test('shouldBeExpanded returns cache state', function() {
   const view = createView(this.model)
-  //make sure the cache starts at true
+  // make sure the cache starts at true
   if (!view.shouldBeExpanded()) {
     view.toggleCache()
   }
@@ -306,7 +306,7 @@ test('shouldBeExpanded returns cache state', function() {
 
 test('toggleCache correctly toggles cache state', function() {
   const view = createView(this.model)
-  //make sure the cache starts at true
+  // make sure the cache starts at true
   if (!view.shouldBeExpanded()) {
     view.toggleCache()
   }
@@ -320,7 +320,7 @@ test('toggleCache correctly toggles cache state', function() {
 
 test('currentlyExpanded returns expanded state', function() {
   const view = createView(this.model)
-  //make sure the cache starts at true
+  // make sure the cache starts at true
   if (!view.shouldBeExpanded()) {
     view.toggleCache()
   }
@@ -330,7 +330,7 @@ test('currentlyExpanded returns expanded state', function() {
 test('toggleCollapse toggles expansion', function() {
   const view = createView(this.model)
   const $toggle_el = view.$el.find('.element_toggler')
-  //make sure the cache starts at true
+  // make sure the cache starts at true
   if (!view.shouldBeExpanded()) {
     view.toggleCache()
   }
@@ -418,7 +418,7 @@ QUnit.module('AssignmentGroupListItemView as an admin', {
 })
 
 test('provides a view to delete a group when canDelete is true', function() {
-  this.stub(this.model, 'canDelete').returns(true)
+  sandbox.stub(this.model, 'canDelete').returns(true)
   this.model.set('any_assignment_in_closed_grading_period', true)
   const view = createView(this.model, {userIsAdmin: true})
   ok(view.deleteGroupView)
@@ -426,7 +426,7 @@ test('provides a view to delete a group when canDelete is true', function() {
 })
 
 test('provides a view to delete a group when canDelete is false', function() {
-  this.stub(this.model, 'canDelete').returns(false)
+  sandbox.stub(this.model, 'canDelete').returns(false)
   this.model.set('any_assignment_in_closed_grading_period', true)
   const view = createView(this.model, {userIsAdmin: true})
   ok(view.deleteGroupView)

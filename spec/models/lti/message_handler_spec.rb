@@ -53,6 +53,33 @@ module Lti
       end
     end
 
+    describe '#recreate_missing_subscriptions' do
+      include_context 'lti2_spec_helper'
+
+      let(:account) { Account.create!(name: 'account') }
+      let(:course) { Course.create!(account: account) }
+      let(:lookup) { assignment.assignment_configuration_tool_lookups.first }
+      let(:assignment) { course.assignments.new(title: 'Test Assignment') }
+
+      before do
+        allow_any_instance_of(AssignmentSubscriptionsHelper).to receive(:create_subscription) { SecureRandom.uuid }
+        allow_any_instance_of(AssignmentSubscriptionsHelper).to receive(:destroy_subscription) { {} }
+        assignment.workflow_state = 'published'
+        assignment.tool_settings_tool = message_handler
+        assignment.save!
+      end
+
+      it 'recreates subscriptions for associated assignments' do
+        message_handler.update!(
+          capabilities: [Lti::ResourcePlacement::SIMILARITY_DETECTION_LTI2]
+        )
+        expect do
+          message_handler.recreate_missing_subscriptions
+          run_jobs
+        end.to change { lookup.reload.subscription_id }
+      end
+    end
+
     describe 'scope #message_type' do
 
       it 'returns all message_handlers for a message_type' do
@@ -206,11 +233,11 @@ module Lti
       end
 
       before do
-        message_handler.update_attributes(message_type: MessageHandler::BASIC_LTI_LAUNCH_REQUEST)
+        message_handler.update(message_type: MessageHandler::BASIC_LTI_LAUNCH_REQUEST)
       end
 
       it 'finds message handlers when tool is installed in current account' do
-        tool_proxy.update_attributes(context: account)
+        tool_proxy.update(context: account)
         mh = MessageHandler.by_resource_codes(vendor_code: jwt_body[:vendor_code],
                                               product_code: jwt_body[:product_code],
                                               resource_type_code: jwt_body[:resource_type_code],
@@ -219,7 +246,7 @@ module Lti
       end
 
       it 'finds message handlers when tool is installed in current course' do
-        tool_proxy.update_attributes(context: course)
+        tool_proxy.update(context: course)
         mh = MessageHandler.by_resource_codes(vendor_code: jwt_body[:vendor_code],
                                               product_code: jwt_body[:product_code],
                                               resource_type_code: jwt_body[:resource_type_code],
@@ -228,7 +255,7 @@ module Lti
       end
 
       it 'does not return message handlers with a different message_type' do
-        message_handler.update_attributes(message_type: 'banana')
+        message_handler.update(message_type: 'banana')
         mh = MessageHandler.by_resource_codes(vendor_code: jwt_body[:vendor_code],
                                               product_code: jwt_body[:product_code],
                                               resource_type_code: jwt_body[:resource_type_code],
@@ -238,8 +265,8 @@ module Lti
 
       context 'account chain search' do
         it 'finds message handlers when tool is installed in course root account' do
-          course.update_attributes(root_account: account)
-          tool_proxy.update_attributes(context: account)
+          course.update(root_account: account)
+          tool_proxy.update(context: account)
           mh = MessageHandler.by_resource_codes(vendor_code: jwt_body[:vendor_code],
                                                 product_code: jwt_body[:product_code],
                                                 resource_type_code: jwt_body[:resource_type_code],
@@ -249,7 +276,7 @@ module Lti
 
         it 'finds message handlers when tool is installed in account root account' do
           root_account = Account.create!
-          account.update_attributes(root_account: root_account)
+          account.update(root_account: root_account)
           mh = MessageHandler.by_resource_codes(vendor_code: jwt_body[:vendor_code],
                                                 product_code: jwt_body[:product_code],
                                                 resource_type_code: jwt_body[:resource_type_code],

@@ -56,6 +56,35 @@ describe Account do
     # account_model
     # @a.to_atom.should be_is_a(Atom::Entry)
   # end
+  #
+  context "pronouns" do
+    it "uses an empty array if the setting is not on" do
+      account = Account.create!
+      expect(account.pronouns).to be_empty
+
+      # still returns empty array even if you explicitly set some
+      account.pronouns = ["Dude/Guy", "Dudette/Gal"]
+      expect(account.pronouns).to be_empty
+    end
+
+    it "uses defaults if setting is enabled and nothing is explicitly set" do
+      account = Account.create!
+      account.settings[:can_add_pronouns] = true
+      expect(account.pronouns).to eq ["She/Her", "He/Him", "They/Them"]
+    end
+
+    it "uses custom set things if explicitly provided (and strips whitespace)" do
+      account = Account.create!
+      account.settings[:can_add_pronouns] = true
+      account.pronouns = [" Dude/Guy   ", "She/Her  "]
+
+      # it "untranslates" "she/her" when it serializes it to the db
+      expect(account.settings[:pronouns]).to eq ["Dude/Guy", "she_her"]
+      # it "translates" "she/her" when it reads it
+      expect(account.pronouns).to eq ["Dude/Guy", "She/Her"]
+
+    end
+  end
 
   context "course lists" do
     before :once do
@@ -221,23 +250,20 @@ describe Account do
       @a = Account.new
     end
     it "should be able to specify a list of enabled services" do
-      @a.allowed_services = 'linked_in,twitter'
-      expect(@a.service_enabled?(:linked_in)).to be_truthy
+      @a.allowed_services = 'twitter'
       expect(@a.service_enabled?(:twitter)).to be_truthy
       expect(@a.service_enabled?(:diigo)).to be_falsey
       expect(@a.service_enabled?(:avatars)).to be_falsey
     end
 
     it "should not enable services off by default" do
-      expect(@a.service_enabled?(:linked_in)).to be_truthy
       expect(@a.service_enabled?(:avatars)).to be_falsey
     end
 
     it "should add and remove services from the defaults" do
-      @a.allowed_services = '+avatars,-linked_in'
+      @a.allowed_services = '+avatars,-twitter'
       expect(@a.service_enabled?(:avatars)).to be_truthy
-      expect(@a.service_enabled?(:twitter)).to be_truthy
-      expect(@a.service_enabled?(:linked_in)).to be_falsey
+      expect(@a.service_enabled?(:twitter)).to be_falsey
     end
 
     it "should allow settings services" do
@@ -268,15 +294,11 @@ describe Account do
     end
 
     it "should be able to set service availibity for previously hard-coded values" do
-      @a.allowed_services = 'avatars,linked_in'
+      @a.allowed_services = 'avatars'
 
       @a.enable_service(:twitter)
       expect(@a.service_enabled?(:twitter)).to be_truthy
       expect(@a.allowed_services).to match(/twitter/)
-      expect(@a.allowed_services).not_to match(/[+-]/)
-
-      @a.disable_service(:linked_in)
-      expect(@a.allowed_services).not_to match(/linked_in/)
       expect(@a.allowed_services).not_to match(/[+-]/)
 
       @a.disable_service(:avatars)
@@ -515,10 +537,10 @@ describe Account do
 
     limited_access = [ :read, :read_as_admin, :manage, :update, :delete, :read_outcomes, :read_terms ]
     conditional_access = RoleOverride.permissions.select { |_, v| v[:account_allows] }.map(&:first)
+    disabled_by_default = RoleOverride.permissions.select { |_, v| v[:true_for].empty? }.map(&:first)
     full_access = RoleOverride.permissions.keys +
-                  limited_access - conditional_access +
-                  [:create_courses] +
-                  [:create_tool_manually]
+                  limited_access - disabled_by_default - conditional_access +
+                  [:create_courses, :create_tool_manually]
 
     full_root_access = full_access - RoleOverride.permissions.select { |k, v| v[:account_only] == :site_admin }.map(&:first)
     full_sub_access = full_root_access - RoleOverride.permissions.select { |k, v| v[:account_only] == :root }.map(&:first)
@@ -564,7 +586,6 @@ describe Account do
       account.tap{|a| a.settings[:mfa_settings] = :optional; a.save!}
       v[:account] = Account.find(account.id)
     end
-    RoleOverride.clear_cached_contexts
     AdheresToPolicy::Cache.clear
     hash.each do |k, v|
       account = v[:account]
@@ -886,7 +907,7 @@ describe Account do
       tool.settings[:account_navigation] = account_navigation
       tool.save!
 
-      tabs = @account.external_tool_tabs({})
+      tabs = @account.external_tool_tabs({}, User.new)
 
       expect(tabs.first[:label]).to eq "English Label"
     end
@@ -911,12 +932,36 @@ describe Account do
       tabs = @account.tabs_available(@admin)
       expect(tabs.map{|t| t[:id] }).to be_include(Account::TAB_QUESTION_BANKS)
     end
+
+    describe "'ePortfolio Moderation' tab" do
+      let(:tab_ids) { @account.tabs_available(@admin).pluck(:id) }
+
+      it "is shown if the release flag is enabled and the user has the moderate_user_content permission" do
+        account_admin_user_with_role_changes(acccount: @account, role_changes: { moderate_user_content: true })
+        @account.root_account.enable_feature!(:eportfolio_moderation)
+
+        expect(tab_ids).to include(Account::TAB_EPORTFOLIO_MODERATION)
+      end
+
+      it "is not shown if the user has permission but the release flag is not enabled" do
+        account_admin_user_with_role_changes(acccount: @account, role_changes: { moderate_user_content: true })
+
+        expect(tab_ids).not_to include(Account::TAB_EPORTFOLIO_MODERATION)
+      end
+
+      it "is not shown if the release flag is enabled but the user lacks permission" do
+        account_admin_user_with_role_changes(acccount: @account, role_changes: { moderate_user_content: false })
+        @account.root_account.enable_feature!(:eportfolio_moderation)
+
+        expect(tab_ids).not_to include(Account::TAB_EPORTFOLIO_MODERATION)
+      end
+    end
   end
 
   describe "fast_all_users" do
     it "should preserve sortable_name" do
       user_with_pseudonym(:active_all => 1)
-      @user.update_attributes(:name => "John St. Clair", :sortable_name => "St. Clair, John")
+      @user.update(:name => "John St. Clair", :sortable_name => "St. Clair, John")
       @johnstclair = @user
       user_with_pseudonym(:active_all => 1, :username => 'jt@instructure.com', :name => 'JT Olds')
       @jtolds = @user
@@ -1673,14 +1718,7 @@ describe Account do
       expect { @account.save! }.not_to change { @account.default_dashboard_view }
     end
 
-    it "should not contain planner if feature is disabled" do
-      @account.default_dashboard_view = "planner"
-      @account.save!
-      expect(@account.default_dashboard_view).not_to eq "planner"
-    end
-
-    it "should contain planner if feature is enabled" do
-      @account.enable_feature! :student_planner
+    it "should contain planner" do
       @account.default_dashboard_view = "planner"
       @account.save!
       expect(@account.default_dashboard_view).to eq "planner"
@@ -1726,5 +1764,94 @@ describe Account do
     user_factory(:active_all => true)
     au = Account.default.account_users.create!(:user => @user)
     expect(au.messages_sent[n.name].map(&:user)).to match_array [active_admin, @user]
+  end
+
+  context "fancy redis caching" do
+    specs_require_cache(:redis_cache_store)
+
+    describe "cached_account_users_for" do
+      before :each do
+        @account = Account.create!
+        @user = User.create!
+      end
+
+      def cached_account_users
+        [:@account_users_cache, :@account_chain_ids, :@account_chain].each do |iv|
+          @account.instance_variable_set(iv, nil)
+        end
+        @account.cached_account_users_for(@user)
+      end
+
+      it "should cache" do
+        expect_any_instantiation_of(@account).to receive(:account_users_for).once.and_call_original
+        2.times { cached_account_users }
+      end
+
+      it "should skip cache if disabled" do
+        allow(Canvas::CacheRegister).to receive(:enabled?).and_return(false)
+        expect_any_instantiation_of(@account).to receive(:account_users_for).exactly(2).times.and_call_original
+        2.times { cached_account_users }
+      end
+
+      it "should update if the account chain changes" do
+        other_account = Account.create!
+        au = AccountUser.create!(:account => other_account, :user => @user)
+        expect(cached_account_users).to eq []
+        @account.update_attribute(:parent_account, other_account)
+        expect(cached_account_users).to eq [au]
+      end
+
+      it "should update if the user has an account user added" do
+        expect(cached_account_users).to eq []
+        au = AccountUser.create!(:account => @account, :user => @user)
+        expect(cached_account_users).to eq [au]
+      end
+    end
+
+    describe "account_chain_ids" do
+      it "should cache" do
+        expect(Account.connection).to receive(:select_values).once.and_call_original
+        2.times { Account.account_chain_ids(Account.default.id) }
+      end
+
+      it "should skip cache if disabled" do
+        allow(Canvas::CacheRegister).to receive(:enabled?).and_return(false)
+        expect(Account.connection).to receive(:select_values).exactly(2).times.and_call_original
+        2.times { Account.account_chain_ids(Account.default.id) }
+      end
+
+      it "should update if the account chain changes" do
+        account1 = Account.default.sub_accounts.create!
+        account2 = Account.default.sub_accounts.create!
+        expect(Account.account_chain_ids(account2.id)).to eq [account2.id, Account.default.id]
+        account2.update_attribute(:parent_account, account1)
+        expect(Account.account_chain_ids(account2.id)).to eq [account2.id, account1.id, Account.default.id]
+      end
+    end
+  end
+
+  context '#destroy on sub accounts' do
+    before :once do
+      @root_account = Account.create!
+      @sub_account = @root_account.sub_accounts.create!
+    end
+
+    it 'wont let you destroy if there are active sub accounts' do
+      @sub_account.sub_accounts.create!
+      expect { @sub_account.destroy! }.to raise_error ActiveRecord::RecordInvalid
+    end
+
+    it 'wont let you destroy if there are active courses' do
+      @sub_account.courses.create!
+      expect { @sub_account.destroy! }.to raise_error ActiveRecord::RecordInvalid
+    end
+
+    it 'destroys associated account users' do
+      account_user1 = @sub_account.account_users.create!(user: User.create!)
+      account_user2 = @sub_account.account_users.create!(user: User.create!)
+      @sub_account.destroy!
+      expect(account_user1.reload.workflow_state).to eq 'deleted'
+      expect(account_user2.reload.workflow_state).to eq 'deleted'
+    end
   end
 end

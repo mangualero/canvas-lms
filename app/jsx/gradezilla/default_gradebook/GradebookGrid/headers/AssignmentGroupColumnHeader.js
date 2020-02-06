@@ -16,41 +16,40 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { bool, func, number, shape, string } from 'prop-types';
-import IconMoreSolid from '@instructure/ui-icons/lib/Solid/IconMore';
-import Button from '@instructure/ui-core/lib/components/Button';
-import Grid, { GridCol, GridRow } from '@instructure/ui-core/lib/components/Grid';
-import { MenuItem, MenuItemFlyout, MenuItemGroup } from '@instructure/ui-core/lib/components/Menu';
-import PopoverMenu from '@instructure/ui-core/lib/components/PopoverMenu';
-import Text from '@instructure/ui-core/lib/components/Text';
-import I18n from 'i18n!gradebook';
-import ScreenReaderContent from '@instructure/ui-core/lib/components/ScreenReaderContent';
+import React from 'react'
+import {bool, func, number, shape, string} from 'prop-types'
+import {IconMoreSolid} from '@instructure/ui-icons'
+import {Button} from '@instructure/ui-buttons'
+import {Grid} from '@instructure/ui-layout'
+import {Menu} from '@instructure/ui-menu'
+import {Text} from '@instructure/ui-elements'
+import I18n from 'i18n!gradezilla'
+import {ScreenReaderContent} from '@instructure/ui-a11y'
 import ColumnHeader from './ColumnHeader'
 
-function AssignmentGroupDetail ({ assignmentGroup, weightedGroups }) {
+function AssignmentGroupDetail({assignmentGroup, weightedGroups}) {
   if (weightedGroups) {
-    const weightValue = assignmentGroup.groupWeight || 0;
-    const weightStr = I18n.n(weightValue, { precision: 2, percentage: true, strip_insignificant_zeros: true });
+    const weightValue = assignmentGroup.groupWeight || 0
+    const weightStr = I18n.n(weightValue, {
+      precision: 2,
+      percentage: true,
+      strip_insignificant_zeros: true
+    })
 
     return (
       <span className="Gradebook__ColumnHeaderDetail">
-        <span className="Gradebook__ColumnHeaderDetailLine">
-          { assignmentGroup.name }
-        </span>
+        <span className="Gradebook__ColumnHeaderDetailLine">{assignmentGroup.name}</span>
 
         <span className="Gradebook__ColumnHeaderDetailLine">
           <Text weight="normal" fontStyle="normal" size="x-small">
-            { I18n.t('%{weight} of grade', { weight: weightStr }) }
+            {I18n.t('%{weight} of grade', {weight: weightStr})}
           </Text>
         </span>
       </span>
-    );
+    )
   }
 
-  return (
-    <span className="Gradebook__ColumnHeaderDetail">{ assignmentGroup.name }</span>
-  );
+  return <span className="Gradebook__ColumnHeaderDetail">{assignmentGroup.name}</span>
 }
 
 AssignmentGroupDetail.propTypes = {
@@ -61,12 +60,12 @@ AssignmentGroupDetail.propTypes = {
   weightedGroups: bool.isRequired
 }
 
-function renderTrigger (assignmentGroup, ref) {
+function renderTrigger(assignmentGroup, ref) {
   return (
     <Button buttonRef={ref} margin="0" size="small" variant="icon">
-      <IconMoreSolid title={I18n.t('%{name} Options', { name: assignmentGroup.name })} />
+      <IconMoreSolid title={I18n.t('%{name} Options', {name: assignmentGroup.name})} />
     </Button>
-  );
+  )
 }
 
 export default class AssignmentGroupColumnHeader extends ColumnHeader {
@@ -84,18 +83,18 @@ export default class AssignmentGroupColumnHeader extends ColumnHeader {
       settingKey: string.isRequired
     }).isRequired,
     weightedGroups: bool.isRequired,
-    onMenuClose: func.isRequired,
+    onMenuDismiss: Menu.propTypes.onDismiss.isRequired,
     ...ColumnHeader.propTypes
-  };
+  }
 
   static defaultProps = {
     ...ColumnHeader.defaultProps
-  };
+  }
 
-  render () {
-    const { assignmentGroup, sortBySetting, weightedGroups } = this.props;
-    const selectedSortSetting = sortBySetting.isSortColumn && sortBySetting.settingKey;
-    const classes = `Gradebook__ColumnHeaderAction ${this.state.menuShown ? 'menuShown' : ''}`;
+  render() {
+    const {assignmentGroup, sortBySetting, weightedGroups} = this.props
+    const selectedSortSetting = sortBySetting.isSortColumn && sortBySetting.settingKey
+    const classes = `Gradebook__ColumnHeaderAction ${this.state.menuShown ? 'menuShown' : ''}`
 
     return (
       <div
@@ -103,52 +102,66 @@ export default class AssignmentGroupColumnHeader extends ColumnHeader {
         onBlur={this.handleBlur}
         onFocus={this.handleFocus}
       >
-        <div style={{ flex: 1, minWidth: '1px' }}>
+        <div style={{flex: 1, minWidth: '1px'}}>
           <Grid colSpacing="none" hAlign="space-between" vAlign="middle">
-            <GridRow>
-              <GridCol textAlign="center" width="auto">
+            <Grid.Row>
+              <Grid.Col textAlign="center" width="auto">
                 <div className="Gradebook__ColumnHeaderIndicators" />
-              </GridCol>
+              </Grid.Col>
 
-              <GridCol textAlign="center">
-                <AssignmentGroupDetail assignmentGroup={assignmentGroup} weightedGroups={weightedGroups} />
-              </GridCol>
+              <Grid.Col textAlign="center">
+                <AssignmentGroupDetail
+                  assignmentGroup={assignmentGroup}
+                  weightedGroups={weightedGroups}
+                />
+              </Grid.Col>
 
-              <GridCol textAlign="center" width="auto">
+              <Grid.Col textAlign="center" width="auto">
                 <div className={classes}>
-                  <PopoverMenu
+                  <Menu
                     contentRef={this.bindOptionsMenuContent}
                     shouldFocusTriggerOnClose={false}
-                    trigger={renderTrigger(this.props.assignmentGroup, this.bindOptionsMenuTrigger)}
+                    trigger={renderTrigger(
+                      this.props.assignmentGroup,
+                      ref => (this.optionsMenuTrigger = ref)
+                    )}
                     onToggle={this.onToggle}
-                    onClose={this.props.onMenuClose}
+                    onDismiss={this.props.onMenuDismiss}
                   >
-                    <MenuItemFlyout label={I18n.t('Sort by')} contentRef={this.bindSortByMenuContent}>
-                      <MenuItemGroup label={<ScreenReaderContent>{I18n.t('Sort by')}</ScreenReaderContent>}>
-                        <MenuItem
-                          selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'ascending'}
+                    <Menu label={I18n.t('Sort by')} contentRef={this.bindSortByMenuContent}>
+                      <Menu.Group
+                        label={<ScreenReaderContent>{I18n.t('Sort by')}</ScreenReaderContent>}
+                      >
+                        <Menu.Item
+                          selected={
+                            selectedSortSetting === 'grade' &&
+                            sortBySetting.direction === 'ascending'
+                          }
                           disabled={sortBySetting.disabled}
                           onSelect={sortBySetting.onSortByGradeAscending}
                         >
                           <span>{I18n.t('Grade - Low to High')}</span>
-                        </MenuItem>
+                        </Menu.Item>
 
-                        <MenuItem
-                          selected={selectedSortSetting === 'grade' && sortBySetting.direction === 'descending'}
+                        <Menu.Item
+                          selected={
+                            selectedSortSetting === 'grade' &&
+                            sortBySetting.direction === 'descending'
+                          }
                           disabled={sortBySetting.disabled}
                           onSelect={sortBySetting.onSortByGradeDescending}
                         >
                           <span>{I18n.t('Grade - High to Low')}</span>
-                        </MenuItem>
-                      </MenuItemGroup>
-                    </MenuItemFlyout>
-                  </PopoverMenu>
+                        </Menu.Item>
+                      </Menu.Group>
+                    </Menu>
+                  </Menu>
                 </div>
-              </GridCol>
-            </GridRow>
+              </Grid.Col>
+            </Grid.Row>
           </Grid>
         </div>
       </div>
-    );
+    )
   }
 }

@@ -98,16 +98,9 @@ class Notification < ActiveRecord::Base
   # options - a hash of extra options to merge with the options used to build the Message
   #
   def create_message(asset, to_list, options={})
-    messages = [] if Rails.env.test?
-
     preload_asset_roles_if_needed(asset)
 
-    to_list.each do |to|
-      msgs = NotificationMessageCreator.new(self, asset, options.merge(:to_list => to)).create_message
-      messages.concat msgs if Rails.env.test?
-      to.send(:clear_association_cache) if to.is_a?(User)
-    end
-    messages
+    NotificationMessageCreator.new(self, asset, options.merge(:to_list => to_list)).create_message
   end
 
   TYPES_TO_PRELOAD_CONTEXT_ROLES = ["Assignment Created", "Assignment Due Date Changed"].freeze
@@ -206,8 +199,8 @@ class Notification < ActiveRecord::Base
     end
   end
 
-  def default_frequency(_user = nil)
-    # user arg is used in plugins
+  def default_frequency(user = nil)
+    return FREQ_NEVER if user&.default_notifications_disabled?
     case category
     when 'All Submissions'
       FREQ_NEVER
@@ -273,6 +266,10 @@ class Notification < ActiveRecord::Base
       FREQ_NEVER
     when 'Recording Ready'
       FREQ_IMMEDIATELY
+    when 'Content Link Error'
+      FREQ_DAILY
+    when 'Account Notification'
+      FREQ_IMMEDIATELY
     else
       FREQ_DAILY
     end
@@ -282,6 +279,7 @@ class Notification < ActiveRecord::Base
   # wherever), even if we continue to store the english string in the db
   # (it's actually just the titleized message template filename)
   def names
+    t 'names.manually_created_access_token_created', 'Manually Created Access Token Created'
     t 'names.account_user_notification', 'Account User Notification'
     t 'names.account_user_registration', 'Account User Registration'
     t 'names.assignment_changed', 'Assignment Changed'
@@ -340,7 +338,7 @@ class Notification < ActiveRecord::Base
     t 'names.submission_grade_changed', 'Submission Grade Changed'
     t 'names.submission_graded', 'Submission Graded'
     t 'names.summaries', 'Summaries'
-    t 'names.updated_wiki_page', 'Updated Wiki Page'
+    t 'names.updated_wiki_page', 'Updated Page'
     t 'names.web_conference_invitation', 'Web Conference Invitation'
     t 'names.alert', 'Alert'
     t 'names.appointment_canceled_by_user', 'Appointment Canceled By User'
@@ -354,6 +352,8 @@ class Notification < ActiveRecord::Base
     t 'names.web_conference_recording_ready', 'Web Conference Recording Ready'
     t 'names.blueprint_sync_complete', 'Blueprint Sync Complete'
     t 'names.blueprint_content_added', 'Blueprint Content Added'
+    t 'names.content_link_error', 'Content Link Error'
+    t 'names.account_notification', 'Account Notification'
   end
 
   # TODO: i18n ... show these anywhere we show the category today
@@ -382,11 +382,13 @@ class Notification < ActiveRecord::Base
     t 'categories.submission_comment', 'Submission Comment'
     t 'categories.recording_ready', 'Recording Ready'
     t 'categories.blueprint', 'Blueprint'
+    t 'categories.content_link_error', 'Content Link Error'
+    t 'categories.account_notification', 'Account Notification'
   end
 
   # Translatable display text to use when representing the category to the user.
   # NOTE: If you add a new notification category, update the mapping file for groupings to show up
-  #       on notification preferences page. /app/coffeescripts/notifications/NotificationGroupMappings.coffee
+  #       on notification preferences page. /app/coffeescripts/notifications/NotificationGroupMappings.js
   def category_display_name
     case category
     when 'Announcement'
@@ -441,6 +443,10 @@ class Notification < ActiveRecord::Base
       t(:recording_ready_display, 'Recording Ready')
     when 'Blueprint'
       t(:blueprint_display, 'Blueprint Sync')
+    when 'Content Link Error'
+      t(:content_link_error_display, 'Content Link Error')
+    when 'Account Notification'
+      t(:account_notification_display, 'Global Announcements')
     else
       t(:missing_display_display, "For %{category} notifications", :category => category)
     end
@@ -459,7 +465,7 @@ EOS
         mt(:course_content_description, <<-EOS)
 Change to course content:
 
-* WikiPage
+* Page content
 * Quiz content
 * Assignment content
 EOS
@@ -545,11 +551,21 @@ EOS
 * accepted/rejected
 EOS
     when 'Blueprint'
-      mt(:blueprint_description, <<-EOS)
+      mt(:blueprint_description, <<-BPDESC)
 *Instructor and Admin only:*
 
 Content was synced from a blueprint course to associated courses
-EOS
+BPDESC
+    when 'Content Link Error'
+      mt(:content_link_error_description, <<-CONTLINK)
+*Instructor and Admin only:*
+
+Location and content of a failed link that a student has interacted with
+CONTLINK
+    when 'Account Notification'
+      mt(:account_notification_description, <<-EOS)
+Institution-wide announcements (also displayed on Dashboard pages)
+    EOS
     else
       t(:missing_description_description, "For %{category} notifications", :category => category)
     end

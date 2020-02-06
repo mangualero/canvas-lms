@@ -17,23 +17,31 @@
  */
 import PropTypes from 'prop-types'
 
+export const pointShape = {
+  text: PropTypes.string,
+  value: PropTypes.number,
+  valid: PropTypes.boolean
+}
+
 export const tierShape = {
   points: PropTypes.number,
   description: PropTypes.string,
-  long_description: PropTypes.string
+  long_description: PropTypes.string,
+  endOfRangePoints: PropTypes.number
 }
 
 export const ratingShape = {
   tiers: PropTypes.arrayOf(PropTypes.shape(tierShape)).isRequired,
   points: PropTypes.number,
-  masteryThreshold: PropTypes.number
+  selectedRatingId: PropTypes.string,
+  defaultMasteryThreshold: PropTypes.number,
+  useRange: PropTypes.bool.isRequired
 }
 
 export const assessmentShape = {
   criterion_id: PropTypes.string.isRequired,
   comments: PropTypes.string,
-  points: PropTypes.number,
-  pointText: PropTypes.string,
+  points: PropTypes.shape(pointShape).isRequired,
   focusPoints: PropTypes.number,
   saveCommentsForLater: PropTypes.bool
 }
@@ -64,5 +72,5 @@ export const rubricAssociationShape = {
 
 export const rubricAssessmentShape = {
   data: PropTypes.arrayOf(PropTypes.shape(assessmentShape)).isRequired,
-  score: PropTypes.number.isRequired
+  score: PropTypes.number
 }

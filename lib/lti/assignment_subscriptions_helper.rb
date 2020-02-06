@@ -35,6 +35,7 @@ module Lti
     end
 
     def create_subscription
+      Rails.logger.info { "in: AssignmentSubscriptionsHelper::create_subscription, assignment_id: #{assignment.id}, tool_proxy_id: #{tool_proxy.id}" }
       if Services::LiveEventsSubscriptionService.available? && assignment.present?
         subscription = assignment_subscription(assignment.global_id)
         result = Services::LiveEventsSubscriptionService.create_tool_proxy_subscription(tool_proxy, subscription)
@@ -46,7 +47,8 @@ module Lti
     end
 
     def assignment_subscription(context_id)
-      {
+      enabled = Account.site_admin.feature_enabled?(:system_and_user_generated_event_types)
+      sub = {
         EventTypes: EVENT_TYPES,
         ContextType: 'assignment',
         ContextId: context_id.to_s,
@@ -54,9 +56,13 @@ module Lti
         TransportType: transport_type,
         TransportMetadata: transport_metadata
       }.with_indifferent_access
+      sub[:SystemEventTypes] = EVENT_TYPES if enabled
+      sub[:UserEventTypes] = EVENT_TYPES if enabled
+      sub
     end
 
     def destroy_subscription(subscription_id)
+      Rails.logger.info { "in: AssignmentSubscriptionsHelper::destroy_subscription, subscription_id: #{subscription_id}" }
       if Services::LiveEventsSubscriptionService.available?
         Services::LiveEventsSubscriptionService.destroy_tool_proxy_subscription(tool_proxy, subscription_id)
       end

@@ -28,7 +28,7 @@ module Api::V1::DiscussionTopics
 
   # Public: DiscussionTopic fields to serialize.
   ALLOWED_TOPIC_FIELDS  = %w{
-    id title assignment_id delayed_post_at lock_at
+    id title assignment_id delayed_post_at lock_at created_at
     last_reply_at posted_at root_topic_id podcast_has_student_posts
     discussion_type position allow_rating only_graders_can_rate sort_by_rating
     is_section_specific
@@ -67,6 +67,7 @@ module Api::V1::DiscussionTopics
     if opts[:include_sections_user_count] && context
       opts[:context_user_count] = context.enrollments.not_fake.active_or_pending_by_date_ignoring_access.count
     end
+    ActiveRecord::Associations::Preloader.new.preload(topics, [:user, :attachment, :root_topic, :context])
     topics.inject([]) do |result, topic|
       if topic.visible_for?(user)
         result << discussion_topic_api_json(topic, context || topic.context, user, session, opts, root_topics)
@@ -99,10 +100,12 @@ module Api::V1::DiscussionTopics
       include_root_topic_data: false,
       root_topic_fields: [],
       include_overrides: false,
+      assignment_opts: {},
     )
 
     opts[:user_can_moderate] = context.grants_right?(user, session, :moderate_forum) if opts[:user_can_moderate].nil?
-    json = api_json(topic, user, session, { only: ALLOWED_TOPIC_FIELDS, methods: ALLOWED_TOPIC_METHODS }, [:attach, :update, :reply, :delete])
+    permissions = opts[:skip_permissions] ? [] : [:attach, :update, :reply, :delete]
+    json = api_json(topic, user, session, { only: ALLOWED_TOPIC_FIELDS, methods: ALLOWED_TOPIC_METHODS }, permissions)
 
     json.merge!(serialize_additional_topic_fields(topic, context, user, opts))
 
@@ -113,9 +116,9 @@ module Api::V1::DiscussionTopics
     if opts[:include_assignment] && topic.assignment
       excludes = opts[:exclude_assignment_description] ? ['description'] : []
       json[:assignment] = assignment_json(topic.assignment, user, session,
-        include_discussion_topic: false, override_dates: opts[:override_dates],
+        {include_discussion_topic: false, override_dates: opts[:override_dates],
         include_all_dates: opts[:include_all_dates],
-        exclude_response_fields: excludes, include_overrides: opts[:include_overrides])
+        exclude_response_fields: excludes, include_overrides: opts[:include_overrides]}.merge(opts[:assignment_opts]))
     end
 
     if opts[:include_sections_user_count] && !topic.is_section_specific
@@ -142,6 +145,10 @@ module Api::V1::DiscussionTopics
       end
     end
 
+    if user&.pronouns
+      json[:user_pronouns] = user.pronouns
+    end
+
     json
   end
 
@@ -165,15 +172,19 @@ module Api::V1::DiscussionTopics
 
     fields = { require_initial_post: topic.require_initial_post?,
       user_can_see_posts: topic.user_can_see_posts?(user), podcast_url: url,
-      read_state: topic.read_state(user), unread_count: topic.unread_count(user),
-      subscribed: topic.subscribed?(user), topic_children: topic.child_topics.pluck(:id),
-      group_topic_children: topic.child_topics.pluck(:id, :context_id).map{|id, group_id| {id: id, group_id: group_id}},
+      read_state: topic.read_state(user), unread_count: topic.unread_count(user, opts: opts),
+      subscribed: topic.subscribed?(user, opts: opts),
       attachments: attachments, published: topic.published?,
       can_unpublish: opts[:user_can_moderate] ? topic.can_unpublish?(opts) : false,
       locked: topic.locked?, can_lock: topic.can_lock?, comments_disabled: topic.comments_disabled?,
       author: user_display_json(topic.user, topic.context),
       html_url: html_url, url: html_url, pinned: !!topic.pinned,
       group_category_id: topic.group_category_id, can_group: topic.can_group?(opts) }
+
+    child_topic_data = topic.root_topic? ? topic.child_topics.active.pluck(:id, :context_id) : []
+    fields[:topic_children] = child_topic_data.map(&:first)
+    fields[:group_topic_children] = child_topic_data.map{|id, group_id| {id: id, group_id: group_id}}
+
     fields.merge!({context_code: topic.context_code}) if opts[:include_context_code]
 
     locked_json(fields, topic, user, 'topic', check_policies: true, deep_check_if_needed: true)

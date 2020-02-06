@@ -21,19 +21,19 @@ import * as enzyme from 'enzyme'
 import BlueprintModal from 'jsx/blueprint_courses/components/BlueprintModal'
 
 QUnit.module('BlueprintModal component', {
-  setup () {
+  setup() {
     const appElement = document.createElement('div')
     appElement.id = 'application'
     document.getElementById('fixtures').appendChild(appElement)
   },
 
-  teardown () {
+  teardown() {
     document.getElementById('fixtures').innerHTML = ''
   }
 })
 
 const defaultProps = () => ({
-  isOpen: true,
+  isOpen: true
 })
 
 const render = (props = defaultProps(), children = <p>content</p>) => (
@@ -42,47 +42,38 @@ const render = (props = defaultProps(), children = <p>content</p>) => (
 
 test('renders the BlueprintModal component', () => {
   const tree = enzyme.shallow(render())
-  const node = tree.find('Modal')
+  const node = tree.find('ModalBody')
   ok(node.exists())
   tree.unmount()
 })
 
 test('renders the Done button when there are no changes', () => {
-  const wrapper = enzyme.mount(render())
-  const modal = wrapper.instance()
-  const footer = new enzyme.ReactWrapper(modal.footer, modal.footer)
-  const buttons = footer.find('button')
+  const wrapper = enzyme.shallow(render())
+  const buttons = wrapper.find('ModalFooter').find('Button')
   equal(buttons.length, 1)
-  equal(buttons.at(0).text(), 'Done')
-  wrapper.unmount()
+  equal(buttons.at(0).prop('children'), 'Done')
 })
 
 test('renders the Save + Cancel buttons when there are changes', () => {
   const props = {
     ...defaultProps(),
-    hasChanges: true,
+    hasChanges: true
   }
-  const wrapper = enzyme.mount(render(props))
-  const modal = wrapper.instance()
-  const footer = new enzyme.ReactWrapper(modal.footer, modal.footer)
-  const buttons = footer.find('button')
+  const wrapper = enzyme.shallow(render(props))
+  const buttons = wrapper.find('ModalFooter').find('Button')
   equal(buttons.length, 2)
-  equal(buttons.at(0).text(), 'Cancel')
-  equal(buttons.at(1).text(), 'Save')
-  wrapper.unmount()
+  equal(buttons.at(0).prop('children'), 'Cancel')
+  equal(buttons.at(1).prop('children'), 'Save')
 })
 
 test('renders the Done button when there are changes, but is in the process of saving', () => {
   const props = {
     ...defaultProps(),
     hasChanges: true,
-    isSaving: true,
+    isSaving: true
   }
-  const wrapper = enzyme.mount(render(props))
-  const modal = wrapper.instance()
-  const footer = new enzyme.ReactWrapper(modal.footer, modal.footer)
-  const buttons = footer.find('button')
+  const wrapper = enzyme.shallow(render(props))
+  const buttons = wrapper.find('ModalFooter').find('Button')
   equal(buttons.length, 1)
-  equal(buttons.at(0).text(), 'Done')
-  wrapper.unmount()
+  equal(buttons.at(0).prop('children'), 'Done')
 })

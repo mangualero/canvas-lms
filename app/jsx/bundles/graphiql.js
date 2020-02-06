@@ -18,18 +18,9 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import GraphiQL from 'graphiql'
-import axios from 'axios'
-import 'graphiql/graphiql.css'
+import GraphiQLApp from '../graphiql/GraphiQLApp'
+import ready from '@instructure/ready'
 
-function fetcher (params) {
-  return axios.post(
-    '/api/graphql',
-    JSON.stringify(params),
-    {
-      headers: {'Content-Type': 'application/json'},
-    }
-  ).then(({data}) => data)
-}
-
-ReactDOM.render(<GraphiQL fetcher={fetcher} />, document.getElementById('graphiql'))
+ready(() => {
+  ReactDOM.render(<GraphiQLApp />, document.getElementById('graphiql'))
+})

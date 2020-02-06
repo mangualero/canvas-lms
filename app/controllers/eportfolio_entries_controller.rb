@@ -20,10 +20,10 @@ require 'securerandom'
 
 class EportfolioEntriesController < ApplicationController
   include EportfolioPage
-  before_action :rich_content_service_config
+  before_action :rce_js_env
+  before_action :get_eportfolio
 
   def create
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       @category = @portfolio.eportfolio_categories.find(params[:eportfolio_entry].delete(:eportfolio_category_id))
 
@@ -43,7 +43,6 @@ class EportfolioEntriesController < ApplicationController
   end
 
   def show
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if params[:verifier] == @portfolio.uuid
       session[:eportfolio_ids] ||= []
       session[:eportfolio_ids] << @portfolio.id
@@ -65,12 +64,11 @@ class EportfolioEntriesController < ApplicationController
       end
       @category = @page.eportfolio_category
       eportfolio_page_attributes
-      render "eportfolios/show"
+      render "eportfolios/show", stream: can_stream_template?
     end
   end
 
   def update
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       @entry = @portfolio.eportfolio_entries.find(params[:id])
       @entry.parse_content(params) if params[:section_count]
@@ -81,7 +79,7 @@ class EportfolioEntriesController < ApplicationController
         entry_params[:eportfolio_category] = category
       end
       respond_to do |format|
-        if @entry.update_attributes!(entry_params)
+        if @entry.update!(entry_params)
           format.html { redirect_to eportfolio_entry_url(@portfolio, @entry) }
           format.json { render :json => @entry }
         else
@@ -94,7 +92,6 @@ class EportfolioEntriesController < ApplicationController
 
 
   def destroy
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :update)
       @entry = @portfolio.eportfolio_entries.find(params[:id])
       @category = @entry.eportfolio_category
@@ -109,7 +106,6 @@ class EportfolioEntriesController < ApplicationController
   end
 
   def attachment
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :read)
       @entry = @portfolio.eportfolio_entries.find(params[:entry_id])
       @category = @entry.eportfolio_category
@@ -124,7 +120,6 @@ class EportfolioEntriesController < ApplicationController
   end
 
   def submission
-    @portfolio = Eportfolio.find(params[:eportfolio_id])
     if authorized_action(@portfolio, @current_user, :read)
       @entry = @portfolio.eportfolio_entries.find(params[:entry_id])
       @category = @entry.eportfolio_category
@@ -135,18 +130,17 @@ class EportfolioEntriesController < ApplicationController
       # @entry.check_for_matching_attachment_id
       @headers = false
       render template: 'submissions/show_preview', locals: {
-               anonymous_now: @assignment.anonymous_grading? && @assignment.muted? &&
-                 @context.root_account.feature_enabled?(:anonymous_moderated_marking)
-             }
+        anonymize_students: @assignment.anonymize_students?
+      }
     end
   end
 
   protected
-  def rich_content_service_config
-    rce_js_env(:basic)
-  end
-
   def eportfolio_entry_params
     params.require(:eportfolio_entry).permit(:name, :allow_comments, :show_comments)
+  end
+
+  def get_eportfolio
+    @portfolio = Eportfolio.active.find(params[:eportfolio_id])
   end
 end

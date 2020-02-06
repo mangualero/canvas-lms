@@ -19,126 +19,205 @@
 import I18n from 'i18n!external_tools'
 import React from 'react'
 import PropTypes from 'prop-types'
-import EditExternalToolButton from '../../external_apps/components/EditExternalToolButton'
-import ManageUpdateExternalToolButton from '../../external_apps/components/ManageUpdateExternalToolButton'
-import ExternalToolPlacementButton from '../../external_apps/components/ExternalToolPlacementButton'
-import DeleteExternalToolButton from '../../external_apps/components/DeleteExternalToolButton'
-import ConfigureExternalToolButton from '../../external_apps/components/ConfigureExternalToolButton'
-import ReregisterExternalToolButton from '../../external_apps/components/ReregisterExternalToolButton'
-import classMunger from '../../external_apps/lib/classMunger'
+
+import EditExternalToolButton from './EditExternalToolButton'
+import ManageUpdateExternalToolButton from './ManageUpdateExternalToolButton'
+import ExternalToolPlacementButton from './ExternalToolPlacementButton'
+import DeleteExternalToolButton from './DeleteExternalToolButton'
+import DeploymentIdButton from './DeploymentIdButton'
+import ConfigureExternalToolButton from './ConfigureExternalToolButton'
+import ReregisterExternalToolButton from './ReregisterExternalToolButton'
+import classMunger from '../lib/classMunger'
 import 'jquery.instructure_misc_helpers'
 
-export default React.createClass({
-    displayName: 'ExternalToolsTableRow',
+export default class ExternalToolsTableRow extends React.Component {
+  static propTypes = {
+    tool: PropTypes.object.isRequired,
+    canAddEdit: PropTypes.bool.isRequired,
+    setFocusAbove: PropTypes.func.isRequired,
+    store: PropTypes.shape({
+      getState: PropTypes.func,
+      filteredApps: PropTypes.func
+    }).isRequired
+  }
 
-    propTypes: {
-      tool: PropTypes.object.isRequired,
-      canAddEdit: PropTypes.bool.isRequired
-    },
+  get is13Tool() {
+    return this.props.tool.lti_version === '1.3'
+  }
 
-    onModalClose () {
-      this.button.focus()
-    },
+  onModalClose = () => {
+    this.button.focus()
+  }
 
-    renderButtons() {
-      if (this.props.tool.installed_locally && !this.props.tool.restricted_by_master_course) {
-        var configureButton, updateBadge, updateOption, dimissUpdateOption = null;
-        var reregistrationButton = null;
+  nameClassNames = () => classMunger('external_tool', {muted: this.props.tool.enabled === false})
 
-        if (this.props.tool.tool_configuration) {
-          configureButton = <ConfigureExternalToolButton ref="configureExternalToolButton" tool={this.props.tool} />;
-        }
+  disabledFlag = () => {
+    if (this.props.tool.enabled === false) {
+      return I18n.t('(disabled)')
+    }
+  }
 
-        if(this.props.tool.has_update) {
-          var badgeAriaLabel = I18n.t('An update is available for %{toolName}', { toolName: this.props.tool.name });
-          updateBadge = <i className="icon-upload tool-update-badge" aria-label={badgeAriaLabel}></i>;
-        }
-
+  locked = () => {
+    if (!this.props.tool.installed_locally) {
+      return (
+        <span className="text-muted">
+          <i
+            className="icon-lock"
+            ref="lockIcon"
+            data-tooltip="top"
+            title={I18n.t('%{app} was installed by Admin and is locked', {
+              app: this.props.tool.name
+            })}
+          />
+        </span>
+      )
+    } else if (this.props.tool.is_master_course_child_content) {
+      if (this.props.tool.restricted_by_master_course) {
         return (
-          <td className="links text-right" nowrap="nowrap">
-            {updateBadge}
-            <div className={"al-dropdown__container"} >
-              <a className={"al-trigger btn"} role="button" href="#" ref={(c) => { this.button = c }}>
-                <i className={"icon-settings"}></i>
-                <i className={"icon-mini-arrow-down"}></i>
-                <span className={"screenreader-only"}>{ this.props.tool.name + ' ' + I18n.t('Settings') }</span>
-              </a>
-              <ul className={"al-options"} role="menu" tabIndex="0" aria-hidden="true" aria-expanded="false" >
-                {configureButton}
-                <ManageUpdateExternalToolButton tool={this.props.tool} />
-                <EditExternalToolButton ref="editExternalToolButton" tool={this.props.tool} canAddEdit={this.props.canAddEdit}/>
-                <ExternalToolPlacementButton ref="externalToolPlacementButton" tool={this.props.tool} onClose={this.onModalClose} />
-                <ReregisterExternalToolButton ref="reregisterExternalToolButton" tool={this.props.tool} canAddEdit={this.props.canAddEdit}/>
-                <DeleteExternalToolButton ref="deleteExternalToolButton" tool={this.props.tool} canAddEdit={this.props.canAddEdit} />
-              </ul>
-            </div>
-          </td>
+          <span className="master-course-cell">
+            <i
+              className="icon-blueprint-lock"
+              data-tooltip="top"
+              title={I18n.t('%{app} was installed by the master course and is locked', {
+                app: this.props.tool.name
+              })}
+            />
+          </span>
         )
       } else {
         return (
-          <td className="links text-right e-tool-table-data" nowrap="nowrap" >
-            <ExternalToolPlacementButton ref="externalToolPlacementButton" tool={this.props.tool} type="button"/>
-          </td>
-        );
-      }
-    },
-
-    nameClassNames() {
-      return classMunger('external_tool', {'muted': this.props.tool.enabled === false});
-    },
-
-    disabledFlag() {
-      if (this.props.tool.enabled === false) {
-        return I18n.t('(disabled)');
-      }
-    },
-
-    locked() {
-      if (!this.props.tool.installed_locally) {
-        return (
-          <span className="text-muted">
+          <span className="master-course-cell">
             <i
-              className="icon-lock"
-              ref="lockIcon"
+              className="icon-blueprint"
               data-tooltip="top"
-              title={I18n.t('%{app} was installed by Admin and is locked', {app: this.props.tool.name})}
+              title={I18n.t('%{app} was installed by the master course', {
+                app: this.props.tool.name
+              })}
             />
           </span>
-        );
-      } else if (this.props.tool.is_master_course_child_content) {
-        if (this.props.tool.restricted_by_master_course) {
-          return (
-            <span className="master-course-cell">
-              <i
-                className="icon-blueprint-lock"
-                data-tooltip="top"
-                title={I18n.t('%{app} was installed by the master course and is locked', {app: this.props.tool.name})}
-              />
-            </span>
-          );
-        } else {
-          return (
-            <span className="master-course-cell">
-              <i
-                className="icon-blueprint"
-                data-tooltip="top"
-                title={I18n.t('%{app} was installed by the master course', {app: this.props.tool.name})}
-              />
-            </span>
-          );
-        }
+        )
       }
-    },
-
-    render() {
-      return (
-        <tr className="ExternalToolsTableRow external_tool_item">
-          <td className="e-tool-table-data center-text">{this.locked()}</td>
-          <td scope="row" nowrap="nowrap" className={this.nameClassNames() + " e-tool-table-data"} title={this.props.tool.name}>
-            {this.props.tool.name} {this.disabledFlag()}
-          </td>
-          {this.renderButtons()}
-        </tr>
-      );
     }
-  });
+  }
+
+  returnFocus = (opts = {}) => {
+    if (opts.passFocusUp) {
+      this.props.setFocusAbove()
+    } else {
+      this.button.focus()
+    }
+  }
+
+  focus() {
+    this.button.focus()
+  }
+
+  renderButtons = () => {
+    const {tool} = this.props
+    if (tool.installed_locally && !tool.restricted_by_master_course) {
+      let configureButton = null
+      let updateBadge = null
+
+      if (tool.tool_configuration) {
+        configureButton = (
+          <ConfigureExternalToolButton
+            ref="configureExternalToolButton"
+            tool={tool}
+            returnFocus={this.returnFocus}
+          />
+        )
+      }
+
+      if (tool.has_update) {
+        const badgeAriaLabel = I18n.t('An update is available for %{toolName}', {
+          toolName: tool.name
+        })
+        updateBadge = <i className="icon-upload tool-update-badge" aria-label={badgeAriaLabel} />
+      }
+
+      return (
+        <td className="links text-right" nowrap="nowrap">
+          {updateBadge}
+          <div className="al-dropdown__container">
+            <a
+              className="al-trigger btn"
+              role="button"
+              href="#"
+              ref={c => {
+                this.button = c
+              }}
+            >
+              <i className="icon-settings" />
+              <i className="icon-mini-arrow-down" />
+              <span className="screenreader-only">{`${tool.name} ${I18n.t('Settings')}`}</span>
+            </a>
+            <ul
+              className="al-options"
+              role="menu"
+              tabIndex="0"
+              aria-hidden="true"
+              aria-expanded="false"
+            >
+              {configureButton}
+              <ManageUpdateExternalToolButton tool={tool} returnFocus={this.returnFocus} />
+              <EditExternalToolButton
+                ref="editExternalToolButton"
+                tool={tool}
+                canAddEdit={this.props.canAddEdit && !this.is13Tool}
+                returnFocus={this.returnFocus}
+              />
+              <ExternalToolPlacementButton
+                ref="externalToolPlacementButton"
+                tool={tool}
+                onClose={this.onModalClose}
+                returnFocus={this.returnFocus}
+              />
+              <ReregisterExternalToolButton
+                ref="reregisterExternalToolButton"
+                tool={tool}
+                canAddEdit={this.props.canAddEdit}
+                returnFocus={this.returnFocus}
+              />
+              {this.is13Tool ? (
+                <DeploymentIdButton tool={tool} returnFocus={this.returnFocus} />
+              ) : null}
+              <DeleteExternalToolButton
+                ref="deleteExternalToolButton"
+                tool={tool}
+                canAddEdit={this.props.canAddEdit}
+                returnFocus={this.returnFocus}
+              />
+            </ul>
+          </div>
+        </td>
+      )
+    } else {
+      return (
+        <td className="links text-right e-tool-table-data" nowrap="nowrap">
+          <ExternalToolPlacementButton
+            ref="externalToolPlacementButton"
+            tool={tool}
+            type="button"
+            returnFocus={this.returnFocus}
+          />
+        </td>
+      )
+    }
+  }
+
+  render() {
+    return (
+      <tr className="ExternalToolsTableRow external_tool_item">
+        <td className="e-tool-table-data center-text">{this.locked()}</td>
+        <td
+          nowrap="nowrap"
+          className={`${this.nameClassNames()} e-tool-table-data`}
+          title={this.props.tool.name}
+        >
+          {this.props.tool.name} {this.disabledFlag()}
+        </td>
+        {this.renderButtons()}
+      </tr>
+    )
+  }
+}

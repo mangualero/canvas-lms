@@ -51,6 +51,7 @@ describe 'announcement permissions' do
         DiscussionHelpers.disable_view_discussions(@course, context_role)
         DiscussionHelpers.disable_post_to_discussions(@course, context_role)
         DiscussionHelpers.disable_moderate_discussions(@course, context_role)
+        context_user.touch
         user_session(context_user)
       end
 
@@ -88,10 +89,12 @@ describe 'announcement permissions' do
         DiscussionHelpers.disable_view_discussions(@course, context_role)
         DiscussionHelpers.disable_post_to_discussions(@course, context_role)
         DiscussionHelpers.disable_moderate_discussions(@course, context_role)
+        context_user.touch
         user_session(context_user)
       end
 
       it "does not allow user to view announcements", priority: pick_priority(context, student: "1", observer: "1"), test_id: pick_test_id(context, student: "790700", observer: "790701") do
+        skip('KNO-193')
         get announcements_page
         assert_flash_notice_message course_page_disabled_notice
       end
@@ -117,6 +120,7 @@ describe 'announcement permissions' do
         DiscussionHelpers.disable_view_discussions(@course, context_role)
         DiscussionHelpers.disable_post_to_discussions(@course, context_role)
         DiscussionHelpers.disable_moderate_discussions(@course, context_role)
+        context_user.touch
         user_session(context_user)
       end
 
@@ -159,6 +163,7 @@ describe 'announcement permissions' do
         DiscussionHelpers.disable_view_discussions(@course, context_role)
         DiscussionHelpers.disable_post_to_discussions(@course, context_role)
         DiscussionHelpers.disable_moderate_discussions(@course, context_role)
+        context_user.touch
         user_session(context_user)
       end
 
@@ -206,6 +211,7 @@ describe 'announcement permissions' do
         DiscussionHelpers.disable_view_discussions(@course, context_role)
         DiscussionHelpers.disable_post_to_discussions(@course, context_role)
         DiscussionHelpers.disable_moderate_discussions(@course, context_role)
+        context_user.touch
         user_session(context_user)
       end
 

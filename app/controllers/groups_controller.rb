@@ -255,16 +255,16 @@ class GroupsController < ApplicationController
     unless api_request?
       if @context.is_a?(Account)
         user_crumb = t('#crumbs.users', "Users")
-        @active_tab = "users"
+        set_active_tab "users"
         @group_user_type = "user"
         @allow_self_signup = false
       else
         user_crumb = t('#crumbs.people', "People")
-        @active_tab = "people"
+        set_active_tab "people"
         @group_user_type = "student"
         @allow_self_signup = true
         if @context.grants_right? @current_user, session, :read_as_admin
-          js_env STUDENT_CONTEXT_CARDS_ENABLED: @domain_root_account.feature_enabled?(:student_context_cards)
+          set_student_context_cards_js_env
         end
       end
 
@@ -274,7 +274,7 @@ class GroupsController < ApplicationController
 
     respond_to do |format|
       format.html do
-        @categories  = @context.group_categories.order("role <> 'student_organized'", GroupCategory.best_unicode_collation_key('name')).preload(:root_account)
+        @categories  = @context.group_categories.order(Arel.sql("role <> 'student_organized'"), GroupCategory.best_unicode_collation_key('name')).preload(:root_account)
         @user_groups = @current_user.group_memberships_for(@context) if @current_user
 
         if @context.grants_right?(@current_user, session, :manage_groups)
@@ -351,6 +351,7 @@ class GroupsController < ApplicationController
           add_crumb @group.short_name, named_context_url(@group, :context_url)
         end
         @context = @group
+        assign_localizer
         if @group.deleted? && @group.context
           flash[:notice] = t('notices.already_deleted', "That group has been deleted")
           redirect_to named_context_url(@group.context, :context_url)
@@ -392,6 +393,13 @@ class GroupsController < ApplicationController
           set_badge_counts_for(@group, @current_user)
           @home_page = @group.wiki.front_page
         end
+
+        if @context_membership
+          content_for_head helpers.auto_discovery_link_tag(:atom, feeds_group_format_url(@context_membership.feed_code, :atom), {:title => t('group_atom_feed', "Group Atom Feed")})
+        elsif @context.available?
+          content_for_head helpers.auto_discovery_link_tag(:atom, feeds_group_format_url(@context.feed_code, :atom), {:title => t('group_atom_feed', "Group Atom Feed")})
+        end
+
       end
       format.json do
         if authorized_action(@group, @current_user, :read)
@@ -479,7 +487,10 @@ class GroupsController < ApplicationController
       end
       respond_to do |format|
         if @group.save
-          @group.add_user(@current_user, 'accepted', true) if @group.should_add_creator?(@current_user)
+          DueDateCacher.with_executing_user(@current_user) do
+            @group.add_user(@current_user, 'accepted', true) if @group.should_add_creator?(@current_user)
+          end
+
           @group.invitees = params[:invitees]
           flash[:notice] = t('notices.create_success', 'Group was successfully created.')
           format.html { redirect_to group_url(@group) }
@@ -570,7 +581,7 @@ class GroupsController < ApplicationController
       end
       respond_to do |format|
         @group.transaction do
-          @group.update_attributes(attrs.slice(*SETTABLE_GROUP_ATTRIBUTES))
+          @group.update(attrs.slice(*SETTABLE_GROUP_ATTRIBUTES))
           if attrs[:members]
             user_ids = Api.value_to_array(attrs[:members]).map(&:to_i).uniq
             if @group.context
@@ -674,12 +685,14 @@ class GroupsController < ApplicationController
   def add_user
     @group = @context
     if authorized_action(@group, @current_user, :manage)
-      @membership = @group.add_user(User.find(params[:user_id]))
-      if @membership.valid?
-        @group.touch
-        render :json => @membership
-      else
-        render :json => @membership.errors, :status => :bad_request
+      DueDateCacher.with_executing_user(@current_user) do
+        @membership = @group.add_user(User.find(params[:user_id]))
+        if @membership.valid?
+          @group.touch
+          render :json => @membership
+        else
+          render :json => @membership.errors, :status => :bad_request
+        end
       end
     end
   end
@@ -703,7 +716,11 @@ class GroupsController < ApplicationController
   #   results list. Must be at least 3 characters.
   #
   # @argument include[] [String, "avatar_url"]
-  #   - "avatar_url": Include users' avatar_urls.
+  #   "avatar_url": Include users' avatar_urls.
+  #
+  # @argument exclude_inactive [Boolean]
+  #   Whether to filter out inactive users from the results. Defaults to
+  #   false unless explicitly provided.
   #
   # @example_request
   #     curl https://<canvas>/api/v1/groups/1/users \
@@ -714,14 +731,18 @@ class GroupsController < ApplicationController
     return unless authorized_action(@context, @current_user, :read)
 
     search_term = params[:search_term].presence
+
+    include_inactive = params[:exclude_inactive].present? ? !value_to_boolean(params[:exclude_inactive]) : true
+
     if search_term
-      users = UserSearch.for_user_in_context(search_term, @context, @current_user, session)
+      users = UserSearch.for_user_in_context(search_term, @context, @current_user, session, {include_inactive_enrollments: include_inactive})
     else
-      users = UserSearch.scope_for(@context, @current_user)
+      users = UserSearch.scope_for(@context, @current_user, {include_inactive_enrollments: include_inactive})
     end
 
     includes = Array(params[:include])
     users = Api.paginate(users, self, api_v1_group_users_url)
+    UserPastLtiId.manual_preload_past_lti_ids(users, @context) if ['uuid', 'lti_id'].any? { |id| includes.include? id }
     json_users = users_json(users, @current_user, session, includes, @context, nil, Array(params[:exclude]))
 
     if includes.include?('group_submissions') && @context.context_type == "Course"
@@ -753,8 +774,10 @@ class GroupsController < ApplicationController
     end
     @entries = []
     @entries.concat @context.calendar_events.active
-    @entries.concat @context.discussion_topics.active
-    @entries.concat @context.wiki_pages
+    @entries.concat DiscussionTopic::ScopedToUser.new(@context, @current_user, @context.discussion_topics.published).scope.select{ |dt|
+      !dt.locked_for?(@current_user, :check_policies => true)
+    }
+    @entries.concat WikiPages::ScopedToUser.new(@context, @current_user, @context.wiki_pages.published).scope
     @entries = @entries.sort_by{|e| e.updated_at}
     @entries.each do |entry|
       feed.entries << entry.to_atom(:context => @context)
@@ -778,7 +801,7 @@ class GroupsController < ApplicationController
   def create_file
     @attachment = Attachment.new(:context => @context)
     if authorized_action(@attachment, @current_user, :create)
-      api_attachment_preflight(@context, request, :check_quota => true)
+      api_attachment_preflight(@context, request, :check_quota => true, :submit_assignment => value_to_boolean(params[:submit_assignment]))
     end
   end
 
@@ -829,6 +852,30 @@ class GroupsController < ApplicationController
     if authorized_action(@context, @current_user, :read)
       api_render_stream_summary([@context])
     end
+  end
+
+  # @API Permissions
+  # Returns permission information for the calling user in the given group.
+  # See also the {api:AccountsController#permissions Account} and
+  # {api:CoursesController#permissions Course} counterparts.
+  #
+  # @argument permissions[] [String]
+  #   List of permissions to check against the authenticated user.
+  #   Permission names are documented in the {api:RoleOverridesController#add_role Create a role} endpoint.
+  #
+  # @example_request
+  #     curl https://<canvas>/api/v1/groups/<group_id>/permissions \
+  #       -H 'Authorization: Bearer <token>' \
+  #       -d 'permissions[]=read_roster'
+  #       -d 'permissions[]=send_messages_all'
+  #
+  # @example_response
+  #   {'read_roster': 'true', 'send_messages_all': 'false'}
+  def permissions
+    get_context
+    return unless authorized_action(@context, @current_user, :read)
+    permissions = Array(params[:permissions]).map(&:to_sym)
+    render json: @context.rights_status(@current_user, session, *permissions)
   end
 
   protected

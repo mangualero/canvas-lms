@@ -18,7 +18,7 @@
 
 import EquationEditorView from 'compiled/views/tinymce/EquationEditorView'
 import Links from 'tinymce_plugins/instructure_links/links'
-import InsertUpdateImageView from 'compiled/views/tinymce/InsertUpdateImageView'
+import InsertUpdateImageView from 'coffeescripts/views/tinymce/InsertUpdateImageView'
 import loadEventListeners from 'jsx/shared/rce/loadEventListeners'
 import 'jquery'
 import 'jqueryui/tabs'
@@ -74,7 +74,7 @@ test('initializes equation editor plugin', function(assert) {
 
 test('initializes links plugin and renders dialog', function(assert) {
   const done = assert.async()
-  this.stub(Links)
+  sandbox.stub(Links)
   loadEventListeners({
     linksCB: () => {
       ok(Links.renderDialog.calledWithExactly(fakeEditor))

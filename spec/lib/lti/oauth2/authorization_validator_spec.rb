@@ -143,7 +143,7 @@ module Lti
         it "raises Lti::Oauth2::AuthorizationValidator::InvalidAuthJwt if the 'aud' is not the authorization endpoint" do
           raw_jwt['aud'] = 'http://google.com/invalid'
           expect { auth_validator.jwt }.to raise_error Lti::Oauth2::AuthorizationValidator::InvalidAuthJwt,
-                                                       "the 'aud' must be the LTI Authorization endpoint"
+                                                       "the 'aud' is invalid"
         end
 
         it "raises Lti::Oauth2::AuthorizationValidator::SecretNotFound if no ToolProxy or developer key" do
@@ -246,7 +246,14 @@ module Lti
         it "requires an active developer_key" do
           allow(dev_key).to receive(:active?).and_return false
           expect { auth_validator.tool_proxy }.to raise_error Lti::Oauth2::AuthorizationValidator::InvalidAuthJwt,
-                                                              "the Developer Key is not active"
+                                                              "the Developer Key is not active or available in this environment"
+        end
+
+        it "requires a developer key that is usable for the cluster" do
+          allow(DeveloperKey).to receive(:test_cluster_checks_enabled?).and_return true
+          allow(dev_key).to receive(:test_cluster_only?).and_return true
+          expect { auth_validator.tool_proxy }.to raise_error Lti::Oauth2::AuthorizationValidator::InvalidAuthJwt,
+                                                              "the Developer Key is not active or available in this environment"
         end
 
       end

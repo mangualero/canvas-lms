@@ -16,12 +16,66 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+# @API Rubrics
+# @subtopic RubricAssociations
+#
 class RubricAssociationsController < ApplicationController
   before_action :require_context
+
+  # @API Create a RubricAssociation
+  #
+  # Returns the rubric with the given id.
+  #
+  # @argument rubric_association[rubric_id] [Integer]
+  #   The id of the Rubric
+  # @argument rubric_association[association_id] [Integer]
+  #   The id of the object with which this rubric is associated
+  # @argument rubric_association[association_type] ["Assignment"|"Course"|"Account"]
+  #   The type of object this rubric is associated with
+  # @argument rubric_association[title] [String]
+  #   The name of the object this rubric is associated with
+  # @argument rubric_association[use_for_grading] [Boolean]
+  #   Whether or not the associated rubric is used for grade calculation
+  # @argument rubric_association[hide_score_total] [Boolean]
+  #   Whether or not the score total is displayed within the rubric.
+  #   This option is only available if the rubric is not used for grading.
+  # @argument rubric_association[purpose] ["grading"|"bookmark"]
+  #   Whether or not the association is for grading (and thus linked to an assignment)
+  #   or if it's to indicate the rubric should appear in its context
+  # @argument rubric_association[bookmarked] [Boolean]
+  #   Whether or not the associated rubric appears in its context
+  #
+  # @returns RubricAssociation
   def create
     update
   end
 
+  # @API Update a RubricAssociation
+  #
+  # Returns the rubric with the given id.
+  #
+  # @argument id [Integer]
+  #   The id of the RubricAssociation to update
+  # @argument rubric_association[rubric_id] [Integer]
+  #   The id of the Rubric
+  # @argument rubric_association[association_id] [Integer]
+  #   The id of the object with which this rubric is associated
+  # @argument rubric_association[association_type] ["Assignment"|"Course"|"Account"]
+  #   The type of object this rubric is associated with
+  # @argument rubric_association[title] [String]
+  #   The name of the object this rubric is associated with
+  # @argument rubric_association[use_for_grading] [Boolean]
+  #   Whether or not the associated rubric is used for grade calculation
+  # @argument rubric_association[hide_score_total] [Boolean]
+  #   Whether or not the score total is displayed within the rubric.
+  #   This option is only available if the rubric is not used for grading.
+  # @argument rubric_association[purpose] ["grading"|"bookmark"]
+  #   Whether or not the association is for grading (and thus linked to an assignment)
+  #   or if it's to indicate the rubric should appear in its context
+  # @argument rubric_association[bookmarked] [Boolean]
+  #   Whether or not the associated rubric appears in its context
+  #
+  # @returns RubricAssociation
   def update
     association_params = params[:rubric_association] ?
       params[:rubric_association].permit(:use_for_grading, :title, :purpose, :url, :hide_score_total, :bookmarked, :rubric_id) : {}
@@ -51,17 +105,23 @@ class RubricAssociationsController < ApplicationController
     render :json => json_res
   end
 
+  # @API Delete a RubricAssociation
+  #
+  # Delete the RubricAssociation with the given ID
+  #
+  # @returns RubricAssociation
   def destroy
     @association = @context.rubric_associations.find(params[:id])
     @rubric = @association.rubric
     if authorized_action(@association, @current_user, :delete)
+      @association.updating_user = @current_user
       @association.destroy
       # If the rubric wasn't created as a general course rubric,
       # and this was the last place it was being used in the course,
       # go ahead and delete the rubric from the course.
       association_count = RubricAssociation.where(:context_id => @context, :context_type => @context.class.to_s, :rubric_id => @rubric).for_grading.count
       if !RubricAssociation.for_purpose('bookmark').where(rubric_id: @rubric).first && association_count == 0
-        @rubric.destroy_for(@context)
+        @rubric.destroy_for(@context, current_user: @current_user)
       end
       render :json => @association
     end

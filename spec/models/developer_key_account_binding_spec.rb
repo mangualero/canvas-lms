@@ -16,16 +16,70 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require File.expand_path(File.dirname(__FILE__) + '/../lti_1_3_spec_helper')
 
 RSpec.describe DeveloperKeyAccountBinding, type: :model do
+  include_context 'lti_1_3_spec_helper'
+
   let(:account) { account_model }
   let(:developer_key) { DeveloperKey.create! }
-
   let(:dev_key_binding) do
     DeveloperKeyAccountBinding.new(
       account: account,
       developer_key: developer_key
     )
+  end
+  let(:params) { {} }
+  let(:root_account_key) { DeveloperKey.create!(account: account, **params) }
+  let(:root_account_binding) { root_account_key.developer_key_account_bindings.first }
+
+  describe '#lti_1_3_tools' do
+    subject do
+      expect(DeveloperKey.count > 1).to be true
+      described_class.lti_1_3_tools(
+        described_class.active_in_account(account)
+      )
+    end
+
+    let(:params) { { visible: true } }
+    let(:workflow_state) { described_class::ON_STATE }
+
+    before do
+      dev_keys = []
+      3.times { dev_keys << DeveloperKey.create!(account: account, **params) }
+      dev_keys.each do |dk|
+        dk.developer_key_account_bindings.first.update! workflow_state: workflow_state
+      end
+    end
+
+    context 'with no visible dev keys' do
+      let(:params) { { visible: false } }
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'with visible dev keys but no ON_STATE keys' do
+      let(:workflow_state) { described_class::ALLOW_STATE }
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'with visible dev keys in ON_STATE but no tool_configurations' do
+      it { is_expected.to be_empty }
+    end
+
+    context 'with visible dev keys in ON_STATE and tool_configurations' do
+      let(:first_key) { DeveloperKey.first }
+      before do
+        first_key.create_tool_configuration! settings: settings
+      end
+
+      it { is_expected.not_to be_empty }
+
+      it 'returns only the visible, turned on, with tool configuration key' do
+        expect(first_key).to eq subject.first.developer_key
+      end
+    end
   end
 
   describe 'validations and callbacks' do
@@ -78,11 +132,12 @@ RSpec.describe DeveloperKeyAccountBinding, type: :model do
       end
     end
 
-    describe 'after_save' do
+    describe 'after update' do
+      subject { site_admin_binding.update!(update_parameters) }
+
+      let(:update_parameters) { {workflow_state: workflow_state} }
       let(:site_admin_key) { DeveloperKey.create! }
       let(:site_admin_binding) { site_admin_key.developer_key_account_bindings.find_by(account: Account.site_admin) }
-      let(:root_account_key) { DeveloperKey.create!(account: account_model) }
-      let(:root_account_binding) { root_account_key.developer_key_account_bindings.first }
 
       it 'clears the site admin binding cache if the account is site admin' do
         allow(MultiCache).to receive(:delete).and_return(true)
@@ -95,13 +150,66 @@ RSpec.describe DeveloperKeyAccountBinding, type: :model do
         expect(MultiCache).not_to receive(:delete).with(DeveloperKeyAccountBinding.site_admin_cache_key(root_account_key))
         root_account_binding.update!(workflow_state: 'on')
       end
+
+      context 'when the starting workflow_state is on' do
+        before { site_admin_binding.update!(workflow_state: 'on') }
+
+        context 'when the new workflow state is "off"' do
+          let(:workflow_state) { DeveloperKeyAccountBinding::OFF_STATE }
+
+          it 'disables associated external tools' do
+            expect(site_admin_key).to receive(:disable_external_tools!)
+            subject
+          end
+        end
+
+        context 'when the new workflow state is "on"' do
+          let(:workflow_state) { DeveloperKeyAccountBinding::ON_STATE }
+
+          it 'does not disable associated external tools' do
+            expect(site_admin_key).not_to receive(:disable_external_tools!)
+            subject
+          end
+        end
+
+        context 'when the new workflow state is "allow"' do
+          let(:workflow_state) { DeveloperKeyAccountBinding::ALLOW_STATE }
+
+          it 'restores associated external tools' do
+            expect(site_admin_key).to receive(:restore_external_tools!)
+            subject
+          end
+        end
+      end
+
+      context 'when the starting workflow_state is off' do
+        before { site_admin_binding.update!(workflow_state: 'off') }
+
+        context 'when the new workflow state is "on"' do
+          let(:workflow_state) { DeveloperKeyAccountBinding::ON_STATE }
+
+          it 'enables external tools' do
+            expect(site_admin_key).not_to receive(:disable_external_tools!)
+            subject
+          end
+        end
+
+        context 'when the new workflow state is "allow"' do
+          let(:workflow_state) { DeveloperKeyAccountBinding::ALLOW_STATE }
+
+          it 'restores associated external tools' do
+            expect(site_admin_key).to receive(:restore_external_tools!)
+            subject
+          end
+        end
+      end
     end
   end
 
   describe 'find_site_admin_cached' do
     specs_require_sharding
 
-    let(:root_account_shard) { Shard.create! }
+    let(:root_account_shard) { @shard1 }
     let(:root_account) { root_account_shard.activate { account_model } }
     let(:site_admin_key) { Account.site_admin.shard.activate { DeveloperKey.create! } }
     let(:root_account_key) { root_account_shard.activate { DeveloperKey.create!(account: root_account) } }
@@ -164,7 +272,7 @@ RSpec.describe DeveloperKeyAccountBinding, type: :model do
   context 'sharding' do
     specs_require_sharding
 
-    let(:root_account_shard) { Shard.create! }
+    let(:root_account_shard) { @shard1 }
     let(:root_account) { root_account_shard.activate { account_model } }
     let(:sa_developer_key) { Account.site_admin.shard.activate { DeveloperKey.create!(name: 'SA Key') } }
     let(:root_account_binding) do

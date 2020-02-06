@@ -20,16 +20,16 @@ import mixin from 'compiled/util/mixin'
 
 QUnit.module('mixin')
 
-test('merges objects without blowing away events or defaults', 4, function() {
+test('merges objects without blowing away events or defaults', 4, () => {
   const mixin1 = {
     events: {'click .foo': 'foo'},
     defaults: {foo: 'bar'},
-    foo: this.spy()
+    foo: sinon.spy()
   }
   const mixin2 = {
     events: {'click .bar': 'bar'},
     defaults: {baz: 'qux'},
-    bar: this.spy()
+    bar: sinon.spy()
   }
   const obj = mixin({}, mixin1, mixin2)
   // events are expected to all be merged together

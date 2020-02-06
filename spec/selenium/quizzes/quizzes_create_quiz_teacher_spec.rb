@@ -19,15 +19,18 @@ require_relative '../common'
 require_relative '../helpers/quizzes_common'
 require_relative '../helpers/assignment_overrides'
 require_relative '../helpers/files_common'
+require_relative '../helpers/admin_settings_common'
 
 describe 'creating a quiz' do
   include_context 'in-process server selenium tests'
   include QuizzesCommon
   include AssignmentOverridesSeleniumHelper
   include FilesCommon
+  include AdminSettingsCommon
 
   context 'as a teacher' do
     before(:each) do
+      stub_rcs_config
       course_with_teacher_logged_in(course_name: 'Test Course', active_all: true)
     end
 
@@ -92,7 +95,7 @@ describe 'creating a quiz' do
         'must have a student or section selected'
     end
 
-    it 'saves and publishes a new quiz', priority: "1", test_id: 193785 do
+    it 'saves and publishes a new quiz', :xbrowser, priority: "1", test_id: 193785 do
       @quiz = course_quiz
       open_quiz_edit_form
 
@@ -134,7 +137,8 @@ describe 'creating a quiz' do
     end
 
     it 'inserts files using the rich content editor', priority: "1", test_id: 132545 do
-      txt_files = ['some test file', 'b_file.txt']
+      filename = "b_file.txt"
+      txt_files = ['some test file', filename]
       txt_files.map do |text_file|
         file = @course.attachments.create!(display_name: text_file, uploaded_data: default_uploaded_data)
         file.context = @course
@@ -142,7 +146,7 @@ describe 'creating a quiz' do
       end
       @quiz = course_quiz
       get "/courses/#{@course.id}/quizzes/#{@quiz.id}/edit"
-      insert_file_from_rce(:quiz)
+      insert_file_from_rce(:quiz, filename)
       expect(fln('b_file.txt')).to be_displayed
     end
   end
@@ -159,20 +163,110 @@ describe 'creating a quiz' do
       @account.save!
 
       get "/courses/#{@course.id}/quizzes"
-      expect_new_page_load do
-        f('.new-quiz-link').click
-        wait_for_ajaximations
-      end
+      expect_new_page_load { f('.new-quiz-link').click }
+
       expect(is_checked('#quiz_post_to_sis')).to be_truthy
     end
 
     it "should not default to post grades if account setting is not enabled" do
       get "/courses/#{@course.id}/quizzes"
-      expect_new_page_load do
-        f('.new-quiz-link').click
-        wait_for_ajaximations
-      end
+      expect_new_page_load { f('.new-quiz-link').click }
       expect(is_checked('#quiz_post_to_sis')).to be_falsey
+    end
+
+    describe 'upon save' do
+      let(:title) { "My Title" }
+      let(:error_text) { "\'Please add a due date\'" }
+      let(:error) { fj(".error_box div:contains(#{error_text})") }
+      let(:due_date_input_fields) { ff('.DueDateInput') }
+      let(:save_button) { f('.save_quiz_button') }
+      let(:sync_sis_button) { f('#quiz_post_to_sis') }
+      let(:section_to_set) { "Section B" }
+
+      def new_quiz
+        @quiz = course_quiz
+        @quiz.post_to_sis = "1"
+        Timecop.freeze(7.days.ago) do
+          @quiz.due_at = Time.zone.now
+        end
+        @quiz.save!
+        get "/courses/#{@course.id}/quizzes/#{@quiz.id}/edit"
+      end
+
+      def submit_blocked_with_errors
+        save_button.click
+        expect(error).not_to be_nil
+      end
+
+      def submit_page
+        wait_for_new_page_load { save_button.click }
+        expect(driver.current_url).not_to include("edit")
+      end
+
+      def last_override(name)
+        select_last_override_section(name)
+        Timecop.freeze(5.days.from_now) do
+          last_due_at_element.send_keys(Time.zone.now)
+        end
+      end
+
+      before do
+        turn_on_sis_settings(@account)
+        @account.settings[:sis_require_assignment_due_date] = { value: true}
+        @account.save!
+      end
+
+      it 'should block with only overrides' do
+        @course.course_sections.create!(name: section_to_set)
+        new_quiz
+        assign_quiz_to_no_one
+        select_last_override_section(section_to_set)
+        set_value(due_date_input_fields.first, "")
+        submit_blocked_with_errors
+      end
+
+      context 'with due dates' do
+        it 'should not block' do
+          new_quiz
+          submit_page
+        end
+
+        describe 'and differentiated' do
+          it 'should not block with base due date and override' do
+            @course.course_sections.create!(name: section_to_set)
+            new_quiz
+            add_override
+            last_override(section_to_set)
+            submit_page
+          end
+        end
+      end
+
+      context 'without due dates' do
+        it 'should block when enabled' do
+          new_quiz
+          select_last_override_section(section_to_set)
+          set_value(due_date_input_fields.first, "")
+          submit_blocked_with_errors
+        end
+
+        it 'should not block when disabled' do
+          new_quiz
+          set_value(sync_sis_button, false)
+          submit_page
+        end
+
+        it 'should block with base set with override not' do
+          @course.course_sections.create!(name: section_to_set)
+          new_quiz
+          Timecop.freeze(7.days.from_now) do
+            set_value(due_date_input_fields.first, Time.zone.now)
+          end
+          add_override
+          select_last_override_section(section_to_set)
+          submit_blocked_with_errors
+        end
+      end
     end
   end
 end

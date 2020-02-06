@@ -60,7 +60,6 @@ describe "discussions" do
 
       before(:each) do
         user_session(student)
-        enable_all_rcs @course.account
       end
 
       context "teacher topic" do
@@ -70,7 +69,9 @@ describe "discussions" do
           course.allow_student_discussion_topics = false
           course.save!
           get url
-          new_student_entry_text = "'ello there"
+          wait_for_animations
+          new_student_entry_text = "Hello there"
+          wait_for_animations
           expect(f('#content')).not_to include_text(new_student_entry_text)
           add_reply new_student_entry_text
           expect(f('#content')).to include_text(new_student_entry_text)
@@ -93,6 +94,22 @@ describe "discussions" do
           scroll_to_submit_button_and_click('.discussion-reply-form')
           wait_for_ajaximations
           expect(f('.topic-unsubscribe-button')).to be_displayed
+        end
+
+        it "should allow you to subscribe and unsubscribe" do
+          get url
+          expect(f('.topic-subscribe-button').text).to eq("Subscribe")
+          expect(f('.topic-unsubscribe-button')).not_to be_displayed
+          f('.topic-subscribe-button').click
+
+          get url
+          expect(f('.topic-subscribe-button')).not_to be_displayed
+          expect(f('.topic-unsubscribe-button').text).to eq("Subscribed")
+          f('.topic-unsubscribe-button').click
+
+          get url
+          expect(f('.topic-subscribe-button').text).to eq("Subscribe")
+          expect(f('.topic-unsubscribe-button')).not_to be_displayed
         end
 
         it "should validate that a student can see it and reply to a discussion", priority: "1", test_id: 150475 do
@@ -126,15 +143,14 @@ describe "discussions" do
       let(:topic) { teacher_topic }
 
       before(:each) do
-        resize_screen_to_normal
+
         user_session(teacher)
-        enable_all_rcs @course.account
       end
 
       it "should create a group discussion", priority: "1", test_id: 150473 do
         group
         get "/courses/#{course.id}/discussion_topics"
-        expect_new_page_load{f('#new-discussion-btn').click}
+        expect_new_page_load{f('#add_discussion').click}
         f('#discussion-title').send_keys('New Discussion')
         type_in_tiny 'textarea[name=message]', 'Discussion topic message'
         f('#has_group_category').click
@@ -150,7 +166,7 @@ describe "discussions" do
       it "should create a graded discussion", priority: "1", test_id: 150477 do
         assignment_group
         get "/courses/#{course.id}/discussion_topics"
-        expect_new_page_load{f('#new-discussion-btn').click}
+        expect_new_page_load{f('#add_discussion').click}
         f('#discussion-title').send_keys('New Discussion')
         type_in_tiny 'textarea[name=message]', 'Discussion topic message'
         expect(f('#availability_options')).to be_displayed
@@ -166,7 +182,7 @@ describe "discussions" do
 
       it "should show attachment", priority: "1", test_id: 150478 do
         get "/courses/#{course.id}/discussion_topics"
-        expect_new_page_load{f('#new-discussion-btn').click}
+        expect_new_page_load{f('#add_discussion').click}
         filename, fullpath, _data = get_file("graded.png")
         f('#discussion-title').send_keys('New Discussion')
         f('input[name=attachment]').send_keys(fullpath)

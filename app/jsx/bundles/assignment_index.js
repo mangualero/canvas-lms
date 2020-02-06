@@ -26,30 +26,20 @@ import AssignmentSyncSettingsView from 'compiled/views/assignments/AssignmentSyn
 import AssignmentGroupWeightsView from 'compiled/views/assignments/AssignmentGroupWeightsView'
 import ToggleShowByView from 'compiled/views/assignments/ToggleShowByView'
 import _ from 'underscore'
+import splitAssetString from 'compiled/str/splitAssetString'
+import {getPrefetchedXHR} from '@instructure/js-utils'
+import {monitorLtiMessages} from 'lti/messages'
 
-const course = new Course()
+const course = new Course({
+  id: encodeURIComponent(splitAssetString(ENV.context_asset_string)[1]),
+  apply_assignment_group_weights: ENV.apply_assignment_group_weights
+})
 course.url = ENV.URLS.course_url
-const courseFetch = course.fetch()
 
-const includes = ['assignments', 'discussion_topic']
-if (ENV.PERMISSIONS.manage) {
-  includes.push('all_dates')
-  includes.push('module_ids')
-  // observers
-} else if (ENV.current_user_has_been_observer_in_this_course) {
-  includes.push('all_dates')
-}
-
-const userIsAdmin = _.contains(ENV.current_user_roles, 'admin')
+const userIsAdmin = _.includes(ENV.current_user_roles, 'admin')
 
 const assignmentGroups = new AssignmentGroupCollection([], {
   course,
-  params: {
-    include: includes,
-    exclude_response_fields: ['description', 'rubric'],
-    override_assignment_dates: !ENV.PERMISSIONS.manage,
-    per_page: 50
-  },
   courseSubmissionsURL: ENV.URLS.course_student_submissions_url
 })
 
@@ -65,7 +55,8 @@ let assignmentSettingsView = false
 let assignmentSyncSettingsView = false
 let createGroupView = false
 let showByView = false
-const indexEl = window.location.href.indexOf('assignments') === -1 ? '#course_home_content' : '#content'
+const indexEl =
+  window.location.href.indexOf('assignments') === -1 ? '#course_home_content' : '#content'
 
 if (ENV.PERMISSIONS.manage_assignments) {
   assignmentSettingsView = new AssignmentSettingsView({
@@ -106,14 +97,31 @@ const app = new IndexView({
 app.render()
 
 // kick it all off
-Promise.all([
-  courseFetch,
-  assignmentGroups.fetch({reset: true})
-]).then(() => {
-  if (ENV.HAS_GRADING_PERIODS) { app.filterResults() }
-  if (ENV.PERMISSIONS.manage) {
-    assignmentGroups.loadModuleNames()
-  } else {
-    assignmentGroups.getGrades()
-  }
-})
+course.trigger('change')
+getPrefetchedXHR('assignment_groups_url')
+  .then(res =>
+    res.json().then(data => {
+      // we have to do things a little different than a normal paginatedCollection
+      // because we used prefetch_xhr to prefetch the first page of assignment_groups
+      // but we still want the rest of the pages (if any) to be fetched like any
+      // other paginatedCollection would.
+      assignmentGroups.reset(data)
+      const mockJqXHR = {getResponseHeader: h => res.headers.get(h)}
+      assignmentGroups._setStateAfterFetch(mockJqXHR, {})
+      if (!assignmentGroups.loadedAll) {
+        return assignmentGroups.fetch({page: 'next'})
+      }
+    })
+  )
+  .then(() => {
+    if (ENV.HAS_GRADING_PERIODS) {
+      app.filterResults()
+    }
+    if (ENV.PERMISSIONS.manage) {
+      assignmentGroups.loadModuleNames()
+    } else {
+      assignmentGroups.getGrades()
+    }
+  })
+
+monitorLtiMessages()

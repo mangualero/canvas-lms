@@ -21,6 +21,12 @@ begin
 rescue LoadError
 end
 
+if ENV['KNAPSACK_ENABLED'] == '1'
+  puts "DEBUGGING FOR KNAPSACK: rspec run with args: #{ARGV}"
+  require 'knapsack'
+  Knapsack::Adapters::RSpecAdapter.bind
+end
+
 require 'securerandom'
 require 'tmpdir'
 
@@ -33,6 +39,7 @@ if ENV['COVERAGE'] == "1"
 end
 
 require File.expand_path('../../config/environment', __FILE__) unless defined?(Rails)
+
 require 'rspec/rails'
 
 require 'webmock'
@@ -60,6 +67,7 @@ BlankSlateProtection.install!
 GreatExpectations.install!
 
 ActionView::TestCase::TestController.view_paths = ApplicationController.view_paths
+ActionView::Base.streaming_completion_on_exception = "</html>"
 
 # this makes sure that a broken transaction becomes functional again
 # by the time we hit rescue_action_in_public, so that the error report
@@ -83,6 +91,9 @@ module SpecTransactionWrapper
 end
 ActionController::Base.set_callback(:process_action, :around,
   ->(_r, block) { SpecTransactionWrapper.wrap_block_in_transaction(block) })
+
+ActionController::Base.set_callback(:process_action, :before,
+  ->(_r) { @streaming_template = false })
 
 module RSpec::Core::Hooks
 class AfterContextHook < Hook
@@ -146,6 +157,12 @@ module RSpec::Rails
 end
 
 module RenderWithHelpers
+  def assign(key, value)
+    @assigned_variables ||= {}
+    @assigned_variables[key] = value
+    super
+  end
+
   def render(*args)
     controller_class = ("#{@controller.controller_path.camelize}Controller".constantize rescue nil) || ApplicationController
 
@@ -173,6 +190,12 @@ module RenderWithHelpers
     real_controller = controller_class.new
     real_controller.instance_variable_set(:@_request, @controller.request)
     real_controller.instance_variable_set(:@context, @controller.instance_variable_get(:@context))
+    @assigned_variables&.each do |key, value|
+      real_controller.instance_variable_set(:"@#{key}", value)
+    end
+    if real_controller.instance_variable_get(:@domain_root_account).nil?
+      real_controller.instance_variable_set(:@domain_root_account, Account.default)
+    end
     @controller.real_controller = real_controller
 
     # just calling "render 'path/to/view'" by default looks for a partial
@@ -185,7 +208,6 @@ module RenderWithHelpers
 end
 RSpec::Rails::ViewExampleGroup::ExampleMethods.prepend(RenderWithHelpers)
 
-require 'action_controller_test_process'
 require_relative 'rspec_mock_extensions'
 require File.expand_path(File.dirname(__FILE__) + '/ams_spec_helper')
 
@@ -214,6 +236,8 @@ if defined?(Spec::DSL::Main)
     remove_method :context if respond_to? :context
   end
 end
+
+RSpec::Mocks.configuration.allow_message_expectations_on_nil = false
 
 RSpec::Matchers.define_negated_matcher :not_eq, :eq
 RSpec::Matchers.define_negated_matcher :not_have_key, :have_key
@@ -250,33 +274,29 @@ end
 RSpec::Matchers.define :and_query do |expected|
   match do |actual|
     query = Rack::Utils.parse_query(URI(actual).query)
-    values_match?(expected, query)
+
+    expected_as_strings = RSpec::Matchers::Helpers.cast_to_strings(expected: expected)
+    values_match?(expected_as_strings, query)
   end
 end
 
 RSpec::Matchers.define :and_fragment do |expected|
   match do |actual|
     fragment = JSON.parse(URI.decode_www_form_component(URI(actual).fragment))
-    values_match?(expected, fragment)
+    expected_as_strings = RSpec::Matchers::Helpers.cast_to_strings(expected: expected)
+    values_match?(expected_as_strings, fragment)
+  end
+end
+
+module RSpec::Matchers::Helpers
+  # allows for matchers to use symbols and literals even though URIs are always strings.
+  # i.e. `and_query({assignment_id: @assignment.id})`
+  def self.cast_to_strings(expected:)
+    expected.map {|k,v| [k.to_s, v.to_s]}.to_h
   end
 end
 
 module Helpers
-  def message(opts={})
-    m = Message.new
-    m.to = opts[:to] || 'some_user'
-    m.from = opts[:from] || 'some_other_user'
-    m.subject = opts[:subject] || 'a message for you'
-    m.body = opts[:body] || 'foo bar'
-    m.sent_at = opts[:sent_at] || 5.days.ago
-    m.workflow_state = opts[:workflow_state] || 'sent'
-    m.user_id = opts[:user_id] || opts[:user].try(:id)
-    m.path_type = opts[:path_type] || 'email'
-    m.root_account_id = opts[:account_id] || Account.default.id
-    m.save!
-    m
-  end
-
   def assert_status(status=500)
     expect(response.status.to_i).to eq status
   end
@@ -310,9 +330,10 @@ end
 RSpec::Expectations.configuration.on_potential_false_positives = :raise
 
 RSpec.configure do |config|
+  config.example_status_persistence_file_path = Rails.root.join('tmp', 'rspec')
   config.use_transactional_fixtures = true
   config.use_instantiated_fixtures = false
-  config.fixture_path = Rails.root+'spec/fixtures/'
+  config.fixture_path = Rails.root.join('spec', 'fixtures')
   config.infer_spec_type_from_file_location!
   config.raise_errors_for_deprecations!
   config.color = true
@@ -320,12 +341,12 @@ RSpec.configure do |config|
 
   # The Pact specs have prerequisite setup steps so we exclude them by default
   config.filter_run_excluding :pact_live_events if ENV.fetch('RUN_LIVE_EVENTS_CONTRACT_TESTS', '0') == '0'
-  config.filter_run_excluding :pact if ENV.fetch('RUN_API_CONTRACT_TESTS', '0') == '0'
 
   config.include Helpers
   config.include Factories
   config.include RequestHelper, type: :request
   config.include Onceler::BasicHelpers
+  config.include PGCollkeyHelper
   config.project_source_dirs << "gems" # so that failures here are reported properly
 
   if ENV['RAILS_LOAD_ALL_LOCALES'] && RSpec.configuration.filter.rules[:i18n]
@@ -353,7 +374,6 @@ RSpec.configure do |config|
     Notification.reset_cache!
     ActiveRecord::Base.reset_any_instantiation!
     Folder.reset_path_lookups!
-    RoleOverride.clear_cached_contexts
     Delayed::Job.redis.flushdb if Delayed::Job == Delayed::Backend::Redis::Job
     Rails::logger.try(:info, "Running #{self.class.description} #{@method_name}")
     Attachment.current_root_account = nil
@@ -565,9 +585,7 @@ RSpec.configure do |config|
     path = generate_csv_file(lines)
     opts[:files] = [path]
 
-    use_parallel = SisBatch.use_parallel_importers?(account)
-    import_class = use_parallel ? SIS::CSV::ImportRefactored : SIS::CSV::Import
-    importer = import_class.process(account, opts)
+    importer = SIS::CSV::ImportRefactored.process(account, opts)
     run_jobs
 
     File.unlink path
@@ -581,17 +599,35 @@ RSpec.configure do |config|
     importer
   end
 
-  def enable_cache(new_cache=:memory_store)
+  def set_cache(new_cache)
+    cache_opts = {}
+    if new_cache == :redis_cache_store
+      if Canvas.redis_enabled?
+        cache_opts[:redis] = Canvas.redis
+      else
+        skip "redis required"
+      end
+    end
     new_cache ||= :null_store
-    new_cache = ActiveSupport::Cache.lookup_store(new_cache)
-    previous_cache = Rails.cache
+    new_cache = ActiveSupport::Cache.lookup_store(new_cache, cache_opts)
     allow(Rails).to receive(:cache).and_return(new_cache)
     allow(ActionController::Base).to receive(:cache_store).and_return(new_cache)
     allow_any_instance_of(ActionController::Base).to receive(:cache_store).and_return(new_cache)
-    previous_perform_caching = ActionController::Base.perform_caching
     allow(ActionController::Base).to receive(:perform_caching).and_return(true)
     allow_any_instance_of(ActionController::Base).to receive(:perform_caching).and_return(true)
     MultiCache.reset
+  end
+
+  def specs_require_cache(new_cache=:memory_store)
+    before :each do
+      set_cache(new_cache)
+    end
+  end
+
+  def enable_cache(new_cache=:memory_store)
+    previous_cache = Rails.cache
+    previous_perform_caching = ActionController::Base.perform_caching
+    set_cache(new_cache)
     if block_given?
       begin
         yield
@@ -633,6 +669,14 @@ RSpec.configure do |config|
                                                  'kcw_ui_conf' => '1',
                                                  'upload_ui_conf' => '1'
                                              })
+  end
+
+  def override_dynamic_settings(data)
+    original_fallback = Canvas::DynamicSettings.fallback_data
+    Canvas::DynamicSettings.fallback_data = data
+    yield
+  ensure
+    Canvas::DynamicSettings.fallback_data = original_fallback
   end
 
   def json_parse(json_string = response.body)
@@ -846,10 +890,24 @@ RSpec.configure do |config|
       klass.connection.bulk_insert klass.table_name, records
       return if return_type == :nil
       scope = klass.order("id DESC").limit(records.size)
-      return_type == :record ?
-        scope.to_a.reverse :
+      if return_type == :record
+        scope.to_a.reverse
+      else
         scope.pluck(:id).reverse
+      end
     end
+  end
+
+  def skip_if_prepended_class_method_stubs_broken
+    versions = [
+      '2.4.6',
+      '2.4.9',
+      '2.5.1',
+      '2.5.3',
+      '2.6.0',
+      '2.6.2'
+    ]
+    skip("stubbing prepended class methods is broken in this version of ruby") if versions.include?(RUBY_VERSION)
   end
 end
 
@@ -894,4 +952,14 @@ Shoulda::Matchers.configure do |config|
     # Or, choose the following (which implies all of the above):
     # with.library :rails
   end
+end
+
+def enable_developer_key_account_binding!(developer_key)
+  developer_key.developer_key_account_bindings.first.update!(
+    workflow_state: 'on'
+  )
+end
+
+def enable_default_developer_key!
+  enable_developer_key_account_binding!(DeveloperKey.default)
 end

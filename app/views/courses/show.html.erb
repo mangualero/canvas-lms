@@ -16,19 +16,11 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
 
-<% content_for :page_title, @context.name %>
-<% css_bundle :course_show %>
-<% @active_tab ||= "home" %>
-<h1 class='screenreader-only'><%= @context.name %></h1>
-<% content_for :auto_discovery do %>
-  <% if @context_enrollment %>
-    <%= auto_discovery_link_tag(:atom, feeds_course_format_path(@context_enrollment.feed_code, :atom), {:title => t("Course Atom Feed")}) %>
-  <% elsif @context.available? %>
-    <%= auto_discovery_link_tag(:atom, feeds_course_format_path(@context.feed_code, :atom), {:title => t("Course Atom Feed")}) %>
-  <% end %>
-<% end %>
+<% provide :page_title, @context.name %>
 
-<% content_for :right_side do %>
+<h1 class='screenreader-only'><%= @context.name %></h1>
+
+<% provide :right_side do %>
   <div id="course_show_secondary">
     <% @can_manage = can_do(@context, @current_user, :manage) %>
     <% @can_create_announcements = @context.announcements.temp_record.grants_right?(@current_user, session, :create) %>
@@ -77,7 +69,49 @@
         <% end %>
 
         <% if @can_manage && !@domain_root_account.try(:feature_enabled?, :new_user_tutorial) %>
-          <% set_js_course_wizard_data %>
+          <script>
+            Object.assign(
+              ENV,
+              <%= raw StringifyIds.recursively_stringify_ids({
+                COURSE_WIZARD: {
+                  just_saved: @context_just_saved,
+                  checklist_states: {
+                    import_step: !@context.attachments.active.exists?,
+                    assignment_step: !@context.assignments.active.exists?,
+                    add_student_step: !@context.students.exists?,
+                    navigation_step: @context.tab_configuration.empty?,
+                    home_page_step: true,
+                    # The current wizard just always marks this as complete.
+                    calendar_event_step: !@context.calendar_events.active.exists?,
+                    add_ta_step: !@context.tas.exists?,
+                    publish_step: @context.workflow_state === 'available'
+                  },
+                  urls: {
+                    content_import: context_url(@context, :context_content_migrations_url),
+                    add_assignments: context_url(@context, :context_assignments_url, wizard: 1),
+                    add_students: course_users_path(course_id: @context),
+                    add_files: context_url(@context, :context_files_url, wizard: 1),
+                    select_navigation: context_url(@context, :context_details_url),
+                    course_calendar: calendar_path(course_id: @context),
+                    add_tas: course_users_path(course_id: @context),
+                    publish_course: course_path(@context)
+                  },
+                  permissions: {
+                    # Sending the permissions just so maybe later we can extract this easier.
+                    can_manage_content: can_do(@context, @current_user, :manage_content),
+                    can_manage_students: can_do(@context, @current_user, :manage_students),
+                    can_manage_assignments: can_do(@context, @current_user, :manage_assignments),
+                    can_manage_files: can_do(@context, @current_user, :manage_files),
+                    can_update: can_do(@context, @current_user, :update),
+                    can_manage_calendar: can_do(@context, @current_user, :manage_calendar),
+                    can_manage_admin_users: can_do(@context, @current_user, :manage_admin_users),
+                    can_change_course_state: can_do(@context, @current_user, :change_course_state)
+                  }
+                }
+              }).to_json %>
+            )
+          </script>
+
           <% js_bundle :course_wizard %>
           <% css_bundle :course_wizard %>
           <a href="#" class="btn button-sidebar-wide wizard_popup_link  <%= 'auto_open' if @context.created? || @context.claimed? %>">
@@ -121,7 +155,15 @@
         </div>
       </div>
     <% end %>
-    <%= render :partial => 'to_do_list', :locals => {:contexts => [@context]} %>
+
+    <% if @context_enrollment&.student? %>
+      <a class="btn button-sidebar-wide" href="<%= calendar_url_for(@context) %>">
+        <i class="icon-calendar-day"></i>
+        <%= t('links.view_course_calendar', %{View Course Calendar}) %>
+      </a>
+    <% end %>
+
+    <%= render :partial => 'to_do_list', :locals => {:contexts => [@context], :show_legacy_todo_list => !@context_enrollment&.student?} %>
     <%= render :partial => "group_list", :locals => {:group_list => @user_groups} %>
     <%= nbsp unless @current_user %>
   </div>
@@ -129,11 +171,16 @@
     <%= render :partial => 'assignments/assignments_list_right_side', :locals => {:course_home => true} %>
   <% elsif @course_home_view == 'syllabus' %>
     <%= render :partial => 'assignments/syllabus_right_side', :locals => {:course_home => true} %>
-  <% else %>
+  <% elsif !@context_enrollment&.student? %>
     <% locals = {:title => t("Coming Up"), :contexts_to_link_to => @context, :upcoming => true, :period => :one_week} %>
     <% if @current_user %>
       <% cache([@current_user, safe_cache_key(@contexts), 'course_upcoming_events' ].cache_key) do %>
-        <%= render :partial => "shared/event_list", :object => @current_user.upcoming_events(:contexts => @contexts), :locals => locals %>
+        <%
+          events = @current_user.upcoming_events(:contexts => @contexts)
+          assignments = events.select{|e| e.is_a?(Assignment)}
+          @current_user_submissions = Submission.where(:assignment_id => assignments, :user_id => @current_user).to_a if assignments.any?
+        %>
+        <%= render :partial => "shared/event_list", :object => events, :locals => locals %>
       <% end %>
     <% else %>
       <%= render :partial => "shared/event_list", :object => [], :locals => locals %>
@@ -144,26 +191,6 @@
   <% end %>
 <% end %>
 
-<%
-  css_bundle :dashboard
-  case @course_home_view
-  when 'wiki'
-    css_bundle :tinymce
-  when 'modules'
-    js_bundle :context_modules
-    css_bundle :context_modules2
-  when 'assignments'
-    js_bundle :assignment_index
-    css_bundle :new_assignments
-  when 'syllabus'
-    js_bundle :syllabus
-    css_bundle :tinymce
-  else
-    js_bundle :dashboard
-  end
-%>
-
-<% js_bundle 'legacy/courses_show' %>
 <% if @pending_enrollment %>
   <%= render :partial => 'shared/dashboard_invitation', :object => @pending_enrollment %>
 <% end %>
@@ -174,17 +201,10 @@
 <% end %>
 <div id="course_home_content">
   <% if @course_home_view == 'wiki' %>
-    <% js_bundle :wiki_page_show %>
     <div id="wiki_page_show"></div>
   <% elsif @course_home_view == 'modules' %>
     <%= render :partial => 'context_modules/content_next', :locals => {:course_home => true} %>
   <% elsif @course_home_view == 'assignments' %>
-    <%
-      @body_classes << 'hide-content-while-scripts-not-loaded'
-      @body_classes << 'with_item_groups'
-      js_bundle :assignment_index
-      css_bundle :new_assignments
-    %>
   <% elsif @course_home_view == 'syllabus' %>
     <%= render :partial => 'assignments/syllabus_content', :locals => {:course_home => true} %>
   <% else %>
@@ -202,4 +222,3 @@
 <% end %>
 <div id="wizard_box"></div>
 
-<% js_bundle :course %>

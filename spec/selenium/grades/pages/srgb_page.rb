@@ -60,6 +60,22 @@ class SRGB
       f('#student_information .total-grade')
     end
 
+    def final_grade_override
+      f("#final-grade-override")
+    end
+
+    def final_grade_override_input
+      f("#final-grade-override-input")
+    end
+
+    def assignment_muted_checkbox
+      f('#assignment_muted_check')
+    end
+
+    def assignment_mute_dialog_button
+      fj("button:contains('Unmute Assignment')")
+    end
+
     def assign_subtotal_grade
       f('.assignment-subtotal-grade .grade')
     end
@@ -105,6 +121,14 @@ class SRGB
       f('#show_notes')
     end
 
+    def allow_final_grade_override_option
+      f('#allow_final_grade_override')
+    end
+
+    def all_content
+      f('#content')
+    end
+
     # content selection buttons
     def previous_student
       f('.student_navigation button.previous_object')
@@ -128,7 +152,7 @@ class SRGB
     end
 
     def speedgrader_link
-      f('#assignment-speedgrader-link a')
+      f('#assignment-speedgrader-link')
     end
 
     def assignment_scores
@@ -166,6 +190,11 @@ class SRGB
     def enter_grade(grade)
       replace_content(main_grade_input, grade)
       tab_out_of_input(main_grade_input)
+    end
+
+    def enter_override_grade(grade)
+      replace_content(final_grade_override_input, grade)
+      tab_out_of_input(final_grade_override_input)
     end
 
     def current_grade

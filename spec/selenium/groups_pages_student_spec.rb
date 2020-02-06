@@ -16,8 +16,8 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 require_relative 'common'
-require_relative 'announcements/announcement_index_page'
-require_relative 'announcements/announcement_new_edit_page'
+require_relative 'announcements/pages/announcement_index_page'
+require_relative 'announcements/pages/announcement_new_edit_page'
 require_relative 'helpers/announcements_common'
 require_relative 'helpers/legacy_announcements_common'
 require_relative 'helpers/conferences_common'
@@ -81,7 +81,7 @@ describe "groups" do
           category = course.group_categories.create!(name: 'category')
           course.groups.create!(name: "Test Group", group_category: category)
           course.groups.first.add_user student
-          course.update_attributes(conclude_at: 1.day.ago, workflow_state: 'completed')
+          course.update(conclude_at: 1.day.ago, workflow_state: 'completed')
 
           user_session(student)
           get "/groups/#{course.groups.first.id}"
@@ -103,7 +103,7 @@ describe "groups" do
           category = course.group_categories.create!(name: 'category')
           course.groups.create!(name: "Test Group", group_category: category)
           course.groups.first.add_user student
-          course.update_attributes(conclude_at: 1.day.ago, workflow_state: 'completed')
+          course.update(conclude_at: 1.day.ago, workflow_state: 'completed')
 
           user_session(teacher)
           url = "/groups/#{course.groups.first.id}"
@@ -150,7 +150,7 @@ describe "groups" do
         AnnouncementNewEdit.visit_new(@testgroup.first)
         AnnouncementNewEdit.add_message("New Announcement")
         AnnouncementNewEdit.add_title("New Title")
-        expect_new_page_load {AnnouncementNewEdit.submit_announcement_form}
+        AnnouncementNewEdit.submit_announcement_form
         expect(driver.current_url).to include(AnnouncementNewEdit.
                                               individual_announcement_url(Announcement.last))
       end
@@ -250,7 +250,7 @@ describe "groups" do
 
       it "should allow discussions to be created within a group", priority: "1", test_id: 273615 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         # This creates the discussion and also tests its creation
         edit_topic('from a student', 'tell me a story')
       end
@@ -266,7 +266,7 @@ describe "groups" do
 
       it "should have two options when creating a discussion", priority: "1", test_id: 273617 do
         get discussions_page
-        expect_new_page_load { f('#new-discussion-btn').click }
+        expect_new_page_load { f('#add_discussion').click }
         expect(f('#threaded')).to be_displayed
         expect(f('#allow_rating')).to be_displayed
         # Shouldn't be Enable Podcast Feed option
@@ -275,17 +275,20 @@ describe "groups" do
 
       it "should only allow group members to access discussions", priority: "1", test_id: 315332 do
         get discussions_page
-        expect(f('#new-discussion-btn')).to be_displayed
+        expect(f('#add_discussion')).to be_displayed
         verify_no_course_user_access(discussions_page)
       end
 
       it "should allow discussions to be deleted by their creator", priority: "1", test_id: 329626 do
-        skip_if_safari(:alert)
         DiscussionTopic.create!(context: @testgroup.first, user: @user, title: 'Delete Me', message: 'Discussion text')
         get discussions_page
-        expect(ff('.discussion-title-block').size).to eq 1
-        delete_via_gear_menu
-        expect(f("#content")).not_to contain_css('.discussion-title-block')
+        expect(ff('.discussion-title').size).to eq 1
+        f('.discussions-index-manage-menu').click
+        wait_for_animations
+        f('#delete-discussion-menu-option').click
+        f('#confirm_delete_discussions').click
+        wait_for_ajaximations
+        expect(f(".discussions-container__wrapper")).not_to contain_css('.discussion-title')
       end
 
       it "should not be able to delete a discussion by a different creator", priority: "1", test_id: 420009 do
@@ -294,8 +297,8 @@ describe "groups" do
                                 title: 'Back to the Future day',
                                 message: 'There are no hover boards!')
         get discussions_page
-        expect(ff('.discussion-title-block').size).to eq 1
-        expect(f("#content")).not_to contain_css('#manage_link')
+        expect(ff('.discussion-title').size).to eq 1
+        expect(f(".discussions-container__wrapper")).not_to contain_css('#discussions-index-manage-menu')
       end
 
       it "should allow group members to edit their discussions", priority: "1", test_id: 312866 do
@@ -330,6 +333,7 @@ describe "groups" do
       it_behaves_like 'pages_page', :student
 
       it "should allow group members to create a page", priority: "1", test_id: 273611 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         get pages_page
         manually_create_wiki_page('yo','this be a page')
       end
@@ -375,7 +379,7 @@ describe "groups" do
       end
 
       it "should only allow group members to access files", priority: "1", test_id: 273626 do
-        expect_new_page_load { get files_page }
+        get files_page
         verify_no_course_user_access(files_page)
       end
 

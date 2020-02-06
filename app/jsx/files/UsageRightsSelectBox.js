@@ -18,7 +18,6 @@
 
 import $ from 'jquery'
 import React from 'react'
-import ReactDOM from 'react-dom'
 import PropTypes from 'prop-types'
 import I18n from 'i18n!usageRightsSelectBox'
 import filesEnv from 'compiled/react_files/modules/filesEnv'
@@ -48,7 +47,9 @@ const CONTENT_OPTIONS = [
     value: 'public_domain'
   },
   {
-    display: I18n.t('The material is subject to fair use exception'),
+    display: I18n.t(
+      'The material is subject to an exception - e.g. fair use, the right to quote, or others under applicable copyright laws'
+    ),
     value: 'fair_use'
   },
   {
@@ -58,7 +59,8 @@ const CONTENT_OPTIONS = [
 ]
 
 export default class UsageRightsSelectBox extends React.Component {
-  propTypes = {
+  static propTypes = {
+    cc_value: PropTypes.string,
     use_justification: PropTypes.oneOf(Object.values(CONTENT_OPTIONS).map(o => o.value)),
     copyright: PropTypes.string,
     showMessage: PropTypes.bool,
@@ -90,12 +92,10 @@ export default class UsageRightsSelectBox extends React.Component {
   getValues() {
     let x
     const obj = {
-      use_justification: ReactDOM.findDOMNode(this.refs.usageRightSelection).value,
-      copyright: this.state.showTextBox
-        ? (x = ReactDOM.findDOMNode(this.refs.copyright)) && x.value
-        : undefined,
+      use_justification: this.usageRightSelection.value,
+      copyright: this.state.showTextBox ? (x = this.copyright) && x.value : undefined,
       cc_license: this.state.showCreativeCommonsOptions
-        ? (x = ReactDOM.findDOMNode(this.refs.creativeCommons)) && x.value
+        ? (x = this.creativeCommons) && x.value
         : undefined
     }
 
@@ -151,7 +151,7 @@ export default class UsageRightsSelectBox extends React.Component {
   }
 
   renderShowCreativeCommonsOptions() {
-    const renderShowCreativeCommonsOptions = (
+    return (
       <div className="control-group">
         <label className="control-label" htmlFor="creativeCommonsSelection">
           {I18n.t('Creative Commons License:')}
@@ -160,7 +160,7 @@ export default class UsageRightsSelectBox extends React.Component {
           <select
             id="creativeCommonsSelection"
             className="UsageRightsSelectBox__creativeCommons"
-            ref="creativeCommons"
+            ref={e => (this.creativeCommons = e)}
             defaultValue={this.props.cc_value}
           >
             {this.renderCreativeCommonsOptions()}
@@ -168,12 +168,11 @@ export default class UsageRightsSelectBox extends React.Component {
         </div>
       </div>
     )
-    return this.state.showCreativeCommonsOptions ? renderShowCreativeCommonsOptions : null
   }
 
   renderShowMessage() {
     const renderShowMessage = (
-      <div ref="showMessageAlert" className="alert">
+      <div ref={e => (this.showMessageAlert = e)} className="alert">
         <span>
           <i className="icon-warning" />
           <span style={{paddingLeft: '10px'}}>
@@ -200,14 +199,14 @@ export default class UsageRightsSelectBox extends React.Component {
               className="UsageRightsSelectBox__select"
               onChange={e => this.handleChange(e)}
               onKeyUp={e => this.handleChooseKeyPress(e)}
-              ref="usageRightSelection"
+              ref={e => (this.usageRightSelection = e)}
               value={this.state.usageRightSelectionValue}
             >
               {this.renderContentOptions()}
             </select>
           </div>
         </div>
-        {this.renderShowCreativeCommonsOptions()}
+        {this.state.showCreativeCommonsOptions && this.renderShowCreativeCommonsOptions()}
         <div className="control-group">
           <label className="control-label" htmlFor="copyrightHolder">
             {I18n.t('Copyright Holder:')}
@@ -216,7 +215,7 @@ export default class UsageRightsSelectBox extends React.Component {
             <input
               id="copyrightHolder"
               type="text"
-              ref="copyright"
+              ref={e => (this.copyright = e)}
               defaultValue={this.props.copyright}
               placeholder={I18n.t('(c) 2001 Acme Inc.')}
             />

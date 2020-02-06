@@ -99,7 +99,7 @@ class Announcement < DiscussionTopic
     given { |user, session| self.context.grants_right?(user, session, :post_to_forum) && !self.locked?}
     can :reply
 
-    given { |user, session| self.context.is_a?(Group) && self.context.grants_right?(user, session, :post_to_forum) }
+    given { |user, session| self.context.is_a?(Group) && self.context.grants_right?(user, session, :create_forum) }
     can :create
 
     given { |user, session| self.context.grants_all_rights?(user, session, :read_announcements, :moderate_forum) } #admins.include?(user) }
@@ -142,12 +142,16 @@ class Announcement < DiscussionTopic
     observer_enrollments = self.course.enrollments.active.where(type: 'ObserverEnrollment')
     observer_enrollments.each do |enrollment|
       observer = enrollment.user
-      threshold = ObserverAlertThreshold.where(observer: observer, alert_type: 'course_announcement').first
+      student = enrollment.associated_user
+      threshold = ObserverAlertThreshold.where(observer: observer, alert_type: 'course_announcement', student: student).first
       next unless threshold
 
-      ObserverAlert.create!(observer: observer, student: threshold.student, observer_alert_threshold: threshold,
+      ObserverAlert.create!(observer: observer, student: student, observer_alert_threshold: threshold,
                             context: self, alert_type: 'course_announcement', action_date: self.updated_at,
-                            title: I18n.t("Announcement posted: %{title}", title: self.title))
+                            title: I18n.t("Course announcement: \"%{title}\" in %{course_code}", {
+                              title: self.title,
+                              course_code: self.course.course_code
+                            }))
     end
   end
 end

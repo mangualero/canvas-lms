@@ -26,7 +26,6 @@ describe "announcements" do
     before :once do
       @teacher = user_with_pseudonym(active_user: true)
       course_with_teacher(user: @teacher, active_course: true, active_enrollment: true)
-      enable_all_rcs @course.account
     end
 
     before :each do
@@ -77,7 +76,7 @@ describe "announcements" do
       it "should add an attachment to a graded topic", priority: "1", test_id: 220367 do # no
         what_to_create == DiscussionTopic ? @course.discussion_topics.create!(:title => 'graded attachment topic', :user => @user) : announcement_model(:title => 'graded attachment topic', :user => @user)
         if what_to_create == DiscussionTopic
-          what_to_create.last.update_attributes(:assignment => @course.assignments.create!(:name => 'graded topic assignment'))
+          what_to_create.last.update(:assignment => @course.assignments.create!(:name => 'graded topic assignment'))
         end
         get url
         expect_new_page_load { f('.ic-announcement-row h3').click }

@@ -21,12 +21,25 @@ require 'bigdecimal'
 class Quizzes::QuizQuestion::NumericalQuestion < Quizzes::QuizQuestion::Base
   class FlexRange
     def initialize(a, b)
-      numbers = [ BigDecimal.new(a.to_s), BigDecimal.new(b.to_s) ].sort
+      numbers = [ BigDecimal(a.to_s), BigDecimal(b.to_s) ].sort
       @range = numbers[0]..numbers[1]
     end
 
     def cover?(number)
       @range.cover?(number)
+    end
+  end
+
+  def i18n_decimal(val)
+    separator = I18n.t('number.format.separator')
+    delimiter = I18n.t('number.format.delimiter')
+
+    # we use BigDecimal here to avoid rounding errors at the edge of the tolerance
+    # e.g. in floating point, -11.7 with margin of 0.02 isn't inclusive of the answer -11.72
+    begin
+      BigDecimal(val.gsub(delimiter, '').gsub(separator, '.'))
+    rescue ArgumentError
+      BigDecimal('0.0')
     end
   end
 
@@ -39,30 +52,24 @@ class Quizzes::QuizQuestion::NumericalQuestion < Quizzes::QuizQuestion::Base
     return nil if answer_text.nil?
     return false if answer_text.blank?
 
-    # we use BigDecimal here to avoid rounding errors at the edge of the tolerance
-    # e.g. in floating point, -11.7 with margin of 0.02 isn't inclusive of the answer -11.72
-    begin
-      answer_number = BigDecimal.new(answer_text.to_s)
-    rescue ArgumentError
-      answer_number = BigDecimal.new('0.0')
-    end
+    answer_number = i18n_decimal(answer_text.to_s)
 
     match = answers.find do |answer|
       if answer[:numerical_answer_type] == "exact_answer"
-        val = BigDecimal.new(answer[:exact].to_s.presence || '0.0')
+        val = BigDecimal(answer[:exact].to_s.presence || '0.0')
 
         # calculate margin value using percentage
         if answer[:margin].to_s.ends_with?("%")
           answer[:margin] = (answer[:margin].to_f / 100.0 * val).abs
         end
 
-        margin = BigDecimal.new(answer[:margin].to_s.presence || '0.0')
+        margin = BigDecimal(answer[:margin].to_s.presence || '0.0')
         min = val - margin
         max = val + margin
         answer_number >= min && answer_number <= max
       elsif answer[:numerical_answer_type] == "precision_answer"
         submission = answer_number.split
-        expected = BigDecimal.new(answer[:approximate].to_s.presence || '0.0').split
+        expected = BigDecimal(answer[:approximate].to_s.presence || '0.0').split
         precision = answer[:precision].to_i
 
         # compare sign

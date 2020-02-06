@@ -141,6 +141,12 @@ describe ContentParticipationCount do
       expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
     end
 
+    it "should be read if a graded assignment is set to ungraded for some reason" do
+      @submission = @assignment.grade_student(@student, grade: 3, grader: @teacher).first
+      @assignment.update_attribute(:submission_types, "not_graded")
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
+    end
+
     it "should be unread after submission is graded" do
       @assignment.submit_homework(@student)
       @submission = @assignment.grade_student(@student, grade: 3, grader: @teacher).first
@@ -150,6 +156,30 @@ describe ContentParticipationCount do
     it "should be unread after submission is commented on by teacher" do
       @submission = @assignment.update_submission(@student, { :commenter => @teacher, :comment => "good!" }).first
       expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 1
+    end
+
+    it "ignores draft comments" do
+      @submission = @assignment.update_submission(
+        @student,
+        {
+          commenter: @teacher,
+          comment: "good!",
+          draft_comment: true
+        }
+      ).first
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
+    end
+
+    it "ignores hidden comments" do
+      @submission = @assignment.update_submission(
+        @student,
+        {
+          commenter: @teacher,
+          comment: "good!",
+          hidden: true
+        }
+      ).first
+      expect(ContentParticipationCount.unread_submission_count_for(@course, @student)).to eq 0
     end
 
     it "should be read after viewing the submission comment" do

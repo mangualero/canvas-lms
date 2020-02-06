@@ -34,13 +34,13 @@ module Importers
         end
       end
       migration.imported_migration_items_by_class(ContextExternalTool).each do |tool|
-        if tool.consumer_key == 'fake' || tool.shared_secret == 'fake'
+        if (tool.consumer_key == 'fake' || tool.shared_secret == 'fake') && !tool.use_1_3?
           migration.add_warning(t('external_tool_attention_needed', 'The security parameters for the external tool "%{tool_name}" need to be set in Course Settings.', :tool_name => tool.name))
         end
       end
     end
 
-    def self.import_from_migration(hash, context, migration, item=nil)
+    def self.import_from_migration(hash, context, migration, item=nil, persist = true)
       hash = hash.with_indifferent_access
       return nil if hash[:migration_id] && hash[:external_tools_to_import] && !hash[:external_tools_to_import][hash[:migration_id]]
 
@@ -66,13 +66,14 @@ module Importers
       item.not_selectable = hash[:not_selectable] if hash[:not_selectable]
       item.consumer_key ||= hash[:consumer_key] || 'fake'
       item.shared_secret ||= hash[:shared_secret] || 'fake'
+      item.developer_key_id ||= hash.dig(:settings, :client_id)
       item.settings = create_tool_settings(hash)
       if hash[:custom_fields].is_a? Hash
         item.settings[:custom_fields] ||= {}
         item.settings[:custom_fields].merge! hash[:custom_fields]
       end
 
-      item.save!
+      item.save! if persist
       migration.add_imported_item(item) if migration
       item
     end

@@ -41,8 +41,9 @@ describe "submissions" do
       user_session(@student)
     end
 
-    it "should let a student submit a text entry", priority: "1", test_id: 56015 do
-      @assignment.update_attributes(submission_types: "online_text_entry")
+    it "should let a student submit a text entry", :xbrowser, priority: "1", test_id: 56015 do
+      skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
+      @assignment.update(submission_types: "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
       f(".submit_assignment_link").click
@@ -54,7 +55,7 @@ describe "submissions" do
     end
 
     it "should not let a student submit a text entry with no text entered", priority: "2", test_id: 238143 do
-      @assignment.update_attributes(submission_types: "online_text_entry")
+      @assignment.update(submission_types: "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
 
       f(".submit_assignment_link").click
@@ -143,6 +144,7 @@ describe "submissions" do
 
 
     it "should not allow a user to submit a file-submission assignment with an empty file", priority: "1" do
+      skip('flaky, will be fixed in ADMIN-3015')
       @assignment.submission_types = 'online_upload'
       @assignment.save!
       filename, fullpath, data = get_file("empty_file.txt")
@@ -188,7 +190,7 @@ describe "submissions" do
       # given
       @teacher = User.create!
       @course.enroll_teacher(@teacher)
-      @assignment.update_attributes(:submission_types => "online_text_entry")
+      @assignment.update(:submission_types => "online_text_entry")
       @assignment.grade_student(@student, grade: "0", grader: @teacher)
       # when
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
@@ -201,7 +203,7 @@ describe "submissions" do
       # given
       @teacher = User.create!
       @course.enroll_teacher(@teacher)
-      @assignment.update_attributes(:submission_types => "on_paper")
+      @assignment.update(:submission_types => "on_paper")
       @assignment.grade_student(@student, grade: "0", grader: @teacher)
       # when
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
@@ -228,7 +230,7 @@ describe "submissions" do
     end
 
     it "should not allow blank submissions for text entry", priority: "1", test_id: 237026 do
-      @assignment.update_attributes(:submission_types => "online_text_entry")
+      @assignment.update(:submission_types => "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
       f('.submit_assignment_link').click
       assignment_form = f('#submit_online_text_entry_form')
@@ -249,7 +251,8 @@ describe "submissions" do
 
     it "should not allow a submission with only comments", priority: "1", test_id: 237027 do
       skip_if_safari(:alert)
-      @assignment.update_attributes(:submission_types => "online_text_entry")
+      skip('flash alert is fragile, will be addressed in ADMIN-3015')
+      @assignment.update(:submission_types => "online_text_entry")
       get "/courses/#{@course.id}/assignments/#{@assignment.id}"
       f('.submit_assignment_link').click
 
@@ -370,9 +373,8 @@ describe "submissions" do
         wait_for_animations
 
         # traverse the tree
-        f('#uploaded_files > ul > li.folder > .sign').click
-        expect(f('#uploaded_files > ul > li.folder .file .name')).to be_displayed
-        f('#uploaded_files > ul > li.folder .file .name').click
+        f('li[aria-label="My files"] button').click
+        f('li[aria-label="html-editing-test.html"] button').click
 
         expect_new_page_load { f('#submit_file_button').click }
 
@@ -400,9 +402,9 @@ describe "submissions" do
         wait_for_animations
 
         # traverse the tree
-        f('#uploaded_files > ul > li.folder > .sign').click
-        expect(f('#uploaded_files > ul > li.folder .file .name')).to be_displayed
-        f('#uploaded_files > ul > li.folder .file .name').click
+        f('li[aria-label="My files"] button').click
+        f('li[aria-label="'+FILENAME+'"] button').click
+
         f('#submit_file_button').click
 
         # Make sure the flash message is being displayed
@@ -415,6 +417,45 @@ describe "submissions" do
         driver.switch_to.default_content
       end
     end
+
+    describe "using lti tool for submission" do
+      def create_submission_tool
+        tool = @course.context_external_tools.create!(
+          name: 'submission tool',
+          url: 'https://example.com/lti',
+          consumer_key: 'key',
+          shared_secret: 'secret',
+          settings: {
+            homework_submission: {
+              enabled: true
+            }
+          }
+        )
+      end
+
+      it "should load submission lti tool on clicking tab" do
+        tool = create_submission_tool
+        @assignment.update(submission_types: "online_upload")
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+
+        f(".submit_assignment_link").click
+        tool_tab = f("a[href='#submit_from_external_tool_form_#{tool.id}']")
+        expect(tool_tab).to include_text("submission tool")
+        tool_tab.click
+        expect(f("iframe[src^='/courses/#{@course.id}/external_tools/#{tool.id}/resource_selection?launch_type=homework_submission']")).to be_displayed
+      end
+
+      it "should load submission lti tool on kb-nav to tab" do
+        tool = create_submission_tool
+        @assignment.update(submission_types: "online_upload")
+        get "/courses/#{@course.id}/assignments/#{@assignment.id}"
+
+        f(".submit_assignment_link").click
+        f('a.submit_online_upload_option').send_keys :arrow_right
+        expect(f("iframe[src^='/courses/#{@course.id}/external_tools/#{tool.id}/resource_selection?launch_type=homework_submission']")).to be_displayed
+      end
+    end
+
   end
 
   context 'Excused assignment' do

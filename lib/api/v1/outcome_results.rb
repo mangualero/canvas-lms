@@ -60,7 +60,7 @@ module Api::V1::OutcomeResults
   # Public: Serializes outcomes in a hash that can be added to the linked hash.
   #
   # Returns a Hash containing serialized outcomes.
-  def outcome_results_include_outcomes_json(outcomes)
+  def outcome_results_include_outcomes_json(outcomes, percents = {})
     alignment_asset_string_map = {}
     outcomes.each_slice(50).each do |outcomes_slice|
       ActiveRecord::Associations::Preloader.new.preload(outcomes_slice, [:context])
@@ -74,7 +74,10 @@ module Api::V1::OutcomeResults
       assessed_outcomes += LearningOutcomeResult.distinct.where(learning_outcome_id: outcome_ids).pluck(:learning_outcome_id)
     end
     outcomes.map do |o|
-      hash = outcome_json(o, @current_user, session, assessed_outcomes: assessed_outcomes)
+      hash = outcome_json(o,
+        @current_user, session,
+        assessed_outcomes: assessed_outcomes,
+        rating_percents: percents[o.id])
       hash.merge!(alignments: alignment_asset_string_map[o.id])
       hash
     end
@@ -108,7 +111,7 @@ module Api::V1::OutcomeResults
         display_name: u.short_name,
         sortable_name: u.sortable_name
       }
-      hash[:avatar_url] = avatar_url_for_user(u, blank_fallback) if service_enabled?(:avatars)
+      hash[:avatar_url] = avatar_url_for_user(u) if service_enabled?(:avatars)
       hash
     end
   end
@@ -128,8 +131,8 @@ module Api::V1::OutcomeResults
       {
         id: a.asset_string,
         name: a.title,
-        html_url: polymorphic_url([a.context, a]),
-        submission_types: a.submission_types
+        html_url: a.is_a?(LiveAssessments::Assessment) ? "" : polymorphic_url([a.context, a]),
+        submission_types: a.try(:submission_types) || "magic_marker"
       }
     end
   end
@@ -204,12 +207,17 @@ module Api::V1::OutcomeResults
       title: score.title,
       submitted_at: score.submitted_at,
       count: score.count,
+      hide_points: score.hide_points,
       links: {outcome: score.outcome.id.to_s},
     }
   end
 
-  def outcome_results_rollups_csv(rollups, outcomes, outcome_paths)
-    CSV.generate do |csv|
+  def outcome_results_rollups_csv(current_user, context, rollups, outcomes, outcome_paths)
+    options = {}
+    if context.root_account.feature_enabled?(:enable_i18n_features_in_outcomes_exports)
+      options = CsvWithI18n.csv_i18n_settings(current_user)
+    end
+    CsvWithI18n.generate(options) do |csv|
       row = []
       row << I18n.t(:student_name, 'Student name')
       row << I18n.t(:student_id, 'Student ID')

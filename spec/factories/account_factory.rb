@@ -25,28 +25,26 @@ module Factories
     allow(Canvas::DynamicSettings).to receive(:find).with(any_args).and_call_original
     allow(Canvas::DynamicSettings).to receive(:find).with("rich-content-service", default_ttl: 5.minutes).and_return(
       ActiveSupport::HashWithIndifferentAccess.new({
-        "app-host":"",
-        "cdn-host":"",
-        "skip-sidebar":"true",
-        "sidebar-source":"fake"
+        "app-host":ENV['RCE_HOST'] || "http://localhost:3001",
       })
     )
     allow(Canvas::DynamicSettings).to receive(:find).with("canvas").and_return(
       {
-        "signing-secret" => "asdfasdfasdfasdfasdfasdfasdfasdf",
-        "encryption-secret" => "jkl;jkl;jkl;jkl;jkl;jkl;jkl;jkl;"
+        "signing-secret" => "astringthatisactually32byteslong",
+        "encryption-secret" => "astringthatisactually32byteslong"
       }
     )
   end
 
-  def account_rcs_model(opts={})
-    @account = factory_with_protected_attributes(Account, valid_account_attributes.merge(opts))
-    enable_all_rcs(@account)
-    LoadAccount.default_domain_root_account.enable_feature!(:rich_content_service_high_risk)
+  def stub_common_cartridge_url
+    allow(Canvas::DynamicSettings).to receive(:find).with(any_args).and_call_original
+    allow(Canvas::DynamicSettings).to receive(:find).with("common_cartridge_viewer", default_ttl: 5.minutes).and_return(
+			ActiveSupport::HashWithIndifferentAccess.new({"app-host":"http://common-cartridge-viewer.netlify.com/"})
+		)
   end
 
-  def enable_all_rcs(account)
-    account.enable_feature!(:rich_content_service_high_risk)
+  def account_rcs_model(opts={})
+    @account = factory_with_protected_attributes(Account, valid_account_attributes.merge(opts))
   end
 
   def provision_quizzes_next(account)
@@ -100,6 +98,5 @@ module Factories
         end
       end
     end
-    RoleOverride.clear_cached_contexts
   end
 end

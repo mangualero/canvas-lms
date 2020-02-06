@@ -49,6 +49,7 @@ describe "discussions" do
       end
 
       it "should add an attachment to a new topic", priority: "1", test_id: 150466 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         topic_title = 'new topic with file'
         get url
         wait_for_tiny(f('textarea[name=message]'))
@@ -126,14 +127,8 @@ describe "discussions" do
           close_visible_dialog
           f('#edit_discussion_form_buttons .btn-primary[type=submit]').click
           wait_for_ajaximations
-          keep_trying_until do
-            expect(driver.execute_script(
-              "return $('.errorBox').filter('[id!=error_box_template]')"
-            )).to be_present
-          end
-          errorBoxes = driver.execute_script("return $('.errorBox').filter('[id!=error_box_template]').toArray();")
-          visBoxes, hidBoxes = errorBoxes.partition { |eb| eb.displayed? }
-          expect(visBoxes.first.text).to eq "Please create a group set"
+          error_box = f("div[role='alert'] .error_text")
+          expect(error_box.text).to eq "Please create a group set"
         end
       end
 
@@ -179,10 +174,11 @@ describe "discussions" do
         expect_new_page_load {submit_form('.form-actions')}
         expect(f('.entry-content').text).to include("This topic is locked until #{unlock_text}")
         expect_new_page_load{f('#section-tabs .discussions').click}
-        expect(f(' .discussion').text).to include("Not available until #{unlock_text_index_page}")
+        expect(f('.discussion-availability').text).to include("Not available until #{unlock_text_index_page}")
       end
 
       it "should allow a student to create a discussion", priority: "1", test_id: 150471 do
+        skip_if_firefox('known issue with firefox https://bugzilla.mozilla.org/show_bug.cgi?id=1335085')
         get url
         wait_for_tiny(f('textarea[name=message]'))
         replace_content(f('input[name=title]'), "Student Discussion")
@@ -193,12 +189,19 @@ describe "discussions" do
         expect(f("#content")).not_to contain_css('#topic_publish_button')
       end
 
-      it "should not show file attachment if allow_student_forum_attachments is not true", priority: "2", test_id: 223507 do
+      it 'should not show file attachment if allow_student_forum_attachments is not true', priority: '2', test_id: 223507 do
         skip_if_safari(:alert)
         # given
+        course.allow_student_forum_attachments = false
+        course.save!
+        # expect
         get url
         expect(f("#content")).not_to contain_css('#disussion_attachment_uploaded_data')
-        # when
+      end
+
+      it 'should show file attachment if allow_student_forum_attachments is true', priority: '2' do
+        skip_if_safari(:alert)
+        # given
         course.allow_student_forum_attachments = true
         course.save!
         # expect
@@ -206,15 +209,22 @@ describe "discussions" do
         expect(f('#discussion_attachment_uploaded_data')).not_to be_nil
       end
 
-      context "in a group" do
+      context 'in a group' do
         let(:url) { "/groups/#{group.id}/discussion_topics/new" }
 
-        it "should not show file attachment if allow_student_forum_attachments is not true", priority: "2", test_id: 223508 do
+        it 'should not show file attachment if allow_student_forum_attachments is not true', priority: '2', test_id: 223508 do
           skip_if_safari(:alert)
           # given
+          course.allow_student_forum_attachments = false
+          course.save!
+          # expect
           get url
           expect(f("#content")).not_to contain_css('label[for=discussion_attachment_uploaded_data]')
-          # when
+        end
+
+        it 'should show file attachment if allow_student_forum_attachments is true', priority: '2' do
+          skip_if_safari(:alert)
+          # given
           course.allow_student_forum_attachments = true
           course.save!
           # expect

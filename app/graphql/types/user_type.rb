@@ -17,7 +17,7 @@
 #
 
 module Types
-  UserType = GraphQL::ObjectType.define do
+  class UserType < ApplicationObjectType
     #
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #   NOTE:
@@ -25,71 +25,96 @@ module Types
     #   personal info exclusions as is done in +user_json+
     # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #
-    name "User"
+    graphql_name "User"
 
-    implements GraphQL::Relay::Node.interface
-    interfaces [Interfaces::TimestampInterface]
+    implements GraphQL::Types::Relay::Node
+    implements Interfaces::TimestampInterface
+    implements Interfaces::LegacyIDInterface
 
     global_id_field :id
-    field :_id, !types.ID, "legacy canvas id", property: :id
 
-    field :name, types.String
-    field :sortableName, types.String,
+    field :name, String, null: true
+    field :sortable_name, String,
       "The name of the user that is should be used for sorting groups of users, such as in the gradebook.",
-      property: :sortable_name
-    field :shortName, types.String,
+      null: true
+    field :short_name, String,
       "A short name the user has selected, for use in conversations or other less formal places through the site.",
-      property: :short_name
+      null: true
 
-    field :avatarUrl, UrlType do
-      resolve ->(user, _, ctx) {
-        user.account.service_enabled?(:avatars) ?
-          AvatarHelper.avatar_url_for_user(user, ctx[:request]) :
-          nil
-      }
+    field :pronouns, String, null: true
+
+    field :avatar_url, UrlType, null: true
+
+    def avatar_url
+      object.account.service_enabled?(:avatars) ?
+        AvatarHelper.avatar_url_for_user(object, context[:request], use_fallback: false) :
+        nil
     end
 
-    field :email, types.String, resolve: ->(user, _, ctx) {
-      return nil unless user.grants_right? ctx[:current_user], :read_profile
+    field :email, String, null: true
 
-      if user.email_cached?
-        user.email
+    def email
+      return nil unless object.grants_right? context[:current_user], :read_profile
+      if object.email_cached?
+        object.email
       else
         Loaders::AssociationLoader.for(User, :communication_channels).
-          load(user).
-          then { user.email }
-      end
-    }
-
-    field :enrollments, !types[EnrollmentType] do
-      argument :courseId, types.ID,
-        "only return enrollments for this course",
-        prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Course")
-
-      resolve ->(user, args, ctx) do
-        course_ids = [args[:courseId]].compact
-        Loaders::UserCourseEnrollmentLoader.for(
-          course_ids: course_ids
-        ).load(user.id).then do |enrollments|
-          (enrollments || []).select { |enrollment|
-            user == ctx[:current_user] ||
-              enrollment.grants_right?(ctx[:current_user], ctx[:session], :read)
-          }
-        end
+          load(object).
+          then { object.email }
       end
     end
 
-    field :summaryAnalytics, StudentSummaryAnalyticsType do
-      argument :courseId, !types.ID,
-        "returns summary analytics for this course",
+    field :enrollments, [EnrollmentType], null: false do
+      argument :course_id, ID,
+        "only return enrollments for this course",
+        required: false,
         prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Course")
+    end
 
-      resolve ->(user, args, ctx) do
-        Loaders::CourseStudentAnalyticsLoader.for(
-          args[:courseId],
-          current_user: ctx[:current_user], session: ctx[:session]
-        ).load(user)
+    def enrollments(course_id: nil)
+      course_ids = [course_id].compact
+      Loaders::UserCourseEnrollmentLoader.for(
+        course_ids: course_ids
+      ).load(object.id).then do |enrollments|
+        (enrollments || []).select { |enrollment|
+          object == context[:current_user] ||
+            enrollment.grants_right?(context[:current_user], context[:session], :read)
+        }
       end
+    end
+
+    # TODO: deprecate this
+    #
+    # we should probably have some kind of top-level field called `self` or
+    # `currentUser` or `viewer` that holds this kind of info.
+    #
+    # (there is no way to view another user's groups via the REST API)
+    #
+    # alternatively, figure out what kind of permissions a person needs to view
+    # another user's groups?
+    field :groups, [GroupType], <<~DESC, null: true
+      **NOTE**: this only returns groups for the currently logged-in user.
+    DESC
+    def groups
+      if object == current_user
+        # FIXME: this only returns groups on the current shard.  it should
+        # behave like the REST API (see GroupsController#index)
+        load_association(:current_groups)
+      end
+    end
+
+    field :summary_analytics, StudentSummaryAnalyticsType, null: true do
+      argument :course_id, ID,
+        "returns summary analytics for this course",
+        required: true,
+        prepare: GraphQLHelpers.relay_or_legacy_id_prepare_func("Course")
+    end
+
+    def summary_analytics(course_id:)
+      Loaders::CourseStudentAnalyticsLoader.for(
+        course_id,
+        current_user: context[:current_user], session: context[:session]
+      ).load(object)
     end
   end
 end

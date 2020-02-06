@@ -19,7 +19,7 @@
 class Progress < ActiveRecord::Base
   belongs_to :context, polymorphic:
       [:content_migration, :course, :account, :group_category, :content_export,
-       :assignment, :attachment, :epub_export,
+       :assignment, :attachment, :epub_export, :sis_batch,
        { context_user: 'User', quiz_statistics: 'Quizzes::QuizStatistics' }]
   belongs_to :user
 
@@ -47,7 +47,7 @@ class Progress < ActiveRecord::Base
     self.results = nil
     self.workflow_state = 'queued'
     self.completion = 0
-    self.save!
+    Shackles.activate(:master) {self.save!}
   end
 
   def set_results(results)
@@ -78,7 +78,11 @@ class Progress < ActiveRecord::Base
     enqueue_args = enqueue_args.reverse_merge(max_attempts: 1, priority: Delayed::LOW_PRIORITY)
     method_args = method_args.unshift(self) unless enqueue_args.delete(:preserve_method_args)
     work = Progress::Work.new(self, target, method, method_args)
-    Delayed::Job.enqueue(work, enqueue_args)
+    Shackles.activate(:master) do
+      ActiveRecord::Base.connection.after_transaction_commit do
+        Delayed::Job.enqueue(work, enqueue_args)
+      end
+    end
   end
 
   # (private)
@@ -97,7 +101,9 @@ class Progress < ActiveRecord::Base
     end
 
     def on_permanent_failure(error)
-      er_id = Canvas::Errors.capture_exception("Progress::Work", error)[:error_report]
+      er_id = @progress.shard.activate do
+        Canvas::Errors.capture_exception("Progress::Work", error)[:error_report]
+      end
       @progress.message = "Unexpected error, ID: #{er_id || 'unknown'}"
       @progress.save
       @progress.fail

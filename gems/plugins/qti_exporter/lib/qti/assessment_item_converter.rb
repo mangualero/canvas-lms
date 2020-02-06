@@ -94,6 +94,8 @@ class AssessmentItemConverter
         @question[:migration_id] = get_node_att(@doc, 'assessmentItem', 'label')
       end
 
+      @question[:migration_id] = @question[:migration_id].presence
+
       if @type == 'text_entry_interaction'
         @doc.css('textEntryInteraction').each do |node|
           node.inner_html = "[#{node['responseIdentifier']}]"
@@ -141,6 +143,7 @@ class AssessmentItemConverter
       elsif !%w(text_only_question file_upload_question).include?(@migration_type)
         self.parse_question_data
       else
+        self.get_feedback if @migration_type == 'file_upload_question'
         @question[:question_type] ||= @migration_type
       end
     rescue => e
@@ -183,6 +186,9 @@ class AssessmentItemConverter
       if ref = get_node_att(meta, 'instructureField[name=assessment_question_identifierref]', 'value')
         @question[:assessment_question_migration_id] = ref
       end
+      if ref = get_node_att(meta, 'instructureField[name=original_answer_ids]', 'value')
+        @original_answer_ids = ref.split(",")
+      end
       if get_node_att(meta, 'instructureField[name=cc_profile]', 'value') == 'cc.pattern_match.v0p1'
         @question[:is_cc_pattern_match] = true
       end
@@ -217,6 +223,19 @@ class AssessmentItemConverter
           @question[:question_type] = @migration_type
         end
       end
+    end
+  end
+
+  def get_or_generate_answer_id(response_identifier)
+    if @flavor == Qti::Flavors::CANVAS
+      id = if @original_answer_ids
+        @original_answer_ids.shift.to_i
+      else
+        response_identifier.to_s.sub(/response_/i, "").to_i
+      end
+      id != 0 ? id : unique_local_id
+    else
+      unique_local_id
     end
   end
 

@@ -169,7 +169,6 @@ describe SectionTabHelper do
         )
 
         expect(tag.a_attributes.keys).to include(:href, :class)
-        expect(tag.a_attributes.keys).not_to include(:'aria-label')
       end
 
       it 'includes a target if tab has the target attribute' do
@@ -177,6 +176,15 @@ describe SectionTabHelper do
         expect(tag.a_attributes[:target]).to eq '_blank'
       end
 
+      it 'does not include aria-current if tab is not active' do
+        tag = SectionTabHelperSpec::SectionTabTag.new(new_window_tab, course)
+        expect(tag.a_attributes[:'aria-current']).to eq nil
+      end
+
+      it 'includes aria-current if tab is active' do
+        tag = SectionTabHelperSpec::SectionTabTag.new(new_window_tab, course, new_window_tab[:css_class])
+        expect(tag.a_attributes[:'aria-current']).to eq 'page'
+      end
     end
 
     describe '#a_tag' do
@@ -195,6 +203,31 @@ describe SectionTabHelper do
         it 'should include text from tab label' do
           expect(html.text).to eq tab_assignments[:label]
         end
+
+        it 'should not include icon indicating it is off' do
+          icon = html.xpath('i')
+          expect(icon).to be_empty
+        end
+      end
+
+      context 'when tab is unused' do
+        let(:string) do
+          SectionTabHelperSpec::SectionTabTag.new(
+            tab_assignments.merge(hidden_unused: true), course
+          ).a_tag
+        end
+        let(:html) { Nokogiri::HTML.fragment(string).children[0] }
+
+        it 'should have a tooltip' do
+          expect(html.attributes).to include('data-tooltip')
+          expect(html.attributes).to include('title')
+          expect(html.attributes['title'].value).to eq 'No content. Not visible to students'
+        end
+
+        it 'should include icon indicating it is not visible to students' do
+          icon = html.xpath('i[contains(@class, "nav-icon")]')[0]
+          expect(icon.attributes['class'].value).to include('icon-off')
+        end
       end
 
       context 'when tab is hidden' do
@@ -205,10 +238,15 @@ describe SectionTabHelper do
         end
         let(:html) { Nokogiri::HTML.fragment(string).children[0] }
 
-        it 'should include a nested span tag' do
-          expect(html.children.any? do |child|
-            child.name == 'span'
-          end).to be_truthy
+        it 'should have a tooltip' do
+          expect(html.attributes).to include('data-tooltip')
+          expect(html.attributes).to include('title')
+          expect(html.attributes['title'].value).to eq 'Disabled. Not visible to students'
+        end
+
+        it 'should include icon indicating it is not visible to students' do
+          icon = html.xpath('i[contains(@class, "nav-icon")]')[0]
+          expect(icon.attributes['class'].value).to include('icon-off')
         end
       end
     end
@@ -222,15 +260,14 @@ describe SectionTabHelper do
         expect(tag.li_classes).to include('section')
       end
 
-      it 'should include `section-tab-hidden` if tab is hidden' do
+      it 'should include `section-hidden` if tab is hidden' do
         tag = SectionTabHelperSpec::SectionTabTag.new(
-          tab_assignments.merge(hidden: true), course
+            tab_assignments.merge(hidden: true), course
         )
 
-        expect(tag.li_classes).to include('section-tab-hidden')
+        expect(tag.li_classes).to include('section-hidden')
       end
     end
-
 
     describe '#to_html' do
       let(:string) do

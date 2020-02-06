@@ -38,7 +38,7 @@ class ContextController < ApplicationController
         @media_object.user_entered_title = CanvasTextHelper.truncate_text(params[:user_entered_title], :max_length => 255) if params[:user_entered_title] && !params[:user_entered_title].empty?
         @media_object.save
       end
-      render :json => @media_object
+      render :json => @media_object.as_json.merge(:embedded_iframe_url => media_object_iframe_url(@media_object.media_id))
     end
   end
 
@@ -143,7 +143,8 @@ class ContextController < ApplicationController
         :resend_invitations_url => course_re_send_invitations_url(@context),
         :permissions => {
           :read_sis => @context.grants_any_right?(@current_user, session, :read_sis, :manage_sis),
-          :manage_students => (manage_students = @context.grants_right?(@current_user, session, :manage_students)),
+          :view_user_logins => @context.grants_right?(@current_user, session, :view_user_logins),
+          :manage_students => (manage_students = @context.grants_right?(@current_user, session, :manage_students) && !MasterCourses::MasterTemplate.is_master_course?(@context)),
           :manage_admin_users => (manage_admins = @context.grants_right?(@current_user, session, :manage_admin_users)),
           :add_users => manage_students || manage_admins,
           :read_reports => @context.grants_right?(@current_user, session, :read_reports)
@@ -168,7 +169,7 @@ class ContextController < ApplicationController
         end
       end
       if @context.grants_right? @current_user, session, :read_as_admin
-        js_env STUDENT_CONTEXT_CARDS_ENABLED: @domain_root_account.feature_enabled?(:student_context_cards)
+        set_student_context_cards_js_env
       end
     elsif @context.is_a?(Group)
       if @context.grants_right?(@current_user, :read_as_admin)
@@ -209,10 +210,10 @@ class ContextController < ApplicationController
       @users_order_hash = {}
       @users.each_with_index{|u, i| @users_hash[u.id] = u; @users_order_hash[u.id] = i }
       @current_user_services = {}
-      @current_user.user_services.each{|s| @current_user_services[s.service] = s }
+      @current_user.user_services.select{|s| feature_and_service_enabled?(s.service)}.each{|s| @current_user_services[s.service] = s }
       @services = UserService.for_user(@users.except(:select, :order)).sort_by{|s| @users_order_hash[s.user_id] || CanvasSort::Last}
       @services = @services.select{|service|
-        !UserService.configured_service?(service.service) || feature_and_service_enabled?(service.service.to_sym)
+        feature_and_service_enabled?(service.service.to_sym)
       }
       @services_hash = @services.to_a.inject({}) do |hash, item|
         mapped = item.service
@@ -224,19 +225,21 @@ class ContextController < ApplicationController
   end
 
   def roster_user_usage
-    if authorized_action(@context, @current_user, :read_reports)
-      @user = @context.users.find(params[:user_id])
-      contexts = [@context] + @user.group_memberships_for(@context).to_a
-      @accesses = AssetUserAccess.for_user(@user).polymorphic_where(:context => contexts).most_recent
-      respond_to do |format|
-        format.html do
-          @accesses = @accesses.paginate(page: params[:page], per_page: 50)
-          js_env(context_url: context_url(@context, :context_user_usage_url, @user, :format => :json),
-                 accesses_total_pages: @accesses.total_pages)
-        end
-        format.json do
-          @accesses = Api.paginate(@accesses, self, polymorphic_url([@context, :user_usage], user_id: @user), default_per_page: 50)
-          render :json => @accesses.map{ |a| a.as_json(methods: [:readable_name, :asset_class_name, :icon]) }
+    Shackles.activate(:slave) do
+      if authorized_action(@context, @current_user, :read_reports)
+        @user = @context.users.find(params[:user_id])
+        contexts = [@context] + @user.group_memberships_for(@context).to_a
+        @accesses = AssetUserAccess.for_user(@user).polymorphic_where(:context => contexts).most_recent
+        respond_to do |format|
+          format.html do
+            @accesses = @accesses.paginate(page: params[:page], per_page: 50)
+            js_env(context_url: context_url(@context, :context_user_usage_url, @user, :format => :json),
+                   accesses_total_pages: @accesses.total_pages)
+          end
+          format.json do
+            @accesses = Api.paginate(@accesses, self, polymorphic_url([@context, :user_usage], user_id: @user), default_per_page: 50)
+            render :json => @accesses.map {|a| a.as_json(methods: [:readable_name, :asset_class_name, :icon])}
+          end
         end
       end
     end
@@ -284,6 +287,12 @@ class ContextController < ApplicationController
         return
       end
 
+      js_env(CONTEXT_USER_DISPLAY_NAME: @user.short_name)
+
+      js_bundle :user_name, "legacy/context_roster_user"
+      css_bundle :roster_user, :pairing_code
+      @google_analytics_page_title = "#{@context.name} People"
+
       if @domain_root_account.enable_profiles?
         @user_data = profile_data(
           @user.profile,
@@ -291,7 +300,14 @@ class ContextController < ApplicationController
           session,
           ['links', 'user_services']
         )
-        render :new_roster_user
+        add_body_class 'not-editing'
+
+        add_crumb(t('#crumbs.people', 'People'), context_url(@context, :context_users_url))
+        add_crumb(@user.name, context_url(@context, :context_user_url, @user))
+        add_crumb(t('#crumbs.access_report', "Access Report"))
+        set_active_tab "people"
+
+        render :new_roster_user, stream: can_stream_template?
         return false
       end
 
@@ -307,6 +323,11 @@ class ContextController < ApplicationController
         @messages = @messages.select{|m| m.grants_right?(@current_user, session, :read) }.sort_by{|e| e.created_at }.reverse
       end
 
+      add_crumb(t('#crumbs.people', "People"), context_url(@context, :context_users_url))
+      add_crumb(context_user_name(@context, @user), context_url(@context, :context_user_url, @user))
+      set_active_tab "people"
+
+      render stream: can_stream_template?
       true
     end
   end

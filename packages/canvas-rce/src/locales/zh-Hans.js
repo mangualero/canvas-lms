@@ -16,7 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import formatMessage from "../format-message";
-import locale from "../../locales/zh-Hans.json";
-import "../rce/languages/zh_TW";
-formatMessage.addLocale({ "zh-Hant": locale });
+import formatMessage from '../format-message'
+import locale from '@instructure/translations/lib/canvas-rce/zh.json'
+import '../rce/languages/zh_CN'
+
+formatMessage.addLocale({'zh-Hans': locale})

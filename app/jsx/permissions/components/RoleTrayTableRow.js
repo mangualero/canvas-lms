@@ -19,59 +19,77 @@
 import I18n from 'i18n!permissions_role_tray_table_row'
 import PropTypes from 'prop-types'
 import React from 'react'
-
-import Button from '@instructure/ui-buttons/lib/components/Button'
-import Container from '@instructure/ui-core/lib/components/Container'
-import Flex, {FlexItem} from '@instructure/ui-layout/lib/components/Flex'
-import IconPlus from '@instructure/ui-icons/lib/Line/IconEdit'
-import IconArrowOpenStart from '@instructure/ui-icons/lib/Solid/IconArrowOpenStart'
-import Text from '@instructure/ui-core/lib/components/Text'
+import {Button} from '@instructure/ui-buttons'
+import {View, Flex} from '@instructure/ui-layout'
+import {IconArrowOpenStartSolid} from '@instructure/ui-icons'
+import {Text} from '@instructure/ui-elements'
+import {ConnectedPermissionButton} from './PermissionButton'
+import permissionPropTypes from '../propTypes'
 
 // TODO Pass in props needed to actually generate the button sara is working on
 // TODO add expandable-ness to this. Will probably need to make this not a
 //      stateless component at that point in time
-export default function RoleTrayTableRow({description, expandable, title}) {
+export default function RoleTrayTableRow({
+  description,
+  expandable,
+  title,
+  permission,
+  permissionName,
+  permissionLabel,
+  role
+}) {
   return (
-    <Container as="div">
+    <View as="div">
       <Flex justifyItems="space-between">
-        <FlexItem>
+        <Flex.Item>
           {expandable && (
-            <span className=".ic-permissions_role_tray_table_role_expandable">
+            <span className="ic-permissions_role_tray_table_role_expandable">
               <Button variant="icon" size="small">
-                <IconArrowOpenStart title={I18n.t('Expand permission')} />
+                <IconArrowOpenStartSolid title={I18n.t('Expand permission')} />
               </Button>
             </span>
           )}
 
           <Flex direction="column" width="12em" margin={expandable ? '0' : '0 0 0 medium'} inline>
-            <FlexItem>
+            <Flex.Item>
               <Text weight="bold" lineHeight="fit" size="small">
                 {title}
               </Text>
-            </FlexItem>
-            <FlexItem>
+            </Flex.Item>
+            <Flex.Item>
               {description && (
                 <Text lineHeight="fit" size="small">
                   {description}
                 </Text>
               )}
-            </FlexItem>
+            </Flex.Item>
           </Flex>
-        </FlexItem>
+        </Flex.Item>
 
-        <FlexItem>
-          <Button variant="circle-primary" size="small">
-            <IconPlus />
-          </Button>
-        </FlexItem>
+        <Flex.Item>
+          <div className="ic-permissions__cell-content">
+            <ConnectedPermissionButton
+              permission={permission}
+              permissionName={permissionName}
+              permissionLabel={permissionLabel}
+              roleId={role.id}
+              roleLabel={role.label}
+              inTray
+            />
+          </div>
+        </Flex.Item>
       </Flex>
-    </Container>
+    </View>
   )
 }
 
 RoleTrayTableRow.propTypes = {
   description: PropTypes.string,
   expandable: PropTypes.bool,
+  permission: permissionPropTypes.rolePermission.isRequired,
+  permissionName: PropTypes.string.isRequired,
+  permissionLabel: PropTypes.string.isRequired,
+  role: permissionPropTypes.role.isRequired,
   title: PropTypes.string.isRequired
 }
 

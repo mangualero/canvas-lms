@@ -16,23 +16,27 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import ReactDOM from 'react-dom';
+import React from 'react'
+import ReactDOM from 'react-dom'
 import StudentColumnHeader from './StudentColumnHeader'
 
-function getProps (gradebook, options) {
-  const columnId = 'student';
-  const sortRowsBySetting = gradebook.getSortRowsBySetting();
+function getProps(gradebook, options) {
+  const columnId = 'student'
+  const sortRowsBySetting = gradebook.getSortRowsBySetting()
+  const {direction, settingKey} = sortRowsBySetting
 
   return {
     ref: options.ref,
     addGradebookElement: gradebook.keyboardNav.addGradebookElement,
     disabled: !gradebook.contentLoadStates.studentsLoaded,
     loginHandleName: gradebook.options.login_handle_name,
-    onHeaderKeyDown: (event) => {
-      gradebook.handleHeaderKeyDown(event, columnId);
+    includeAdditionalSortOptions: gradebook.options.additional_sort_options_enabled,
+    onHeaderKeyDown: event => {
+      gradebook.handleHeaderKeyDown(event, columnId)
     },
-    onMenuClose: gradebook.handleColumnHeaderMenuClose,
+    onMenuDismiss() {
+      setTimeout(gradebook.handleColumnHeaderMenuClose)
+    },
     onSelectPrimaryInfo: gradebook.setSelectedPrimaryInfo,
     onSelectSecondaryInfo: gradebook.setSelectedSecondaryInfo,
     onToggleEnrollmentFilter: gradebook.toggleEnrollmentFilter,
@@ -43,31 +47,52 @@ function getProps (gradebook, options) {
     selectedSecondaryInfo: gradebook.getSelectedSecondaryInfo(),
     sisName: gradebook.options.sis_name,
     sortBySetting: {
-      direction: sortRowsBySetting.direction,
+      direction,
       disabled: !gradebook.contentLoadStates.studentsLoaded,
       isSortColumn: sortRowsBySetting.columnId === columnId,
+      // sort functions with additional sort options enabled
+      onSortBySortableName: () => {
+        gradebook.setSortRowsBySetting(columnId, 'sortable_name', direction)
+      },
+      onSortBySisId: () => {
+        gradebook.setSortRowsBySetting(columnId, 'sis_user_id', direction)
+      },
+      onSortByIntegrationId: () => {
+        gradebook.setSortRowsBySetting(columnId, 'integration_id', direction)
+      },
+      onSortByLoginId: () => {
+        gradebook.setSortRowsBySetting(columnId, 'login_id', direction)
+      },
+      onSortInAscendingOrder: () => {
+        gradebook.setSortRowsBySetting(columnId, settingKey, 'ascending')
+      },
+      onSortInDescendingOrder: () => {
+        gradebook.setSortRowsBySetting(columnId, settingKey, 'descending')
+      },
+      // sort functions with additional sort options disabled
       onSortBySortableNameAscending: () => {
-        gradebook.setSortRowsBySetting(columnId, 'sortable_name', 'ascending');
+        gradebook.setSortRowsBySetting(columnId, 'sortable_name', 'ascending')
       },
       onSortBySortableNameDescending: () => {
-        gradebook.setSortRowsBySetting(columnId, 'sortable_name', 'descending');
+        gradebook.setSortRowsBySetting(columnId, 'sortable_name', 'descending')
       },
-      settingKey: sortRowsBySetting.settingKey
-    }
-  };
+      settingKey
+    },
+    studentGroupsEnabled: gradebook.showStudentGroups()
+  }
 }
 
 export default class StudentColumnHeaderRenderer {
-  constructor (gradebook) {
-    this.gradebook = gradebook;
+  constructor(gradebook) {
+    this.gradebook = gradebook
   }
 
-  render (_column, $container, _gridSupport, options) {
-    const props = getProps(this.gradebook, options);
-    ReactDOM.render(<StudentColumnHeader {...props} />, $container);
+  render(_column, $container, _gridSupport, options) {
+    const props = getProps(this.gradebook, options)
+    ReactDOM.render(<StudentColumnHeader {...props} />, $container)
   }
 
-  destroy (_column, $container, _gridSupport) {
-    ReactDOM.unmountComponentAtNode($container);
+  destroy(_column, $container, _gridSupport) {
+    ReactDOM.unmountComponentAtNode($container)
   }
 }

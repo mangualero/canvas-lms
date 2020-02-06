@@ -122,6 +122,8 @@ module YARD::Templates::Helpers::BaseHelper
 end
 
 module YARD::Templates::Helpers::HtmlHelper
+  include CanvasAPI::Deprecatable
+
   def topicize(str)
     str.gsub(' ', '_').underscore
   end
@@ -275,7 +277,7 @@ end
 def serialize_static_pages
   Dir.glob("doc/api/*.md").each do |file|
     options[:file] = file
-    filename = File.split(file).last.sub(/\..*$/, '.html')
+    filename = File.split(file).last.sub(/\.md$/, '.html')
     serialize("file." + filename, page_title: extract_page_title_from_markdown(file))
     serialize_redirect(filename)
     options.delete(:file)

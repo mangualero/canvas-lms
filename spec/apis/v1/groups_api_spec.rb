@@ -41,7 +41,8 @@ describe "Groups API", type: :request do
       'storage_quota_mb' => group.storage_quota_mb,
       'leader' => group.leader,
       'has_submission' => group.submission?,
-      'concluded' => group.context.concluded? || group.context.deleted?
+      'concluded' => group.context.concluded? || group.context.deleted?,
+      'created_at' => group.created_at.iso8601
     }
     if opts[:include_users]
       json['users'] = users_json(group.users, opts)
@@ -75,7 +76,8 @@ describe "Groups API", type: :request do
       "#{group_category.context_type.underscore}_id" => group_category.context_id,
       "protected" => group_category.protected?,
       "allows_multiple_memberships" => group_category.allows_multiple_memberships?,
-      "is_member" => group_category.is_member?(user)
+      "is_member" => group_category.is_member?(user),
+      "created_at" => group_category.created_at.iso8601
     }
     json['sis_group_category_id'] = group_category.sis_source_id if group_category.context.grants_any_right?(user, :read_sis, :manage_sis)
     json['sis_import_id'] = group_category.sis_batch_id if group_category.context.grants_right?(user, :manage_sis)
@@ -89,6 +91,7 @@ describe "Groups API", type: :request do
   def user_json(user, opts)
     hash = {
       'id' => user.id,
+      'created_at' => user.created_at.iso8601,
       'name' => user.name,
       'sortable_name' => user.sortable_name,
       'short_name' => user.short_name
@@ -103,6 +106,7 @@ describe "Groups API", type: :request do
       'user_id' => membership.user_id,
       'workflow_state' => membership.workflow_state,
       'moderator' => membership.moderator,
+      'created_at' => membership.created_at.iso8601
     }
     json['sis_import_id'] = membership.sis_batch_id if membership.group.context_type == 'Account' && is_admin
     json['sis_group_id'] = membership.group.sis_source_id if membership.group.context_type == 'Account' && is_admin
@@ -403,6 +407,17 @@ describe "Groups API", type: :request do
                                                  group_category_id: 'sis_group_category_id:gcsis1',
                                                  sis_group_id: 'gsis1'))
     expect(json['sis_group_id']).to eq 'gsis1'
+  end
+
+  it "should validate sis id uniqueness on group creation" do
+    @account = Account.default
+    account_admin_user(account: @account)
+    project_groups = @account.group_categories.create(name: 'gc1', sis_source_id: 'gcsis1')
+    project_groups.groups.create!(:sis_source_id => "gsis1", :context => @account)
+    json = api_call(:post, "/api/v1/group_categories/sis_group_category_id:gcsis1/groups",
+      @category_path_options.merge(action: :create,
+        group_category_id: 'sis_group_category_id:gcsis1',
+        sis_group_id: 'gsis1'), {}, {}, {expected_status: 400})
   end
 
   it "should not allow a non-admin to create a group in a account" do
@@ -928,6 +943,33 @@ describe "Groups API", type: :request do
       json = api_call(:get, api_url + "?include[]=avatar_url", api_route.merge(include: ["avatar_url"]))
       expect(json.first['avatar_url']).to eq user.avatar_image_url
     end
+
+    it "honors the exclude_inactive query parameter" do
+      course_with_teacher(:active_all => true)
+      @group = @course.groups.create!(:name => 'Inactive user group')
+
+      inactive_user = user_factory
+      enrollment = @course.enroll_student(inactive_user)
+      enrollment.deactivate
+      @group.add_user(inactive_user, 'accepted')
+
+      @course.enroll_student(user_factory).accept!
+      @group.add_user(@user, 'accepted')
+
+      json = api_call(:get, "/api/v1/groups/#{@group.id}/users?exclude_inactive=true",
+                      api_route.merge({exclude_inactive: true, group_id: @group.id}))
+
+      expect(json.count).to eq 1
+      expect(json.first['id']).to eq @user.id
+
+      enrollment.reactivate
+
+      json = api_call(:get, "/api/v1/groups/#{@group.id}/users?exclude_inactive=true",
+                      api_route.merge({exclude_inactive: true, group_id: @group.id}))
+
+      expect(json.count).to eq 2
+      expect(json.first['id']).to eq inactive_user.id
+    end
   end
 
   context "group files" do
@@ -1006,6 +1048,27 @@ describe "Groups API", type: :request do
                       { :controller => 'groups', :action => 'preview_html', :group_id => @group.to_param, :format => 'json' },
                       { :html => ""}, {}, {:expected_status => 401})
 
+    end
+  end
+
+  context "permissions" do
+    before :once do
+      course_with_student(:active_all => true)
+      @group = @course.groups.create!
+    end
+
+    it "returns permissions" do
+      @group.add_user(@student)
+      json = api_call(:get, "/api/v1/groups/#{@group.id}/permissions?permissions[]=send_messages&permissions[]=manage_blarghs",
+                      :controller => 'groups', :action => 'permissions', :group_id => @group.to_param,
+                      :format => 'json', :permissions => %w(send_messages manage_blarghs))
+      expect(json).to eq({"send_messages"=>true, "manage_blarghs"=>false})
+    end
+
+    it "requires :read permission on the group" do
+      api_call(:get, "/api/v1/groups/#{@group.id}/permissions?permissions[]=send_messages",
+               { :controller => 'groups', :action => 'permissions', :group_id => @group.to_param, :format => 'json',
+                 :permissions => %w(send_messages) }, {}, {}, { :expected_status => 401 })
     end
   end
 end

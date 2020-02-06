@@ -16,26 +16,26 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import I18n from 'i18n!discussions_v2'
-import React, { Component } from 'react'
-import { string, func, bool } from 'prop-types'
-import { connect } from 'react-redux'
-import { debounce } from 'lodash'
-import { bindActionCreators } from 'redux'
-
-import Button from '@instructure/ui-buttons/lib/components/Button'
-import TextInput from '@instructure/ui-forms/lib/components/TextInput'
-import Select from '@instructure/ui-core/lib/components/Select'
-import Grid, { GridCol, GridRow } from '@instructure/ui-layout/lib/components/Grid'
-import View from '@instructure/ui-layout/lib/components/View'
-import ScreenReaderContent from '@instructure/ui-a11y/lib/components/ScreenReaderContent'
-import PresentationContent from '@instructure/ui-a11y/lib/components/PresentationContent'
-import IconPlus from '@instructure/ui-icons/lib/Line/IconPlus'
-import IconSearchLine from '@instructure/ui-icons/lib/Line/IconSearch'
-import DiscussionSettings from './DiscussionSettings'
-import select from '../../shared/select'
-import propTypes from '../propTypes'
 import actions from '../actions'
+import {bindActionCreators} from 'redux'
+import {bool, func, string, arrayOf} from 'prop-types'
+import {connect} from 'react-redux'
+import {debounce} from 'lodash'
+import I18n from 'i18n!discussions_v2'
+import propTypes from '../propTypes'
+import React, {Component} from 'react'
+import select from '../../shared/select'
+
+import {Button} from '@instructure/ui-buttons'
+import DiscussionSettings from './DiscussionSettings'
+import {FormField} from '@instructure/ui-form-field'
+import {Grid, View} from '@instructure/ui-layout'
+import {IconPlusLine, IconSearchLine} from '@instructure/ui-icons'
+import {PresentationContent, ScreenReaderContent} from '@instructure/ui-a11y'
+import {TextInput} from '@instructure/ui-forms'
+import ReactDOM from 'react-dom'
+import ContentTypeExternalToolTray from 'jsx/shared/ContentTypeExternalToolTray'
+import {ltiState} from '../../../../public/javascripts/lti/post_message/handleLtiPostMessage'
 
 const filters = {
   all: I18n.t('All'),
@@ -49,6 +49,7 @@ export default class IndexHeader extends Component {
     contextId: string.isRequired,
     contextType: string.isRequired,
     courseSettings: propTypes.courseSettings,
+    discussionTopicIndexMenuTools: arrayOf(propTypes.discussionTopicMenuTools),
     fetchCourseSettings: func.isRequired,
     fetchUserSettings: func.isRequired,
     isSavingSettings: bool.isRequired,
@@ -57,91 +58,176 @@ export default class IndexHeader extends Component {
     saveSettings: func.isRequired,
     searchDiscussions: func.isRequired,
     toggleModalOpen: func.isRequired,
-    userSettings: propTypes.userSettings.isRequired,
+    userSettings: propTypes.userSettings.isRequired
   }
 
   static defaultProps = {
-    courseSettings: {},
+    courseSettings: {}
   }
 
   state = {
-    searchTerm: "",
-    filter: 'all',
+    searchTerm: '',
+    filter: 'all'
   }
 
   componentDidMount() {
     this.props.fetchUserSettings()
-    if(this.props.contextType === 'course' && this.props.permissions.change_settings) {
+    if (this.props.contextType === 'course' && this.props.permissions.change_settings) {
       this.props.fetchCourseSettings()
     }
   }
 
-  onSearchStringChange = (e) => {
+  onSearchStringChange = e => {
     this.setState({searchTerm: e.target.value}, this.filterDiscussions)
   }
 
-  onFilterChange = (e) => {
+  onFilterChange = e => {
     this.setState({filter: e.target.value}, this.filterDiscussions)
   }
 
   // This is needed to make the search results do not keep cutting each
   // other off when typing fasting and using a screen reader
-  filterDiscussions = debounce(
-    () => this.props.searchDiscussions(this.state),
-    SEARCH_DELAY,
-    {leading: false, trailing: true}
-  )
+  filterDiscussions = debounce(() => this.props.searchDiscussions(this.state), SEARCH_DELAY, {
+    leading: false,
+    trailing: true
+  })
 
-  render () {
+  renderTrayToolsMenu = () => {
+    if (this.props.discussionTopicIndexMenuTools?.length > 0) {
+      return (
+        <div className="inline-block">
+          <a
+            className="al-trigger btn"
+            id="discussion_menu_link"
+            role="button"
+            tabIndex="0"
+            title={I18n.t('Discussions Menu')}
+            aria-label={I18n.t('Discussions Menu')}
+          >
+            <i className="icon-more" aria-hidden="true" />
+            <span className="screenreader-only">{I18n.t('Discussions Menu')}</span>
+          </a>
+          <ul className="al-options" role="menu">
+            {this.props.discussionTopicIndexMenuTools.map(tool => (
+              <li key={tool.id} role="menuitem">
+                <a aria-label={tool.title} href="#" onClick={this.onLaunchTrayTool(tool)}>
+                  {this.iconForTrayTool(tool)}
+                  {tool.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <div id="external-tool-mount-point" />
+        </div>
+      )
+    }
+  }
+
+  iconForTrayTool(tool) {
+    if (tool.canvas_icon_class) {
+      return <i className={tool.canvas_icon_class} />
+    } else if (tool.icon_url) {
+      return <img className="icon" alt="" src={tool.icon_url} />
+    }
+  }
+
+  onLaunchTrayTool = tool => e => {
+    if (e != null) {
+      e.preventDefault()
+    }
+    this.setExternalToolTray(tool, document.getElementById('discussion_settings'))
+  }
+
+  setExternalToolTray(tool, returnFocusTo) {
+    const handleDismiss = () => {
+      this.setExternalToolTray(null)
+      returnFocusTo.focus()
+      if (ltiState?.tray?.refreshOnClose) {
+        window.location.reload()
+      }
+    }
+    ReactDOM.render(
+      <ContentTypeExternalToolTray
+        tool={tool}
+        placement="discussion_topic_index_menu"
+        acceptedResourceTypes={['discussion_topic']}
+        targetResourceType="discussion_topic"
+        allowItemSelection={false}
+        selectableItems={[]}
+        onDismiss={handleDismiss}
+        open={tool !== null}
+      />,
+      document.getElementById('external-tool-mount-point')
+    )
+  }
+
+  render() {
     return (
       <View>
         <View display="block">
           <Grid>
-            <GridRow hAlign="space-between">
-              <GridCol width={2}>
-                <Select
-                  name="filter-dropdown"
-                  onChange={this.onFilterChange}
-                  size="medium"
-                  label={<ScreenReaderContent>{I18n.t('Discussion Filter')}</ScreenReaderContent>}>
-                  {
-                    Object.keys(filters).map((filter) => (<option key={filter} value={filter}>{filters[filter]}</option>))
-                  }
-                </Select>
-              </GridCol>
-              <GridCol width={4}>
+            <Grid.Row hAlign="space-between">
+              <Grid.Col width={2}>
+                <FormField
+                  id="discussion-filter"
+                  label={<ScreenReaderContent>{I18n.t('Discussion Filter')}</ScreenReaderContent>}
+                >
+                  <select
+                    name="filter-dropdown"
+                    onChange={this.onFilterChange}
+                    style={{
+                      margin: '0',
+                      width: '100%'
+                    }}
+                  >
+                    {Object.keys(filters).map(filter => (
+                      <option key={filter} value={filter}>
+                        {filters[filter]}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              </Grid.Col>
+              <Grid.Col width={4}>
                 <TextInput
-                  label={<ScreenReaderContent>{I18n.t('Search discussion by title')}</ScreenReaderContent>}
-                  placeholder={I18n.t('Search')}
+                  label={
+                    <ScreenReaderContent>
+                      {I18n.t('Search discussion by title')}
+                    </ScreenReaderContent>
+                  }
+                  placeholder={I18n.t('Search by title or author...')}
                   icon={() => <IconSearchLine />}
                   onChange={this.onSearchStringChange}
                   name="discussion_search"
                 />
-              </GridCol>
-              <GridCol width={6} textAlign="end">
-                {this.props.permissions.create &&
+              </Grid.Col>
+              <Grid.Col width={6} textAlign="end">
+                {this.props.permissions.create && (
                   <Button
                     href={`/${this.props.contextType}s/${this.props.contextId}/discussion_topics/new`}
                     variant="primary"
                     id="add_discussion"
-                  ><IconPlus />
+                  >
+                    <IconPlusLine />
                     <ScreenReaderContent>{I18n.t('Add discussion')}</ScreenReaderContent>
                     <PresentationContent>{I18n.t('Discussion')}</PresentationContent>
                   </Button>
-                }
-                {Object.keys(this.props.userSettings).length ?
-                    <DiscussionSettings
-                      courseSettings={this.props.courseSettings}
-                      userSettings={this.props.userSettings}
-                      permissions={this.props.permissions}
-                      saveSettings={this.props.saveSettings}
-                      toggleModalOpen={this.props.toggleModalOpen}
-                      isSettingsModalOpen={this.props.isSettingsModalOpen}
-                      isSavingSettings={this.props.isSavingSettings}
-                    />
-                    : null}
-              </GridCol>
-            </GridRow>
+                )}
+                {Object.keys(this.props.userSettings).length ? (
+                  <DiscussionSettings
+                    courseSettings={this.props.courseSettings}
+                    userSettings={this.props.userSettings}
+                    permissions={this.props.permissions}
+                    saveSettings={this.props.saveSettings}
+                    toggleModalOpen={this.props.toggleModalOpen}
+                    isSettingsModalOpen={this.props.isSettingsModalOpen}
+                    isSavingSettings={this.props.isSavingSettings}
+                  />
+                ) : null}
+                &nbsp;
+                {this.renderTrayToolsMenu()}
+              </Grid.Col>
+            </Grid.Row>
           </Grid>
         </View>
       </View>
@@ -149,16 +235,27 @@ export default class IndexHeader extends Component {
   }
 }
 
-const connectState = state => Object.assign({
-}, select(state, [
-  'contextType',
-  'contextId',
-  'permissions',
-  'userSettings',
-  'courseSettings',
-  'isSavingSettings',
-  'isSettingsModalOpen',
-]))
-const selectedActions = ['fetchUserSettings', 'searchDiscussions', 'fetchCourseSettings', 'saveSettings', 'toggleModalOpen']
+const connectState = state => ({
+  ...select(state, [
+    'contextType',
+    'contextId',
+    'discussionTopicIndexMenuTools',
+    'permissions',
+    'userSettings',
+    'courseSettings',
+    'isSavingSettings',
+    'isSettingsModalOpen'
+  ])
+})
+const selectedActions = [
+  'fetchUserSettings',
+  'searchDiscussions',
+  'fetchCourseSettings',
+  'saveSettings',
+  'toggleModalOpen'
+]
 const connectActions = dispatch => bindActionCreators(select(actions, selectedActions), dispatch)
-export const ConnectedIndexHeader = connect(connectState, connectActions)(IndexHeader)
+export const ConnectedIndexHeader = connect(
+  connectState,
+  connectActions
+)(IndexHeader)

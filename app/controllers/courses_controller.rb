@@ -145,6 +145,16 @@ require 'securerandom'
 #            "example": 25,
 #            "type": "integer"
 #         },
+#         "grade_passback_setting": {
+#            "description": "the grade_passback_setting set on the course",
+#            "example": "nightly_sync",
+#            "type": "string"
+#         },
+#         "created_at": {
+#           "description": "the date the course was created.",
+#           "example": "2012-05-01T00:00:00-06:00",
+#           "type": "datetime"
+#         },
 #         "start_at": {
 #           "description": "the start date for the course, if applicable",
 #           "example": "2012-06-01T00:00:00-06:00",
@@ -203,7 +213,7 @@ require 'securerandom'
 #           "$ref": "Term"
 #         },
 #         "course_progress": {
-#           "description": "optional (beta): information on progress through the course returned only if include[]=course_progress",
+#           "description": "optional: information on progress through the course returned only if include[]=course_progress",
 #           "$ref": "CourseProgress"
 #         },
 #         "apply_assignment_group_weights": {
@@ -369,7 +379,7 @@ class CoursesController < ApplicationController
   # @argument exclude_blueprint_courses [Boolean]
   #   When set, only return courses that are not configured as blueprint courses.
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"concluded"]
   #   - "needs_grading_count": Optional information to include with each Course.
   #     When needs_grading_count is given, and the current user has grading
   #     rights, the total number of submissions needing grading for all
@@ -404,8 +414,18 @@ class CoursesController < ApplicationController
   #     'current_period_unposted_final_grade' (see Enrollment documentation for
   #     more information on these fields). In addition, when this argument is
   #     passed, the course will have a 'has_grading_periods' attribute
-  #     on it. This argument is ignored if the course is configured to hide final
-  #     grades or if the total_scores argument is not included.
+  #     on it. This argument is ignored if the total_scores argument is not
+  #     included. If the course is configured to hide final grades, the
+  #     following fields are not returned:
+  #     'totals_for_all_grading_periods_option',
+  #     'current_period_computed_current_score',
+  #     'current_period_computed_final_score',
+  #     'current_period_computed_current_grade',
+  #     'current_period_computed_final_grade',
+  #     'current_period_unposted_current_score',
+  #     'current_period_unposted_final_score',
+  #     'current_period_unposted_current_grade', and
+  #     'current_period_unposted_final_grade'
   #   - "term": Optional information to include with each Course. When
   #     term is given, the information for the enrollment term for each course
   #     is returned.
@@ -444,6 +464,8 @@ class CoursesController < ApplicationController
   #     {api:TabsController#index List available tabs API} for more information.
   #   - "course_image": Optional course image data for when there is a course image
   #     and the course image feature flag has been enabled
+  #   - "concluded": Optional information to include with each Course. Indicates whether
+  #     the course has been concluded, taking course and term dates into account.
   #
   # @argument state[] [String, "unpublished"|"available"|"completed"|"deleted"]
   #   If set, only return courses that are in the given state(s).
@@ -452,51 +474,66 @@ class CoursesController < ApplicationController
   #
   # @returns [Course]
   def index
-    respond_to do |format|
-      format.html {
-        all_enrollments = @current_user.enrollments.not_deleted.shard(@current_user).to_a
-        @past_enrollments = []
-        @current_enrollments = []
-        @future_enrollments  = []
-        Canvas::Builders::EnrollmentDateBuilder.preload(all_enrollments)
-        ActiveRecord::Associations::Preloader.new.preload(all_enrollments, :course_section)
+    Shackles.activate(:slave) do
+      respond_to do |format|
+        format.html {
+          css_bundle :context_list, :course_list
+          js_bundle :course_list
 
-        all_enrollments.group_by{|e| [e.course_id, e.type]}.values.each do |enrollments|
-          e = enrollments.sort_by{|e| e.state_with_date_sortable}.first
-          if enrollments.count > 1
-            e.course_section = nil
-            e.readonly!
+          if @current_user
+            content_for_head helpers.auto_discovery_link_tag(:atom, feeds_user_format_path(@current_user.feed_code, :atom), {:title => t('titles.rss.course_announcements', "Course Announcements Atom Feed")})
           end
 
-          state = e.state_based_on_date
-          if [:completed, :rejected].include?(state) ||
-            ([:active, :invited].include?(state) && e.section_or_course_date_in_past?) # strictly speaking, these enrollments are perfectly active but enrollment dates are terrible
-            @past_enrollments << e unless e.workflow_state == "invited"
-          elsif !e.hard_inactive?
-            start_at, end_at = e.enrollment_dates.first
-            if start_at && start_at > Time.now.utc
-              @future_enrollments << e unless e.restrict_future_listing?
-            elsif state != :inactive
-              @current_enrollments << e
-            end
-          end
-        end
-        @visible_groups = @current_user.visible_groups
+          render stream: can_stream_template?
+        }
 
-        @past_enrollments.sort_by!{|e| Canvas::ICU.collation_key(e.long_name(@current_user))}
-        [@current_enrollments, @future_enrollments].each{|list| list.sort_by!{|e| [e.active? ? 1 : 0, Canvas::ICU.collation_key(e.long_name(@current_user))] }}
-      }
-
-      format.json {
-        render json: courses_for_user(@current_user)
-      }
+        format.json {
+          render json: courses_for_user(@current_user)
+        }
+      end
     end
   end
+
+  def load_enrollments_for_index
+    all_enrollments = @current_user.enrollments.not_deleted.shard(@current_user.in_region_associated_shards).preload(:enrollment_state, :course, :course_section).to_a
+    @past_enrollments = []
+    @current_enrollments = []
+    @future_enrollments = []
+
+    all_enrollments.group_by {|e| [e.course_id, e.type]}.values.each do |enrollments|
+      e = enrollments.sort_by {|e| e.state_with_date_sortable}.first
+      if enrollments.count > 1
+        e.course_section = nil
+        e.readonly!
+      end
+
+      state = e.state_based_on_date
+      if [:completed, :rejected].include?(state) ||
+        ([:active, :invited].include?(state) && e.section_or_course_date_in_past?) # strictly speaking, these enrollments are perfectly active but enrollment dates are terrible
+        @past_enrollments << e unless e.workflow_state == "invited"
+      elsif !e.hard_inactive?
+        if e.enrollment_state.pending? || state == :creation_pending || (e.admin? && e.course.start_at&.>(Time.now.utc))
+          @future_enrollments << e unless e.restrict_future_listing?
+        elsif state != :inactive
+          @current_enrollments << e
+        end
+      end
+    end
+
+    @past_enrollments.sort_by! {|e| Canvas::ICU.collation_key(e.long_name(@current_user))}
+    [@current_enrollments, @future_enrollments].each {|list| list.sort_by! {|e| [e.active? ? 1 : 0, Canvas::ICU.collation_key(e.long_name(@current_user))]}}
+  end
+  helper_method :load_enrollments_for_index
+
+  def enrollments_for_index(type)
+    instance_variable_get(:"@#{type}_enrollments")
+  end
+  helper_method :enrollments_for_index
 
   # @API List courses for a user
   # Returns a paginated list of active courses for this user. To view the course list for a user other than yourself, you must be either an observer of that user or an administrator.
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"course_image"|"concluded"]
   #   - "needs_grading_count": Optional information to include with each Course.
   #     When needs_grading_count is given, and the current user has grading
   #     rights, the total number of submissions needing grading for all
@@ -568,6 +605,8 @@ class CoursesController < ApplicationController
   #     {api:TabsController#index List available tabs API} for more information.
   #   - "course_image": Optional course image data for when there is a course image
   #     and the course image feature flag has been enabled
+  #   - "concluded": Optional information to include with each Course. Indicates whether
+  #     the course has been concluded, taking course and term dates into account.
   #
   # @argument state[] [String, "unpublished"|"available"|"completed"|"deleted"]
   #   If set, only return courses that are in the given state(s).
@@ -580,7 +619,9 @@ class CoursesController < ApplicationController
   #
   # @returns [Course]
   def user_index
-    render json: courses_for_user(@user, paginate_url: api_v1_user_courses_url(@user))
+    Shackles.activate(:slave) do
+      render json: courses_for_user(@user, paginate_url: api_v1_user_courses_url(@user))
+    end
   end
 
   # @API Create a new course
@@ -687,6 +728,9 @@ class CoursesController < ApplicationController
   # @argument course[grading_standard_id] [Integer]
   #   The grading standard id to set for the course.  If no value is provided for this argument the current grading_standard will be un-set from this course.
   #
+  # @argument course[grade_passback_setting] [String]
+  #   Optional. The grade_passback_setting for the course. Only 'nightly_sync', 'disabled', and '' are allowed
+  #
   # @argument course[course_format] [String]
   #   Optional. Specifies the format of the course. (Should be 'on_campus', 'online', or 'blended')
   #
@@ -703,6 +747,12 @@ class CoursesController < ApplicationController
       if params_for_create.has_key?(:syllabus_body)
         params_for_create[:syllabus_body] = process_incoming_html_content(params_for_create[:syllabus_body])
       end
+
+     if params_for_create.key?(:grade_passback_setting)
+       grade_passback_setting = params_for_create.delete(:grade_passback_setting)
+       return unless authorized_action?(@course, @current_user, :manage_grades)
+       update_grade_passback_setting(grade_passback_setting)
+     end
 
       if (sub_account_id = params[:course].delete(:account_id)) && sub_account_id.to_i != @account.id
         @sub_account = @account.find_child(sub_account_id)
@@ -729,10 +779,20 @@ class CoursesController < ApplicationController
         params_for_create.delete :storage_quota_mb
       end
 
+      # Hang on... caller may not have permission to manage course visibility
+      # settings. If not, make sure any attempt doesn't see the light of day.
+      unless course_permission_to?("manage_course_visibility", @account)
+        params_for_create.delete :public_syllabus
+        params_for_create.delete :is_public_to_auth_users
+        params_for_create.delete :public_syllabus_to_auth
+        params_for_create[:is_public] = false
+      end
+
       can_manage_sis = api_request? && @account.grants_right?(@current_user, :manage_sis)
       if can_manage_sis && value_to_boolean(params[:enable_sis_reactivation])
         @course = @domain_root_account.all_courses.where(
-          :sis_source_id => sis_course_id, :workflow_state => 'deleted').first
+          :sis_source_id => sis_course_id, :workflow_state => 'deleted'
+        ).first
         if @course
           @course.workflow_state = 'claimed'
           @course.account = @sub_account if @sub_account
@@ -757,6 +817,7 @@ class CoursesController < ApplicationController
           @course.require_assignment_group rescue nil
           # offer updates the workflow state, saving the record without doing validation callbacks
           if api_request? and value_to_boolean(params[:offer])
+            return unless verified_user_check
             @course.offer
             Auditors::Course.record_published(@course, @current_user, source: :api)
           end
@@ -833,6 +894,9 @@ class CoursesController < ApplicationController
   # @argument search_term [String]
   #   The partial name or full ID of the users to match and return in the results list.
   #
+  # @argument sort [String, "username"|"last_login"|"email"|"sis_id"]
+  #   When set, sort the results of the search based on the given field.
+  #
   # @argument enrollment_type[] [String, "teacher"|"student"|"student_view"|"ta"|"observer"|"designer"]
   #   When set, only return users where the user is enrolled as this type.
   #   "student_view" implies include[]=test_student.
@@ -851,8 +915,7 @@ class CoursesController < ApplicationController
   #   'StudentEnrollment', 'TeacherEnrollment', 'TaEnrollment', 'ObserverEnrollment',
   #   or 'DesignerEnrollment'.
   #
-  # @argument include[] [String, "email"|"enrollments"|"locked"|"avatar_url"|"test_student"|"bio"|"custom_links"|"current_grading_period_scores"]
-  #   - "email": Optional user email.
+  # @argument include[] [String, "enrollments"|"locked"|"avatar_url"|"test_student"|"bio"|"custom_links"|"current_grading_period_scores"|"uuid"]
   #   - "enrollments":
   #   Optionally include with each Course the user's current and invited
   #   enrollments. If the user is enrolled as a student, and the account has
@@ -872,6 +935,7 @@ class CoursesController < ApplicationController
   #   'grading_period_id' value will also be included with the
   #   scores. if grading_period_id is nil there is no current grading
   #   period and the score is a total score.
+  #   - "uuid": Optionally include the users uuid
   #
   # @argument user_id [String]
   #   If this parameter is given and it corresponds to a user in the course,
@@ -888,18 +952,19 @@ class CoursesController < ApplicationController
   #  "active" and "invited" enrollments are returned by default.
   # @returns [User]
   def users
-    get_context
-    if authorized_action(@context, @current_user, [:read_roster, :view_all_grades, :manage_grades])
-      #backcompat limit param
-      params[:per_page] ||= params[:limit]
+    Shackles.activate(:slave) do
+      get_context
+      if authorized_action(@context, @current_user, [:read_roster, :view_all_grades, :manage_grades])
+        log_api_asset_access([ "roster", @context ], 'roster', 'other')
+        #backcompat limit param
+        params[:per_page] ||= params[:limit]
 
-      search_params = params.slice(:search_term, :enrollment_role, :enrollment_role_id, :enrollment_type, :enrollment_state)
-      include_inactive = @context.grants_right?(@current_user, session, :read_as_admin) && value_to_boolean(params[:include_inactive])
+        search_params = params.slice(:search_term, :enrollment_role, :enrollment_role_id, :enrollment_type, :enrollment_state, :sort)
+        include_inactive = @context.grants_right?(@current_user, session, :read_as_admin) && value_to_boolean(params[:include_inactive])
 
-      search_params[:include_inactive_enrollments] = true if include_inactive
-      search_term = search_params[:search_term].presence
+        search_params[:include_inactive_enrollments] = true if include_inactive
+        search_term = search_params[:search_term].presence
 
-      Shackles.activate(:slave) do
         users = if search_term
                   UserSearch.for_user_in_context(search_term, @context, @current_user, session, search_params)
                 else
@@ -912,7 +977,7 @@ class CoursesController < ApplicationController
         user_id = params[:user_id]
         if user_id.present? && (user = users.where(:users => { :id => user_id }).first)
           position_scope = users.where("#{User.sortable_name_order_by_clause}<=#{User.best_unicode_collation_key('?')}",
-            user.sortable_name)
+                                       user.sortable_name)
           position = position_scope.distinct.count(:all)
           per_page = Api.per_page_for(self)
           params[:page] = (position.to_f / per_page.to_f).ceil
@@ -924,8 +989,14 @@ class CoursesController < ApplicationController
           users = users.where(id: user_ids)
         end
 
+        user_uuids = params[:user_uuids]
+        if user_uuids.present?
+          user_uuids = user_uuids.split(",") if user_uuids.is_a?(String)
+          users = users.where(uuid: user_uuids)
+        end
+
         users = Api.paginate(users, self, api_v1_course_users_url)
-        includes = Array(params[:include])
+        includes = Array(params[:include]).concat(['sis_user_id', 'email'])
 
         # user_json_preloads loads both active/accepted and deleted
         # group_memberships when passed "group_memberships: true." In a
@@ -933,6 +1004,7 @@ class CoursesController < ApplicationController
         # group memberships. Since we only care about active group
         # memberships for this course, load the data in a more targeted way.
         user_json_preloads(users, includes.include?('email'))
+        UserPastLtiId.manual_preload_past_lti_ids(users, @context) if ['uuid', 'lti_id'].any? { |id| includes.include? id }
         include_group_ids = includes.delete('group_ids').present?
 
         unless includes.include?('test_student') || Array(params[:enrollment_type]).include?("student_view")
@@ -990,7 +1062,7 @@ class CoursesController < ApplicationController
     get_context
     if authorized_action(@context, @current_user, :read_reports)
       scope = User.for_course_with_last_login(@context, @context.root_account_id, 'StudentEnrollment')
-      scope = scope.order('login_info_exists, last_login DESC')
+      scope = scope.order('last_login DESC NULLS LAST')
       users = Api.paginate(scope, self, api_v1_course_recent_students_url)
       user_json_preloads(users)
       render :json => users.map { |u| user_json(u, @current_user, session, ['last_login']) }
@@ -1017,6 +1089,65 @@ class CoursesController < ApplicationController
       enrollments = user.not_ended_enrollments.where(:course_id => @context).preload(:course, :root_account, :sis_pseudonym) if includes.include?('enrollments')
       render :json => user_json(user, @current_user, session, includes, @context, enrollments)
     end
+  end
+
+  # @API Search for content share users
+  #
+  # Returns a paginated list of users you can share content with.  Requires the content share
+  # feature and the user must have the manage content permission for the course.
+  #
+  # @argument search_term [Required, String]
+  #   Term used to find users.  Will search available share users with the search term in their name.
+  #
+  # @example_request
+  #     curl -H 'Authorization: Bearer <token>' \
+  #          https://<canvas>/api/v1/courses/<course_id>/content_share_users \
+  #          -d 'search_term=smith'
+  #
+  # @returns [User]
+  def content_share_users
+    get_context
+    return render json: { message: "Feature disabled" }, status: :forbidden unless @context.root_account.feature_enabled?(:direct_share)
+    reject!('Search term required') unless params[:search_term]
+    return unless authorized_action(@context, @current_user, :manage_content)
+
+    users_scope = User.shard(Shard.current).where.not(id: @current_user.id).active.distinct
+    union_scope = teacher_scope(name_scope(users_scope), @context.root_account_id).
+      union(
+        teacher_scope(email_scope(users_scope), @context.root_account_id),
+        admin_scope(name_scope(users_scope), @context.root_account_id).merge(Role.full_account_admin),
+        admin_scope(email_scope(users_scope), @context.root_account_id).merge(Role.full_account_admin),
+        admin_scope(name_scope(users_scope), @context.root_account_id).merge(Role.custom_account_admin_with_permission('manage_content')),
+        admin_scope(email_scope(users_scope), @context.root_account_id).merge(Role.custom_account_admin_with_permission('manage_content'))
+      ).
+      order(:name).
+      distinct
+    users = Api.paginate(union_scope, self, api_v1_course_content_share_users_url)
+    render :json => users_json(users, @current_user, session, ['avatar_url', 'email'], @context, nil, ['pseudonym'])
+  end
+
+  def admin_scope(scope, root_account_id)
+    scope.joins(account_users: [:account, :role]).
+      merge(AccountUser.active).
+      merge(Account.active).
+      where("accounts.id = ? OR accounts.root_account_id = ?", root_account_id, root_account_id)
+  end
+
+  def teacher_scope(scope, root_account_id)
+    scope.joins(enrollments: :course).
+      merge(Enrollment.active.of_admin_type).
+      merge(Course.active).
+      where(courses: {root_account_id: root_account_id})
+  end
+
+  def name_scope(scope)
+    scope.where(UserSearch.like_condition('users.name'), pattern: UserSearch.like_string_for(params[:search_term]))
+  end
+
+  def email_scope(scope)
+    scope.joins(:communication_channels).
+      where(communication_channels: {workflow_state: ['active', 'unconfirmed'], path_type: 'email'}).
+      where(UserSearch.like_condition('communication_channels.path'), pattern: UserSearch.like_string_for(params[:search_term]))
   end
 
   include Api::V1::PreviewHtml
@@ -1075,17 +1206,16 @@ class CoursesController < ApplicationController
   def todo_items
     get_context
     if authorized_action(@context, @current_user, :read)
-      bookmark = BookmarkedCollection::SimpleBookmarker.new(Assignment, :due_at, :id)
+      bookmark = Plannable::Bookmarker.new(Assignment, false, [:due_at, :created_at], :id)
 
       grading_scope = @current_user.assignments_needing_grading(:contexts => [@context], scope_only: true).
-        reorder(:due_at, :id)
+        reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic, :quiz, :duplicate_of)
       submitting_scope = @current_user.
         assignments_needing_submitting(
           :contexts => [@context],
           include_ungraded: true,
-          limit: ToDoListPresenter::ASSIGNMENT_LIMIT,
           scope_only: true).
-        reorder(:due_at, :id)
+        reorder(:due_at, :id).preload(:external_tool_tag, :rubric_association, :rubric, :discussion_topic, :quiz).eager_load(:duplicate_of)
 
       grading_collection = BookmarkedCollection.wrap(bookmark, grading_scope)
       grading_collection = BookmarkedCollection.transform(grading_collection) do |a|
@@ -1102,7 +1232,7 @@ class CoursesController < ApplicationController
       ]
 
       if Array(params[:include]).include? 'ungraded_quizzes'
-        quizzes_bookmark = BookmarkedCollection::SimpleBookmarker.new(Quizzes::Quiz, :due_at, :id)
+        quizzes_bookmark = Plannable::Bookmarker.new(Quizzes::Quiz, false, [:due_at, :created_at], :id)
         quizzes_scope = @current_user.
           ungraded_quizzes(
             :contexts => [@context],
@@ -1202,16 +1332,19 @@ class CoursesController < ApplicationController
   #     "allow_student_organized_groups": true,
   #     "hide_final_grades": false,
   #     "hide_distribution_graphs": false,
-  #     "lock_all_announcements": true
+  #     "lock_all_announcements": true,
+  #     "usage_rights_required": false
   #   }
+  def api_settings
+    get_context
+    if authorized_action @context, @current_user, :read
+      render :json => course_settings_json(@context)
+    end
+  end
+
   def settings
     get_context
     if authorized_action(@context, @current_user, :read_as_admin)
-      if api_request?
-        render :json => course_settings_json(@context)
-        return
-      end
-
       load_all_contexts(:context => @context)
 
       @all_roles = Role.custom_roles_and_counts_for_course(@context, @current_user, true)
@@ -1224,6 +1357,7 @@ class CoursesController < ApplicationController
       @alerts = @context.alerts
       add_crumb(t('#crumbs.settings', "Settings"), named_context_url(@context, :context_details_url))
 
+      course_card_images_enabled = @context.feature_enabled?(:course_card_images)
       js_env({
         COURSE_ID: @context.id,
         USERS_URL: "/api/v1/courses/#{@context.id}/users",
@@ -1237,32 +1371,35 @@ class CoursesController < ApplicationController
           :manage_admin_users => @context.grants_right?(@current_user, session, :manage_admin_users),
           :manage_account_settings => @context.account.grants_right?(@current_user, session, :manage_account_settings),
           :create_tool_manually => @context.grants_right?(@current_user, session, :create_tool_manually),
+          :manage_feature_flags => @context.grants_right?(@current_user, session, :manage_feature_flags)
         },
         APP_CENTER: {
           enabled: Canvas::Plugin.find(:app_center).enabled?
         },
         LTI_LAUNCH_URL: course_tool_proxy_registration_path(@context),
+        EXTERNAL_TOOLS_CREATE_URL: url_for(controller: :external_tools, action: :create, course_id: @context.id),
+        TOOL_CONFIGURATION_SHOW_URL: course_show_tool_configuration_url(course_id: @context.id, developer_key_id: ':developer_key_id'),
         MEMBERSHIP_SERVICE_FEATURE_FLAG_ENABLED: @context.root_account.feature_enabled?(:membership_service_for_lti_tools),
         CONTEXT_BASE_URL: "/courses/#{@context.id}",
         PUBLISHING_ENABLED: @publishing_enabled,
-        COURSE_IMAGES_ENABLED: @context.feature_enabled?(:course_card_images)
+        COURSE_IMAGES_ENABLED: course_card_images_enabled,
+        use_unsplash_image_search: course_card_images_enabled && PluginSetting.settings_for_plugin(:unsplash)&.dig('access_key')&.present?,
+        COURSE_VISIBILITY_OPTION_DESCRIPTIONS: @context.course_visibility_option_descriptions
       })
 
       set_tutorial_js_env
 
-      if @context.root_account.feature_enabled?(:master_courses)
-        master_template = @context.master_course_templates.for_full_course.first
-        restrictions_by_object_type = master_template&.default_restrictions_by_type_for_api || {}
-        message =!MasterCourses::MasterTemplate.is_master_course?(@context) && why_cant_i_enable_master_course(@context)
-        message ||= ''
-        js_env({
-          IS_MASTER_COURSE: MasterCourses::MasterTemplate.is_master_course?(@context),
-          DISABLED_BLUEPRINT_MESSAGE: message,
-          BLUEPRINT_RESTRICTIONS: master_template&.default_restrictions || { :content => true },
-          USE_BLUEPRINT_RESTRICTIONS_BY_OBJECT_TYPE: master_template&.use_default_restrictions_by_type || false,
-          BLUEPRINT_RESTRICTIONS_BY_OBJECT_TYPE: restrictions_by_object_type
-        })
-      end
+      master_template = @context.master_course_templates.for_full_course.first
+      restrictions_by_object_type = master_template&.default_restrictions_by_type_for_api || {}
+      message = !MasterCourses::MasterTemplate.is_master_course?(@context) && why_cant_i_enable_master_course(@context)
+      message ||= ''
+      js_env({
+        IS_MASTER_COURSE: MasterCourses::MasterTemplate.is_master_course?(@context),
+        DISABLED_BLUEPRINT_MESSAGE: message,
+        BLUEPRINT_RESTRICTIONS: master_template&.default_restrictions || { :content => true },
+        USE_BLUEPRINT_RESTRICTIONS_BY_OBJECT_TYPE: master_template&.use_default_restrictions_by_type || false,
+        BLUEPRINT_RESTRICTIONS_BY_OBJECT_TYPE: restrictions_by_object_type
+      })
 
       @course_settings_sub_navigation_tools = ContextExternalTool.all_tools_for(@context,
         :type => :course_settings_sub_navigation,
@@ -1289,6 +1426,9 @@ class CoursesController < ApplicationController
   # @argument allow_student_organized_groups [Boolean]
   #   Let students organize their own groups
   #
+  # @argument filter_speed_grader_by_student_group [Boolean]
+  #   Filter SpeedGrader to only the selected student group
+  #
   # @argument hide_final_grades [Boolean]
   #   Hide totals in student grades summary
   #
@@ -1297,6 +1437,9 @@ class CoursesController < ApplicationController
   #
   # @argument lock_all_announcements [Boolean]
   #   Disable comments on announcements
+  #
+  # @argument usage_rights_required [Boolean]
+  #   Copyright and license information must be provided for files before they are published.
   #
   # @argument restrict_student_past_view [Boolean]
   #   Restrict students from viewing courses after end date
@@ -1322,14 +1465,17 @@ class CoursesController < ApplicationController
 
     old_settings = @course.settings
     @course.attributes = params.permit(
+      :allow_final_grade_override,
       :allow_student_discussion_topics,
       :allow_student_forum_attachments,
       :allow_student_discussion_editing,
+      :filter_speed_grader_by_student_group,
       :show_total_grade_as_points,
       :allow_student_organized_groups,
       :hide_final_grades,
       :hide_distribution_graphs,
       :lock_all_announcements,
+      :usage_rights_required,
       :restrict_student_past_view,
       :restrict_student_future_view,
       :show_announcements_on_home_page,
@@ -1339,12 +1485,37 @@ class CoursesController < ApplicationController
     @course.send_later_if_production_enqueue_args(:touch_content_if_public_visibility_changed,
       { :priority => Delayed::LOW_PRIORITY }, changes)
 
-    if @course.save
-      Auditors::Course.record_updated(@course, @current_user, changes, source: :api)
-      render :json => course_settings_json(@course)
-    else
-      render :json => @course.errors, :status => :bad_request
+    DueDateCacher.with_executing_user(@current_user) do
+      if @course.save
+        Auditors::Course.record_updated(@course, @current_user, changes, source: :api)
+        render :json => course_settings_json(@course)
+      else
+        render :json => @course.errors, :status => :bad_request
+      end
     end
+  end
+
+  def observer_pairing_codes_csv
+    get_context
+    return render_unauthorized_action unless @context.root_account.self_registration? && @context.grants_right?(@current_user, :generate_observer_pairing_code)
+    res = CSV.generate do |csv|
+      csv << [
+        I18n.t('Last Name'),
+        I18n.t('First Name'),
+        I18n.t('Pairing Code'),
+        I18n.t('Expires At'),
+      ]
+      @context.students.each do |u|
+        opc = ObserverPairingCode.create(user: u, expires_at: 1.week.from_now, code: SecureRandom.hex(3))
+        row = []
+        row << opc.user.last_name
+        row << opc.user.first_name
+        row << '="' + opc.code + '"'
+        row << opc.expires_at
+        csv << row
+      end
+    end
+    send_data res, type: 'text/csv', filename: "#{@context.course_code}_Pairing_Codes.csv"
   end
 
   def update_nav
@@ -1394,7 +1565,11 @@ class CoursesController < ApplicationController
   def accept_enrollment(enrollment)
     if @current_user && enrollment.user == @current_user
       if enrollment.workflow_state == 'invited'
-        enrollment.accept!
+        Shackles.activate(:master) do
+          DueDateCacher.with_executing_user(@current_user) do
+            enrollment.accept!
+          end
+        end
         @pending_enrollment = nil
         flash[:notice] = t('notices.invitation_accepted', 'Invitation accepted!  Welcome to %{course}!', :course => @context.name)
       end
@@ -1402,7 +1577,9 @@ class CoursesController < ApplicationController
       session[:accepted_enrollment_uuid] = enrollment.uuid
 
       if params[:action] != 'show'
-        redirect_to course_url(@context.id)
+        # Redirects back to HTTP_REFERER if it exists (so if you accept from an assignent page it will put
+        # you back on the same page you were looking at). Otherwise, it redirects back to the course homepage
+        redirect_back(fallback_location: course_url(@context.id))
       else
         @context_enrollment = enrollment
         enrollment = nil
@@ -1427,7 +1604,9 @@ class CoursesController < ApplicationController
   # Returns nothing.
   def reject_enrollment(enrollment)
     if enrollment.invited?
-      enrollment.reject!
+      Shackles.activate(:master) do
+        enrollment.reject!
+      end
       flash[:notice] = t('notices.invitation_cancelled', 'Invitation canceled.')
     end
 
@@ -1467,7 +1646,7 @@ class CoursesController < ApplicationController
 
       if enrollment.rejected?
         enrollment.workflow_state = 'invited'
-        enrollment.save_without_broadcasting
+        Shackles.activate(:master) {enrollment.save_without_broadcasting}
       end
 
       if enrollment.self_enrolled?
@@ -1638,209 +1817,227 @@ class CoursesController < ApplicationController
   #
   # Accepts the same include[] parameters as the list action plus:
   #
-  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"all_courses"|"permissions"|"observed_users"|"course_image"]
+  # @argument include[] [String, "needs_grading_count"|"syllabus_body"|"public_description"|"total_scores"|"current_grading_period_scores"|"term"|"account"|"course_progress"|"sections"|"storage_quota_used_mb"|"total_students"|"passback_status"|"favorites"|"teachers"|"observed_users"|"all_courses"|"permissions"|"observed_users"|"course_image"|"concluded"]
   #   - "all_courses": Also search recently deleted courses.
   #   - "permissions": Include permissions the current user has
   #     for the course.
   #   - "observed_users": include observed users in the enrollments
   #   - "course_image": Optional course image data for when there is a course image
   #     and the course image feature flag has been enabled
+  #   - "concluded": Optional information to include with each Course. Indicates whether
+  #     the course has been concluded, taking course and term dates into account.
+  #
+  # @argument teacher_limit [Integer]
+  #   The maximum number of teacher enrollments to show.
+  #   If the course contains more teachers than this, instead of giving the teacher
+  #   enrollments, the count of teachers will be given under a _teacher_count_ key.
   #
   # @returns Course
   def show
-    if api_request?
-      includes = Set.new(Array(params[:include]))
+    Shackles.activate(:slave) do
+      if api_request?
+        includes = Set.new(Array(params[:include]))
 
-      if params[:account_id]
-        @account = api_find(Account.active, params[:account_id])
-        scope = @account.associated_courses
-      else
-        scope = Course
-      end
-
-      if !includes.member?("all_courses")
-        scope = scope.not_deleted
-      end
-      @context = @course = api_find(scope, params[:id])
-      @context_membership = @context.enrollments.where(user_id: @current_user).except(:preload).first # for AUA
-
-      if authorized_action(@course, @current_user, :read)
-        log_asset_access([ "home", @context ], "home", "other")
-        enrollments = @course.current_enrollments.where(:user_id => @current_user).to_a
-        if includes.include?("observed_users") &&
-            enrollments.any?(&:assigned_observer?)
-          enrollments.concat(ObserverEnrollment.observed_enrollments_for_courses(@course, @current_user))
-        end
-
-        includes << :hide_final_grades
-        render :json => course_json(@course, @current_user, session, includes, enrollments)
-      end
-      return
-    end
-
-
-    @context = api_find(Course.active, params[:id])
-    assign_localizer
-    if request.xhr?
-      if authorized_action(@context, @current_user, [:read, :read_as_admin])
-        render :json => @context
-      end
-      return
-    end
-
-    if @context && @current_user
-      @context_enrollment = @context.enrollments.where(user_id: @current_user).except(:preload).first
-      if @context_enrollment
-        @context_membership = @context_enrollment # for AUA
-        @context_enrollment.course = @context
-        @context_enrollment.user = @current_user
-      end
-    end
-
-    return if check_for_xlist
-    @unauthorized_message = t('unauthorized.invalid_link', "The enrollment link you used appears to no longer be valid.  Please contact the course instructor and make sure you're still correctly enrolled.") if params[:invitation]
-    claim_course if session[:claim_course_uuid] || params[:verification]
-    @context.claim if @context.created?
-    return if check_enrollment
-    check_pending_teacher
-    check_unknown_user
-    @user_groups = @current_user.group_memberships_for(@context) if @current_user
-
-    if !@context.grants_right?(@current_user, session, :read) && @context.grants_right?(@current_user, session, :read_as_admin)
-      return redirect_to course_settings_path(@context.id)
-    end
-
-    @context_enrollment ||= @pending_enrollment
-    if @context.grants_right?(@current_user, session, :read)
-      check_for_readonly_enrollment_state
-
-      log_asset_access([ "home", @context ], "home", "other")
-
-      check_incomplete_registration
-
-      add_crumb(@context.nickname_for(@current_user, :short_name), url_for(@context), :id => "crumb_#{@context.asset_string}")
-      set_badge_counts_for(@context, @current_user, @current_enrollment)
-
-      set_tutorial_js_env
-
-      default_view = @context.default_view || @context.default_home_page
-      @course_home_view = "feed" if params[:view] == "feed"
-      @course_home_view ||= default_view
-
-      js_env COURSE: {
-        id: @context.id.to_s,
-        pages_url: polymorphic_url([@context, :wiki_pages]),
-        front_page_title: @context&.wiki&.front_page&.title,
-        default_view: default_view
-      }
-
-      # make sure the wiki front page exists
-      if @course_home_view == 'wiki'&& @context.wiki.front_page.nil?
-        @course_home_view = @context.default_home_page
-      end
-
-      if @context.show_announcements_on_home_page? && @context.grants_right?(@current_user, session, :read_announcements)
-        js_env TOTAL_USER_COUNT: @context.enrollments.active.count
-        js_env(:SHOW_ANNOUNCEMENTS => true, :ANNOUNCEMENT_LIMIT => @context.home_page_announcement_limit)
-      end
-
-      @contexts = [@context]
-      case @course_home_view
-      when "wiki"
-        @wiki = @context.wiki
-        @page = @wiki.front_page
-        set_js_rights [:wiki, :page]
-        set_js_wiki_data :course_home => true
-        @padless = true
-      when 'assignments'
-        add_crumb(t('#crumbs.assignments', "Assignments"))
-        set_js_assignment_data(
-          include_assignment_permissions: @context.root_account.feature_enabled?(:anonymous_moderated_marking)
-        )
-        js_env(:SIS_NAME => AssignmentUtil.post_to_sis_friendly_name(@context))
-        js_env(:COURSE_HOME => true)
-        @upcoming_assignments = get_upcoming_assignments(@context)
-      when 'modules'
-        add_crumb(t('#crumbs.modules', "Modules"))
-        load_modules
-      when 'syllabus'
-        rce_js_env(:sidebar)
-        add_crumb(t('#crumbs.syllabus', "Syllabus"))
-        @groups = @context.assignment_groups.active.order(
-          :position,
-          AssignmentGroup.best_unicode_collation_key('name')
-        ).to_a
-        @syllabus_body = syllabus_user_content
-      else
-        @active_tab = "home"
-        if @context.grants_right?(@current_user, session, :manage_groups)
-          @contexts += @context.groups
+        if params[:account_id]
+          @account = api_find(Account.active, params[:account_id])
+          scope = @account.associated_courses
         else
-          @contexts += @user_groups if @user_groups
+          scope = Course
         end
-        web_conferences = @context.web_conferences.active.to_a
-        @current_conferences = web_conferences.select{|c| c.active?(false, false) && c.users.include?(@current_user) }
-        @scheduled_conferences = web_conferences.select{|c| c.scheduled? && c.users.include?(@current_user)}
-        @stream_items = @current_user.try(:cached_recent_stream_items, { :contexts => @contexts }) || []
+
+        if !includes.member?("all_courses")
+          scope = scope.not_deleted
+        end
+        @context = @course = api_find(scope, params[:id])
+        @context_membership = @context.enrollments.where(user_id: @current_user).except(:preload).first # for AUA
+
+        if authorized_action(@course, @current_user, :read)
+          log_asset_access(["home", @context], "home", "other", nil, @context_membership.class.to_s, context: @context)
+          enrollments = @course.current_enrollments.where(:user_id => @current_user).to_a
+          if includes.include?("observed_users") &&
+            enrollments.any?(&:assigned_observer?)
+            enrollments.concat(ObserverEnrollment.observed_enrollments_for_courses(@course, @current_user))
+          end
+
+          includes << :hide_final_grades
+          render :json => course_json(@course, @current_user, session, includes, enrollments)
+        end
+        return
       end
 
-      if @current_user and (@show_recent_feedback = @context.user_is_student?(@current_user))
-        @recent_feedback = (@current_user && @current_user.recent_feedback(:contexts => @contexts)) || []
+
+      @context = api_find(Course.active, params[:id])
+      assign_localizer
+      if request.xhr?
+        if authorized_action(@context, @current_user, [:read, :read_as_admin])
+          render :json => @context
+        end
+        return
       end
 
-      @course_home_sub_navigation_tools = ContextExternalTool.all_tools_for(@context, :placements => :course_home_sub_navigation, :root_account => @domain_root_account, :current_user => @current_user).to_a
-      unless @context.grants_right?(@current_user, session, :manage_content)
-        @course_home_sub_navigation_tools.reject! { |tool| tool.course_home_sub_navigation(:visibility) == 'admins' }
+      if @context && @current_user
+        @context_enrollment = @context.enrollments.where(user_id: @current_user).except(:preload).first
+        if @context_enrollment
+          @context_membership = @context_enrollment # for AUA
+          @context_enrollment.course = @context
+          @context_enrollment.user = @current_user
+        end
       end
-    elsif @context.indexed && @context.available?
-      render :description
-    else
-      # clear notices that would have been displayed as a result of processing
-      # an enrollment invitation, since we're giving an error
-      flash[:notice] = nil
-      render_unauthorized_action
+
+      return if check_for_xlist
+      @unauthorized_message = t('unauthorized.invalid_link', "The enrollment link you used appears to no longer be valid.  Please contact the course instructor and make sure you're still correctly enrolled.") if params[:invitation]
+      Shackles.activate(:master) do
+        claim_course if session[:claim_course_uuid] || params[:verification]
+        @context.claim if @context.created?
+      end
+      return if check_enrollment
+      check_pending_teacher
+      check_unknown_user
+      @user_groups = @current_user.group_memberships_for(@context) if @current_user
+
+      if !@context.grants_right?(@current_user, session, :read) && @context.grants_right?(@current_user, session, :read_as_admin)
+        return redirect_to course_settings_path(@context.id)
+      end
+
+      @context_enrollment ||= @pending_enrollment
+      if @context.grants_right?(@current_user, session, :read)
+        check_for_readonly_enrollment_state
+
+        log_asset_access(["home", @context], "home", "other", nil, @context_enrollment.class.to_s, context: @context)
+
+        check_incomplete_registration
+
+        add_crumb(@context.nickname_for(@current_user, :short_name), url_for(@context), :id => "crumb_#{@context.asset_string}")
+        Shackles.activate(:master) do
+          set_badge_counts_for(@context, @current_user, @current_enrollment)
+        end
+
+        set_tutorial_js_env
+
+        default_view = @context.default_view || @context.default_home_page
+        @course_home_view = "feed" if params[:view] == "feed"
+        @course_home_view ||= default_view
+
+        js_env({
+                 # don't check for student enrollments because we want to show course items on the teacher's  syllabus
+                 STUDENT_PLANNER_ENABLED: @domain_root_account&.feature_enabled?(:student_planner),
+                 COURSE: {
+                   id: @context.id.to_s,
+                   pages_url: polymorphic_url([@context, :wiki_pages]),
+                   front_page_title: @context&.wiki&.front_page&.title,
+                   default_view: default_view
+                 }
+               })
+
+        # make sure the wiki front page exists
+        if @course_home_view == 'wiki' && @context.wiki.front_page.nil?
+          @course_home_view = @context.default_home_page
+        end
+
+        if @context.show_announcements_on_home_page? && @context.grants_right?(@current_user, session, :read_announcements)
+          js_env TOTAL_USER_COUNT: @context.enrollments.active.count
+          js_env(:SHOW_ANNOUNCEMENTS => true, :ANNOUNCEMENT_LIMIT => @context.home_page_announcement_limit)
+        end
+
+        @contexts = [@context]
+        case @course_home_view
+        when "wiki"
+          @wiki = @context.wiki
+          @page = @wiki.front_page
+          set_js_rights [:wiki, :page]
+          set_js_wiki_data :course_home => true
+          @padless = true
+        when 'assignments'
+          add_crumb(t('#crumbs.assignments', "Assignments"))
+          set_js_assignment_data
+          js_env(:SIS_NAME => AssignmentUtil.post_to_sis_friendly_name(@context))
+          js_env(
+            QUIZ_LTI_ENABLED: @context.feature_enabled?(:quizzes_next) &&
+              !@context.root_account.feature_enabled?(:newquizzes_on_quiz_page) &&
+              @context.quiz_lti_tool.present?,
+            FLAGS: {
+              newquizzes_on_quiz_page: @context.root_account.feature_enabled?(:newquizzes_on_quiz_page)
+            }
+          )
+          js_env(:COURSE_HOME => true)
+          @upcoming_assignments = get_upcoming_assignments(@context)
+        when 'modules'
+          add_crumb(t('#crumbs.modules', "Modules"))
+          load_modules
+        when 'syllabus'
+          set_active_tab "syllabus"
+          rce_js_env
+          add_crumb(t('#crumbs.syllabus', "Syllabus"))
+          @groups = @context.assignment_groups.active.order(
+            :position,
+            AssignmentGroup.best_unicode_collation_key('name')
+          ).to_a
+          @syllabus_body = syllabus_user_content
+        else
+          set_active_tab "home"
+          if @context.grants_right?(@current_user, session, :manage_groups)
+            @contexts += @context.groups
+          else
+            @contexts += @user_groups if @user_groups
+          end
+          web_conferences = @context.web_conferences.active.to_a
+          @current_conferences = web_conferences.select {|c| c.active?(false, false) && c.users.include?(@current_user)}
+          @scheduled_conferences = web_conferences.select {|c| c.scheduled? && c.users.include?(@current_user)}
+          @stream_items = @current_user.try(:cached_recent_stream_items, {:contexts => @contexts}) || []
+        end
+
+        if @current_user and (@show_recent_feedback = @context.user_is_student?(@current_user))
+          @recent_feedback = (@current_user && @current_user.recent_feedback(:contexts => @contexts)) || []
+        end
+
+        @course_home_sub_navigation_tools = ContextExternalTool.all_tools_for(@context, :placements => :course_home_sub_navigation, :root_account => @domain_root_account, :current_user => @current_user).to_a
+        unless @context.grants_right?(@current_user, session, :manage_content)
+          @course_home_sub_navigation_tools.reject! {|tool| tool.course_home_sub_navigation(:visibility) == 'admins'}
+        end
+
+        css_bundle :dashboard
+        css_bundle :react_todo_sidebar if planner_enabled?
+        case @course_home_view
+        when 'wiki'
+          js_bundle :wiki_page_show
+          css_bundle :wiki_page, :tinymce
+        when 'modules'
+          js_env(CONTEXT_MODULE_ASSIGNMENT_INFO_URL: context_url(@context, :context_context_modules_assignment_info_url))
+
+          js_bundle :context_modules
+          css_bundle :content_next, :context_modules2
+        when 'assignments'
+          js_bundle :assignment_index
+          css_bundle :new_assignments
+          add_body_class('hide-content-while-scripts-not-loaded', 'with_item_groups')
+        when 'syllabus'
+          js_bundle :syllabus
+          css_bundle :syllabus, :tinymce
+        else
+          js_bundle :dashboard
+        end
+
+        js_bundle :course, 'legacy/courses_show'
+        css_bundle :course_show
+
+        if @context_enrollment
+          content_for_head helpers.auto_discovery_link_tag(:atom, feeds_course_format_path(@context_enrollment.feed_code, :atom), {:title => t("Course Atom Feed")})
+        elsif @context.available?
+          content_for_head helpers.auto_discovery_link_tag(:atom, feeds_course_format_path(@context.feed_code, :atom), {:title => t("Course Atom Feed")})
+        end
+
+        set_active_tab "home" unless get_active_tab
+        render stream: can_stream_template?
+      elsif @context.indexed && @context.available?
+        render :description
+      else
+        # clear notices that would have been displayed as a result of processing
+        # an enrollment invitation, since we're giving an error
+        flash[:notice] = nil
+        render_unauthorized_action
+      end
     end
   end
-
-  def set_js_course_wizard_data
-    # Course Wizard JS Info
-    js_env({:COURSE_WIZARD => {
-      :just_saved =>  @context_just_saved,
-      :checklist_states => {
-        :import_step => !@context.attachments.active.exists?,
-        :assignment_step => !@context.assignments.active.exists?,
-        :add_student_step => !@context.students.exists?,
-        :navigation_step => @context.tab_configuration.empty?,
-        :home_page_step => true, # The current wizard just always marks this as complete.
-        :calendar_event_step => !@context.calendar_events.active.exists?,
-        :add_ta_step => !@context.tas.exists?,
-        :publish_step => @context.workflow_state === "available"
-      },
-      :urls => {
-        :content_import => context_url(@context, :context_content_migrations_url),
-        :add_assignments => context_url(@context, :context_assignments_url, :wizard => 1),
-        :add_students => course_users_path(course_id: @context),
-        :add_files => context_url(@context, :context_files_url, :wizard => 1),
-        :select_navigation => context_url(@context, :context_details_url),
-        :course_calendar => calendar_path(course_id: @context),
-        :add_tas => course_users_path(:course_id => @context),
-        :publish_course => course_path(@context)
-      },
-      :permissions => {
-        # Sending the permissions just so maybe later we can extract this easier.
-        :can_manage_content => can_do(@context, @current_user, :manage_content),
-        :can_manage_students => can_do(@context, @current_user, :manage_students),
-        :can_manage_assignments => can_do(@context, @current_user, :manage_assignments),
-        :can_manage_files => can_do(@context, @current_user, :manage_files),
-        :can_update => can_do(@context, @current_user, :update),
-        :can_manage_calendar => can_do(@context, @current_user, :manage_calendar),
-        :can_manage_admin_users => can_do(@context, @current_user, :manage_admin_users),
-        :can_change_course_state => can_do(@context, @current_user, :change_course_state)
-      }
-    }
-    })
-  end
-  helper_method :set_js_course_wizard_data
 
   def confirm_action
     get_context
@@ -1902,7 +2099,7 @@ class CoursesController < ApplicationController
     get_context
     @enrollment = @context.enrollments.find(params[:id])
     if @enrollment.can_be_deleted_by(@current_user, @context, session)
-      if (!@enrollment.defined_by_sis? || @context.grants_right?(@current_user, session, :manage_account_settings)) && @enrollment.destroy
+      if (!@enrollment.defined_by_sis? || @context.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis)) && @enrollment.destroy
         render :json => @enrollment
       else
         render :json => @enrollment, :status => :bad_request
@@ -1943,6 +2140,7 @@ class CoursesController < ApplicationController
       limit_privileges = value_to_boolean(enrollment_options[:limit_privileges_to_course_section])
       enrollment_options[:limit_privileges_to_course_section] = limit_privileges
       enrollment_options[:role] = custom_role if custom_role
+      enrollment_options[:updating_user] = @current_user
 
       list =
         if params[:user_tokens]
@@ -2001,7 +2199,7 @@ class CoursesController < ApplicationController
     @enrollment = @context.enrollments.find(params[:id])
     can_move = [StudentEnrollment, ObserverEnrollment].include?(@enrollment.class) && @context.grants_right?(@current_user, session, :manage_students)
     can_move ||= @context.grants_right?(@current_user, session, :manage_admin_users)
-    can_move &&= @context.grants_right?(@current_user, session, :manage_account_settings) if @enrollment.defined_by_sis?
+    can_move &&= @context.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis) if @enrollment.defined_by_sis?
     if can_move
       respond_to do |format|
         # ensure user_id,section_id,type,associated_user_id is unique (this
@@ -2066,7 +2264,10 @@ class CoursesController < ApplicationController
       @course.save!
       @course.enroll_user(@current_user, 'TeacherEnrollment', :enrollment_state => 'active')
 
-      @content_migration = @course.content_migrations.build(:user => @current_user, :source_course => @context, :context => @course, :migration_type => 'course_copy_importer', :initiated_source => api_request? ? :api : :manual)
+      @content_migration = @course.content_migrations.build(
+        :user => @current_user, :source_course => @context,
+        :context => @course, :migration_type => 'course_copy_importer',
+        :initiated_source => api_request? ? (in_app? ? :api_in_app : :api) : :manual)
       @content_migration.migration_settings[:source_course_id] = @context.id
       @content_migration.workflow_state = 'created'
       if (adjust_dates = params[:adjust_dates]) && Canvas::Plugin.value_to_boolean(adjust_dates[:enabled])
@@ -2199,9 +2400,9 @@ class CoursesController < ApplicationController
   #     in prior-enrollment lists.
   #   * 'delete' completely removes the course from the web site (including course menus and prior-enrollment lists).
   #     All enrollments are deleted. Course content may be physically deleted at a future date.
-  #   * 'undelete' attempts to recover a course that has been deleted. (Recovery is not guaranteed; please conclude
-  #     rather than delete a course if there is any possibility the course will be used again.) The recovered course
-  #     will be unpublished. Deleted enrollments will not be recovered.
+  #   * 'undelete' attempts to recover a course that has been deleted. This action requires account administrative rights.
+  #     (Recovery is not guaranteed; please conclude rather than delete a course if there is any possibility the course
+  #     will be used again.) The recovered course will be unpublished. Deleted enrollments will not be recovered.
   #
   # @argument course[default_view]  [String, "feed"|"wiki"|"modules"|"syllabus"|"assignments"]
   #   The type of page that users will see when they first visit the course
@@ -2217,6 +2418,9 @@ class CoursesController < ApplicationController
   #
   # @argument course[grading_standard_id] [Integer]
   #   The grading standard id to set for the course.  If no value is provided for this argument the current grading_standard will be un-set from this course.
+  #
+  # @argument course[grade_passback_setting] [String]
+  #   Optional. The grade_passback_setting for the course. Only 'nightly_sync' and '' are allowed
   #
   # @argument course[course_format] [String]
   #   Optional. Specifies the format of the course. (Should be either 'on_campus' or 'online')
@@ -2237,7 +2441,7 @@ class CoursesController < ApplicationController
   #   ID are both set to nil
   #
   # @argument course[blueprint] [Boolean]
-  #   Sets the course as a blueprint course. NOTE: The Blueprint Courses feature is in beta
+  #   Sets the course as a blueprint course.
   #
   # @argument course[blueprint_restrictions] [BlueprintRestriction]
   #   Sets a default set to apply to blueprint course objects when restricted,
@@ -2278,11 +2482,15 @@ class CoursesController < ApplicationController
 
     params[:course] ||= {}
     params_for_update = course_params
-    params[:course][:event] = :offer if params[:offer].present?
+    params[:course][:event] = :offer if value_to_boolean(params[:offer])
 
     if params[:course][:event] && params[:course].keys.size == 1
-      if authorized_action(@course, @current_user, :change_course_state) && process_course_event
-        render_update_success
+      if authorized_action(@course, @current_user, :change_course_state) && verified_user_check
+        if process_course_event
+          render_update_success
+        else
+          render_update_failure
+        end
       end
       return
     end
@@ -2295,6 +2503,9 @@ class CoursesController < ApplicationController
       end
       if params_for_update.has_key?(:syllabus_body)
         params_for_update[:syllabus_body] = process_incoming_html_content(params_for_update[:syllabus_body])
+      end
+      unless @course.grants_right?(@current_user, :manage_course_visibility)
+        params_for_update.delete(:indexed)
       end
 
       account_id = params[:course].delete :account_id
@@ -2345,6 +2556,13 @@ class CoursesController < ApplicationController
           end
         end
       end
+
+      if params_for_update.has_key?(:grade_passback_setting)
+        grade_passback_setting = params_for_update.delete(:grade_passback_setting)
+        return unless authorized_action?(@course, @current_user, :manage_grades)
+        update_grade_passback_setting(grade_passback_setting)
+      end
+
       unless @course.account.grants_right? @current_user, session, :manage_storage_quotas
         params_for_update.delete :storage_quota
         params_for_update.delete :storage_quota_mb
@@ -2376,12 +2594,20 @@ class CoursesController < ApplicationController
         end
       end
 
+      if params[:course].key?(:usage_rights_required)
+        @course.usage_rights_required = value_to_boolean(params[:course].delete(:usage_rights_required))
+      end
+
       if params_for_update.has_key?(:locale) && params_for_update[:locale].blank?
         params_for_update[:locale] = nil
       end
 
       if params[:course][:event] && @course.grants_right?(@current_user, session, :change_course_state)
-        return unless process_course_event
+        return unless verified_user_check
+        unless process_course_event
+          render_update_failure
+          return
+        end
       end
 
       if params[:course][:image_url] && params[:course][:image_id]
@@ -2431,7 +2657,6 @@ class CoursesController < ApplicationController
       end
       blueprint_keys = [:blueprint_restrictions, :use_blueprint_restrictions_by_object_type, :blueprint_restrictions_by_object_type]
       if blueprint_keys.any?{|k| params[:course].has_key?(k)} && MasterCourses::MasterTemplate.is_master_course?(@course)
-        return unless authorized_action(@course.account, @current_user, :manage_master_courses)
         template = MasterCourses::MasterTemplate.full_template_for(@course)
 
         if params[:course].has_key?(:use_blueprint_restrictions_by_object_type)
@@ -2452,14 +2677,15 @@ class CoursesController < ApplicationController
           template.default_restrictions_by_type = parsed_restrictions_by_type
         end
 
-        if template.changed? && !template.save
-          @course.errors.add(:master_course_restrictions, t("Invalid restrictions"))
+        if template.changed?
+          return unless authorized_action(@course.account, @current_user, :manage_master_courses)
+          @course.errors.add(:master_course_restrictions, t("Invalid restrictions")) unless template.save
         end
       end
 
       @course.attributes = params_for_update
 
-      if params[:course][:course_visibility].present?
+      if params[:course][:course_visibility].present? && @course.grants_right?(@current_user, :manage_course_visibility)
         visibility_configuration(params[:course])
       end
 
@@ -2476,32 +2702,74 @@ class CoursesController < ApplicationController
         end
         render_update_success
       else
-        respond_to do |format|
-          format.html do
-            flash[:error] = t('There was an error saving the changes to the course')
-            redirect_to course_url(@course)
-          end
-          format.json { render :json => @course.errors, :status => :bad_request }
-        end
+        render_update_failure
       end
+    end
+  end
+
+  def render_update_failure
+    respond_to do |format|
+      format.html do
+        flash[:error] = t('There was an error saving the changes to the course')
+        redirect_to course_url(@course)
+      end
+      format.json { render :json => @course.errors, :status => :bad_request }
+    end
+  end
+
+  # prevent API from failing when a no-op event is given
+  def non_event?(course, event)
+    case event
+    when :offer
+      course.available?
+    when :claim
+      course.claimed?
+    when :complete
+      course.completed?
+    when :delete
+      course.deleted?
+    else
+      false
     end
   end
 
   def process_course_event
     event = params[:course].delete(:event)
     event = event.to_sym
+    event = :complete if event == :conclude
+    return true if non_event?(@course, event)
     if event == :claim && !@course.unpublishable?
-      flash[:error] = t('errors.unpublish', 'Course cannot be unpublished if student submissions exist.')
-      redirect_to(course_url(@course))
+      cant_unpublish_message = t('errors.unpublish', 'Course cannot be unpublished if student submissions exist.')
+      respond_to do |format|
+        format.json do
+          @course.errors.add(:workflow_state, cant_unpublish_message)
+        end
+        format.html do
+          flash[:error] = cant_unpublish_message
+          redirect_to(course_url(@course))
+        end
+      end
       return false
     else
-      @course.process_event(event)
-      logging_source = api_request? ? :api : :manual
-      if event == :offer
-        Auditors::Course.record_published(@course, @current_user, source: logging_source)
-      elsif event == :claim
-        Auditors::Course.record_claimed(@course, @current_user, source: logging_source)
+      result = @course.process_event(event)
+      if result
+        opts = { source: api_request? ? :api : :manual }
+        case event
+        when :offer
+          Auditors::Course.record_published(@course, @current_user, opts)
+        when :claim
+          Auditors::Course.record_claimed(@course, @current_user, opts)
+        when :complete
+          Auditors::Course.record_concluded(@course, @current_user, opts)
+        when :delete
+          Auditors::Course.record_deleted(@course, @current_user, opts)
+        when :undelete
+          Auditors::Course.record_restored(@course, @current_user, opts)
+        end
+      else
+        @course.errors.add(:workflow_state, @course.halted_because)
       end
+      result
     end
   end
 
@@ -2573,13 +2841,14 @@ class CoursesController < ApplicationController
       f.updated = Time.now
       f.id = course_url(@context)
     end
+
     @entries = []
-    @entries.concat @context.assignments.published
+    @entries.concat Assignments::ScopedToUser.new(@context, @current_user, @context.assignments.published).scope
     @entries.concat @context.calendar_events.active
-    @entries.concat(@context.discussion_topics.active.select{ |dt|
-      dt.published? && !dt.locked_for?(@current_user, :check_policies => true)
-    })
-    @entries.concat @context.wiki_pages
+    @entries.concat DiscussionTopic::ScopedToUser.new(@context, @current_user, @context.discussion_topics.published).scope.select{ |dt|
+      !dt.locked_for?(@current_user, :check_policies => true)
+    }
+    @entries.concat WikiPages::ScopedToUser.new(@context, @current_user, @context.wiki_pages.published).scope
     @entries = @entries.sort_by{|e| e.updated_at}
     @entries.each do |entry|
       feed.entries << entry.to_atom(:context => @context)
@@ -2677,7 +2946,8 @@ class CoursesController < ApplicationController
 
   # @API Permissions
   # Returns permission information for the calling user in the given course.
-  # See also {api:AccountsController#permissions the Account counterpart}.
+  # See also the {api:AccountsController#permissions Account} and
+  # {api:GroupsController#permissions Group} counterparts.
   #
   # @argument permissions[] [String]
   #   List of permissions to check against the authenticated user.
@@ -2730,7 +3000,8 @@ class CoursesController < ApplicationController
       SubmissionComment.where(:provisional_grade_id => pg_scope).delete_all
       pg_scope.delete_all
       OriginalityReport.where(:submission_id => @fake_student.all_submissions).delete_all
-      @fake_student.all_submissions.destroy_all
+      AnonymousOrModerationEvent.where(submission: @fake_student.all_submissions).destroy_all
+      @fake_student.all_submissions.preload(:all_submission_comments, :submission_drafts, :lti_result, :versions).destroy_all
       @fake_student.quiz_submissions.each{|qs| qs.events.destroy_all}
       @fake_student.quiz_submissions.destroy_all
 
@@ -2867,7 +3138,7 @@ class CoursesController < ApplicationController
       enrollments = user.participating_enrollments
       ActiveRecord::Associations::Preloader.new.preload(enrollments, :course)
     else
-      enrollments = user.cached_current_enrollments(preload_courses: true)
+      enrollments = user.cached_currentish_enrollments(preload_courses: true)
     end
 
     if include_observed
@@ -2928,22 +3199,35 @@ class CoursesController < ApplicationController
     enrollments_by_course = Api.paginate(enrollments_by_course, self, paginate_url) if api_request?
     courses = enrollments_by_course.map(&:first).map(&:course)
     preloads = %i/account root_account/
-    preloads << :teachers if includes.include?('teachers')
+    preload_teachers(courses) if includes.include?('teachers')
     preloads << :grading_standard if includes.include?('total_scores')
     preloads << :account if includes.include?('subaccount') || includes.include?('account')
     if includes.include?('current_grading_period_scores')
       preloads << { enrollment_term: { grading_period_group: :grading_periods } }
       preloads << { grading_period_groups: :grading_periods }
     end
+    preloads << { context_modules: :content_tags } if includes.include?('course_progress')
+    preloads << :enrollment_term if includes.include?('term') || includes.include?('concluded')
     ActiveRecord::Associations::Preloader.new.preload(courses, preloads)
 
-    if includes.include?('total_scores') || includes.include?('current_grading_period_scores')
-      ActiveRecord::Associations::Preloader.new.preload(enrollments, scores: :course)
+    preloads = []
+    preloads << :course_section if includes.include?('sections')
+    preloads << { scores: :course } if includes.include?('total_scores') || includes.include?('current_grading_period_scores')
+
+    ActiveRecord::Associations::Preloader.new.preload(enrollments, preloads) unless preloads.empty?
+    if includes.include?('course_progress')
+      progressions = ContextModuleProgression.joins(:context_module).where(user: user, context_modules: { course: courses }).select("context_module_progressions.*, context_modules.context_id AS course_id").to_a.group_by { |cmp| cmp['course_id'] }
     end
+
+    permissions_to_precalculate = [:read_sis, :manage_sis]
+    permissions_to_precalculate += SectionTabHelper::PERMISSIONS_TO_PRECALCULATE if includes.include?('tabs')
+    all_precalculated_permissions = @current_user.precalculate_permissions_for_courses(courses, permissions_to_precalculate)
 
     enrollments_by_course.each do |course_enrollments|
       course = course_enrollments.first.course
-      hash << course_json(course, @current_user, session, includes, course_enrollments, user)
+      hash << course_json(course, @current_user, session, includes, course_enrollments, user,
+                          preloaded_progressions: progressions,
+                          precalculated_permissions: all_precalculated_permissions&.dig(course.global_id))
     end
     hash
   end
@@ -2955,27 +3239,7 @@ class CoursesController < ApplicationController
   end
 
   def visibility_configuration(params)
-    if params[:course_visibility] == 'institution'
-      @course.is_public_to_auth_users = true
-      @course.is_public = false
-    elsif params[:course_visibility] == 'public'
-      @course.is_public = true
-    else
-      @course.is_public_to_auth_users = false
-      @course.is_public = false
-    end
-    if params[:syllabus_visibility_option].present?
-      customized = params[:syllabus_visibility_option]
-      if @course.is_public || customized == 'public'
-        @course.public_syllabus = true
-      elsif @course.is_public_to_auth_users || customized == 'institution'
-        @course.public_syllabus_to_auth = true
-        @course.public_syllabus = false
-      else
-        @course.public_syllabus = false
-        @course.public_syllabus_to_auth = false
-      end
-    end
+    @course.apply_visibility_configuration(params[:course_visibility], params[:syllabus_visibility_option])
   end
 
   def can_change_group_weighting_scheme?
@@ -3007,6 +3271,14 @@ class CoursesController < ApplicationController
 
   private
 
+  def update_grade_passback_setting(grade_passback_setting)
+    valid_states = Setting.get('valid_grade_passback_settings', 'nightly_sync,disabled').split(',')
+    unless grade_passback_setting.blank? || valid_states.include?(grade_passback_setting)
+      @course.errors.add(:grade_passback_setting, t("Invalid grade_passback_setting"))
+    end
+    @course.grade_passback_setting = grade_passback_setting.presence
+  end
+
   def active_group_memberships(users)
     @active_group_memberships ||= GroupMembership.active_for_context_and_users(@context, users).group_by(&:user_id)
   end
@@ -3018,15 +3290,15 @@ class CoursesController < ApplicationController
   def course_params
     return {} unless params[:course]
     params[:course].permit(:name, :group_weighting_scheme, :start_at, :conclude_at,
-      :grading_standard_id, :is_public, :is_public_to_auth_users, :allow_student_wiki_edits, :show_public_context_messages,
+      :grading_standard_id, :grade_passback_setting, :is_public, :is_public_to_auth_users, :allow_student_wiki_edits, :show_public_context_messages,
       :syllabus_body, :public_description, :allow_student_forum_attachments, :allow_student_discussion_topics, :allow_student_discussion_editing,
       :show_total_grade_as_points, :default_wiki_editing_roles, :allow_student_organized_groups, :course_code, :default_view,
       :open_enrollment, :allow_wiki_comments, :turnitin_comments, :self_enrollment, :license, :indexed,
-      :abstract_course, :storage_quota, :storage_quota_mb, :restrict_enrollments_to_course_dates,
+      :abstract_course, :storage_quota, :storage_quota_mb, :restrict_enrollments_to_course_dates, :use_rights_required,
       :restrict_student_past_view, :restrict_student_future_view, :grading_standard, :grading_standard_enabled,
       :locale, :integration_id, :hide_final_grades, :hide_distribution_graphs, :lock_all_announcements, :public_syllabus,
       :public_syllabus_to_auth, :course_format, :time_zone, :organize_epub_by_content_type, :enable_offline_web_export,
-      :show_announcements_on_home_page, :home_page_announcement_limit
+      :show_announcements_on_home_page, :home_page_announcement_limit, :allow_final_grade_override, :filter_speed_grader_by_student_group
     )
   end
 end

@@ -14,7 +14,6 @@ namespace :i18n do
 
     puts "\nJS/HBS..."
     js_pid = spawn "./gems/canvas_i18nliner/bin/i18nliner export"
-    
 
     puts "\nRuby..."
     require 'i18nliner/commands/check'
@@ -39,8 +38,6 @@ namespace :i18n do
 
   desc "Generates a new en.yml file for all translations"
   task :generate => :check do
-    require 'ya2yaml'
-
     yaml_dir = './config/locales/generated'
     FileUtils.mkdir_p(File.join(yaml_dir))
     yaml_file = File.join(yaml_dir, "en.yml")
@@ -55,7 +52,7 @@ namespace :i18n do
     }.freeze
 
     File.open(Rails.root.join(yaml_file), "w") do |file|
-      file.write({'en' => @translations.except(*special_keys)}.ya2yaml(:syck_compatible => true))
+      file.write({'en' => @translations.except(*special_keys)}.to_yaml(line_width: -1))
     end
     print "Wrote new #{yaml_file}\n\n"
   end
@@ -80,8 +77,16 @@ namespace :i18n do
     I18n.load_path.unshift(*WillPaginate::I18n.load_path)
     I18n.load_path += Dir[Rails.root.join('gems', 'plugins', '*', 'config', 'locales', '*.{rb,yml}')]
     I18n.load_path += Dir[Rails.root.join('config', 'locales', '*.{rb,yml}')]
+    I18n.load_path += Dir[Rails.root.join('config', 'locales', 'locales.yml')]
 
     I18n::Backend::Simple.send(:include, I18n::Backend::Fallbacks)
+
+    require 'i18nliner/extractors/translation_hash'
+    I18nliner::Extractors::TranslationHash.class_eval do
+      def encode_with(coder)
+        coder.represent_map nil, self # make translation hashes encode to yaml like a regular hash
+      end
+    end
   end
 
   desc "Generates JS bundle i18n files (non-en) and adds them to assets.yml"
@@ -168,9 +173,8 @@ namespace :i18n do
     lolz_translations['lolz'] = process_lolz.call(translations['en'])
     puts
 
-    require 'ya2yaml'
     File.open('config/locales/lolz.yml', 'w') do |f|
-      f.write(lolz_translations.ya2yaml(:syck_compatible => true))
+      f.write(lolz_translations.to_yaml(line_width: -1))
     end
     print "\nFinished generating LOLZ from #{strings_processed} strings in #{Time.now - t} seconds\n"
 
@@ -185,7 +189,7 @@ namespace :i18n do
       }
 
       File.open('config/locales/locales.yml', 'w') do |f|
-        f.write(locales.ya2yaml(:syck_compatible => true))
+        f.write(locales.to_yaml(line_width: -1))
       end
       print "Added LOLZ to locales\n"
     end
@@ -264,7 +268,7 @@ namespace :i18n do
           h
         } :
         current_strings
-      File.open(export_filename, "w"){ |f| f.write new_strings.expand_keys.ya2yaml(:syck_compatible => true) }
+      File.open(export_filename, "w"){ |f| f.write new_strings.expand_keys.to_yaml(line_width: -1) }
 
       push = 'n'
       begin
@@ -296,7 +300,6 @@ namespace :i18n do
 
   desc "Validates and imports new translations"
   task :import, [:source_file, :translated_file] => :environment do |t, args|
-    require 'ya2yaml'
     require 'open-uri'
     Hash.send(:include, I18nTasks::HashExtensions) unless Hash.new.kind_of?(I18nTasks::HashExtensions)
 
@@ -341,7 +344,7 @@ namespace :i18n do
     next if complete_translations.nil?
 
     File.open("config/locales/#{import.language}.yml", "w") { |f|
-      f.write({import.language => complete_translations}.ya2yaml(:syck_compatible => true))
+      f.write({import.language => complete_translations}.to_yaml(line_width: -1))
     }
   end
 
@@ -363,7 +366,6 @@ namespace :i18n do
   end
 
   def autoimport(source_translations, new_translations)
-    require 'ya2yaml'
     Hash.send(:include, I18nTasks::HashExtensions) unless Hash.new.kind_of?(I18nTasks::HashExtensions)
 
     raise "Need source translations" unless source_translations
@@ -390,7 +392,7 @@ namespace :i18n do
 # This YAML file is auto-generated from a Transifex import.
 # Do not edit it by hand, your changes will be overwritten.
 HEADER
-      f.write({import.language => complete_translations}.ya2yaml(:syck_compatible => true))
+      f.write({import.language => complete_translations}.to_yaml(line_width: -1))
     }
 
     puts({
@@ -399,7 +401,7 @@ HEADER
     }.to_json)
   end
 
-  def transifex_languages(languages)
+  def parsed_languages(languages)
     if languages.present?
       if languages.include?('>')
         Hash[languages.split(',').map { |lang| lang.split('>') }]
@@ -411,26 +413,54 @@ HEADER
     end
   end
 
-  def transifex_download(user, password, languages)
+  def import_languages(import_type, args)
     require 'json'
+    languages = parsed_languages(args[:languages])
+    source_file = args[:source_file] || 'config/locales/generated/en.yml'
+    source_translations = YAML.safe_load(open(source_file))
+
+    languages.each do |lang|
+      if lang.is_a?(Array)
+        lang, remote_lang = *lang
+      else
+        lang, remote_lang = lang, lang.sub('-', '_')
+      end
+
+      puts "Downloading #{remote_lang}.yml"
+      yml =
+        case import_type
+        when :transifex
+          json = transifex_download(args[:user], args[:password], remote_lang)
+          JSON.parse(json)['content']
+        when :s3
+          s3_download(args[:s3_bucket], remote_lang)
+        end
+      File.write("tmp/#{lang}.yml", yml)
+      new_translations = {lang => YAML.load(yml)[remote_lang]}
+
+      puts "Importing #{lang}.yml"
+      autoimport(source_translations, new_translations)
+    end
+  end
+
+  def transifex_download(user, password, transifex_lang)
+    require 'open-uri'
 
     transifex_url = "http://www.transifex.com/api/2/project/canvas-lms/"
     translation_url = transifex_url + "resource/canvas-lms/translation"
     userpass = "#{user}:#{Shellwords.escape(password)}"
-    languages.each do |lang|
-      if lang.is_a?(Array)
-        lang, transifex_lang = *lang
-      else
-        lang, transifex_lang = lang, lang.sub('-', '_')
-      end
+    `curl -L --user #{userpass} #{translation_url}/#{transifex_lang}/`
+  end
 
-      puts "Downloading tmp/#{lang}.yml"
-      json = `curl -L --user #{userpass} #{translation_url}/#{transifex_lang}/`
-      parsed = YAML.load(JSON.parse(json)['content'])
-      File.open("tmp/#{lang}.yml", "w") do |file|
-        file.write({ lang => parsed[transifex_lang] }.to_yaml)
-      end
-    end
+  def s3_download(bucket_name, s3_lang)
+    require 'aws-sdk-s3'
+
+    bucket = Aws::S3::Resource.new(
+      access_key_id: ENV["AWS_ACCESS_KEY_ID"],
+      secret_access_key: ENV["AWS_SECRET_ACCESS_KEY"],
+      region: ENV['AWS_REGION']
+    ).bucket(bucket_name)
+    bucket.object("translations/canvas-lms/#{s3_lang}/#{s3_lang}.yml").get.body.read
   end
 
   desc "Download language files from Transifex"
@@ -441,21 +471,73 @@ HEADER
 
   desc "Download language files from Transifex and import them"
   task :transifeximport, [:user, :password, :languages, :source_file] => :environment do |t, args|
-    require 'open-uri'
+    import_languages(:transifex, args)
+  end
 
-    languages = transifex_languages(args[:languages])
-    source_file = args[:source_file] || 'config/locales/generated/en.yml'
-    source_translations = YAML.safe_load(open(source_file))
+  desc "Download language files from s3 and import them"
+  task :s3import, [:s3_bucket, :languages, :source_file] => :environment do |t, args|
+    import_languages(:s3, args)
+  end
 
-    transifex_download(args[:user], args[:password], languages)
+  desc "Lock a key so translators cannot change it"
+  task :lock do
+    require "optparse"
+    require "yaml"
 
-    languages.each do |lang|
-      lang = lang.first if lang.is_a?(Array)
-      translated_file = "tmp/#{lang}.yml"
-      puts "Importing #{translated_file}"
-      new_translations = YAML.safe_load(open(translated_file))
-
-      autoimport(source_translations, new_translations)
+    options = { locales: [] }
+    opts = OptionParser.new
+    opts.banner = "Usage: rake i18n:lock -- [options] [keys]"
+    opts.separator ""
+    opts.separator "Options:"
+    opts.on("-lCODE", "--locale=CODE", "Specific locale only") do |v|
+      options[:locales] << v
     end
+    opts.on("-h", "--help", "Show this message") do
+      puts opts
+      exit
+    end
+    args = opts.order!(ARGV) {}
+    opts.parse!(args)
+    options[:keys] = ARGV
+
+    if options[:keys].empty?
+      puts opts
+      exit
+    end
+
+    Dir.chdir(Rails.root.join("config", "locales"))
+    locales_data = YAML.safe_load(open("locales.yml"))
+
+    Dir.each_child(".") do |filename|
+      next if ["locales.yml", "en.yml"].include?(filename)
+      next if File.directory?(filename)
+
+      locale = File.basename(filename, ".yml")
+      next if options[:locales].present? && !options[:locales].include?(locale)
+
+      data = YAML.safe_load(open(filename))
+
+      options[:keys].each do |path|
+        search = data[locale]
+        slice_next = {}
+        slice = slice_next
+        last_key = nil
+        path.to_s.split(".").each do |key|
+          slice_next = slice_next[last_key] if last_key
+          last_key = key
+          search = search[key]
+          if search.nil?
+            puts "Invalid key #{path} for #{locale}"
+            exit(1)
+          end
+          slice_next[key] = {}
+        end
+        slice_next[last_key] = search
+        locales_data[locale].deep_merge!(slice)
+      end
+    end
+
+    File.open("locales.yml", "w") { |f| YAML.dump(locales_data, f) }
+    exit
   end
 end

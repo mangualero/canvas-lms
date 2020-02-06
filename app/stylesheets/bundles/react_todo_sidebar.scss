@@ -27,10 +27,11 @@
 
 .ToDoSidebarItem__Icon {
   display: block;
-  font-size: 1.125rem;
+  font-size: 1rem;
 }
 
 .ToDoSidebarItem__Info {
+  min-width: 0;
   flex: 1;
   padding: direction-sides(0 $ic-sp / 2 0 $ic-sp * 0.75);
 }

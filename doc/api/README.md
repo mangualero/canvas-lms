@@ -11,14 +11,12 @@ information below and the page on <a href="oauth.html">Authentication using OAut
 API Changes
 ------
 
-To follow notable API changes, view the <a href="file.changelog.html">API Change Log</a>.
-
-For a summary of all deprecations, view the <a href="file.breaking.html">breaking changes API page</a>.
+For API resources, such as the API Change Log for additions, changes, deprecations, and removals, view the <a href="https://community.canvaslms.com/community/answers/releases/canvas-apis">Canvas API page</a> in the Canvas Community.
 
 API Terms of Service
 ------
 
-Please carefully review <a href="http://www.instructure.com/policies/api-policy">The Canvas Cloud API Terms of Service</a> before using the API.
+Please carefully review <a href="https://www.canvaslms.com/policies/api-policy">The Canvas Cloud API Terms of Service</a> before using the API.
 
 Schema
 ------

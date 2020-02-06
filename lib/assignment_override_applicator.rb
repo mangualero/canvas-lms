@@ -74,15 +74,20 @@ module AssignmentOverrideApplicator
     assignment_overridden_for(quiz, user)
   end
 
+  def self.version_for_cache(assignment_or_quiz)
+    # don't really care about the version number unless it is an old one
+    assignment_or_quiz.current_version? ? "current" : assignment_or_quiz.version_number
+  end
+
   # determine list of overrides (of appropriate version) that apply to the
   # assignment or quiz(of specific version) for a particular user. the overrides are
   # returned in priority order; the first override to contain an overridden
   # value for a particular field is used for that field
   def self.overrides_for_assignment_and_user(assignment_or_quiz, user)
-    cache_key = [user, assignment_or_quiz, 'overrides'].cache_key
-    Rails.cache.delete(cache_key) if assignment_or_quiz.reload_overrides_cache?
-    RequestCache.cache("overrides_for_assignment_and_user", cache_key) do
-      Rails.cache.fetch(cache_key) do
+    RequestCache.cache("overrides_for_assignment_and_user", assignment_or_quiz, user) do
+      Rails.cache.fetch_with_batched_keys(
+          ["overrides_for_assignment_and_user3", version_for_cache(assignment_or_quiz), assignment_or_quiz.cache_key(:availability)].cache_key,
+          batch_object: user, batched_keys: [:enrollments, :groups]) do
         next [] if self.has_invalid_args?(assignment_or_quiz, user)
         context = assignment_or_quiz.context
 
@@ -123,8 +128,8 @@ module AssignmentOverrideApplicator
           overrides << adhoc.assignment_override if adhoc
 
           if ObserverEnrollment.observed_students(context, user).empty?
-            group = group_override(assignment_or_quiz, user)
-            overrides << group if group
+            groups = group_overrides(assignment_or_quiz, user)
+            overrides += groups if groups
             sections = section_overrides(assignment_or_quiz, user)
             overrides += sections if sections
           else
@@ -181,22 +186,22 @@ module AssignmentOverrideApplicator
     end
   end
 
-  def self.group_override(assignment_or_quiz, user)
+  def self.group_overrides(assignment_or_quiz, user)
     return nil unless assignment_or_quiz.is_a?(Assignment)
     group_category_id = assignment_or_quiz.group_category_id || assignment_or_quiz.discussion_topic.try(:group_category_id)
     return nil unless group_category_id
 
     if assignment_or_quiz.context.user_has_been_student?(user)
-      group = user.current_groups.where(:group_category_id => group_category_id).first
+      group = user.current_groups.shard(assignment_or_quiz.shard).where(:group_category_id => group_category_id).first
     else
       group = assignment_or_quiz.context.groups.where(:group_category_id => group_category_id).first
     end
 
     if group
       if assignment_or_quiz.assignment_overrides.loaded?
-        assignment_or_quiz.assignment_overrides.detect{|o| o.set_type == 'Group' && o.set_id == group.id}
+        assignment_or_quiz.assignment_overrides.select{|o| o.set_type == 'Group' && o.set_id == group.id}
       else
-        assignment_or_quiz.assignment_overrides.where(:set_type => 'Group', :set_id => group.id).first
+        assignment_or_quiz.assignment_overrides.where(:set_type => 'Group', :set_id => group.id).to_a
       end
     end
   end
@@ -310,8 +315,7 @@ module AssignmentOverrideApplicator
   # the same collapsed assignment or quiz, regardless of the user that ended up at that
   # set of overrides.
   def self.collapsed_overrides(assignment_or_quiz, overrides)
-    cache_key = [assignment_or_quiz, self.overrides_hash(overrides)].cache_key
-    Rails.cache.delete(cache_key) if assignment_or_quiz.reload_overrides_cache?
+    cache_key = ['collapsed_overrides', assignment_or_quiz.cache_key(:availability), version_for_cache(assignment_or_quiz), self.overrides_hash(overrides)].cache_key
     RequestCache.cache('collapsed_overrides', cache_key) do
       Rails.cache.fetch(cache_key) do
         overridden_data = {}
@@ -388,8 +392,9 @@ module AssignmentOverrideApplicator
   end
 
   def self.should_preload_override_students?(assignments, user, endpoint_key)
+    return false unless user
     assignment_key = Digest::MD5.hexdigest(assignments.map(&:id).sort.map(&:to_s).join(','))
-    key = ['should_preload_assignment_override_students', user, endpoint_key, assignment_key].cache_key
+    key = ['should_preload_assignment_override_students', user.cache_key(:enrollments), user.cache_key(:groups), endpoint_key, assignment_key].cache_key
     # if the user has been touch we should preload all of the overrides because it's almost certain we'll need them all
     if Rails.cache.read(key)
       false

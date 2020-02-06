@@ -208,6 +208,9 @@ module AccountReports
           COALESCE(qr.attempt, r.attempt)             AS "attempt",
           r.hide_points                               AS "learning outcome points hidden",
           COALESCE(qr.score, r.score)                 AS "outcome score",
+          CASE WHEN r.association_type IN ('Quiz', 'Quizzes::Quiz') THEN r.percent
+               ELSE NULL
+          END                                         AS "total percent outcome score",
           c.name                                      AS "course name",
           c.id                                        AS "course id",
           c.sis_source_id                             AS "course sis id",
@@ -258,7 +261,7 @@ module AccountReports
     end
 
     def outcome_order
-      param = @account_report.has_parameter? 'order'
+      param = @account_report.value_for_param('order')
       param = param.downcase if param
       order_options = %w(users courses outcomes)
       select = order_options & [param]
@@ -293,8 +296,9 @@ module AccountReports
       header_keys = headers.keys
       header_names = headers.values
       host = root_account.domain
+      enable_i18n_features = @account_report.account.feature_enabled?(:enable_i18n_features_in_outcomes_exports)
 
-      write_report header_names do |csv|
+      write_report header_names, enable_i18n_features do |csv|
         total = scope.length
         Shackles.activate(:master) { AccountReport.where(id: @account_report.id).update_all(total_lines: total) }
         scope.each do |row|
@@ -314,17 +318,23 @@ module AccountReports
     def add_outcomes_data(row)
       row['learning outcome mastered'] = unless row['learning outcome mastered'].nil?
                                            row['learning outcome mastered'] ? 1 : 0
-                                         end
+      end
       outcome_data = if row['learning outcome data'].present?
                        YAML.safe_load(row['learning outcome data'])[:rubric_criterion]
                      else
-                       {}
-                     end
+                       LearningOutcome.default_rubric_criterion
+      end
       row['learning outcome mastery score'] = outcome_data[:mastery_points]
 
       score = row['outcome score']
-      if score.present? && row['assessment_type'] != 'quiz'
+      if score.present?
         ratings = outcome_data[:ratings]&.sort_by { |r| r[:points] }&.reverse || []
+        total_percent = row['total percent outcome score']
+        if total_percent
+          points_possible = outcome_data[:points_possible]
+          points_possible = outcome_data[:mastery_points] if points_possible.zero?
+          score = points_possible * total_percent
+        end
         rating = ratings.detect { |r| r[:points] <= score } || {}
         row['learning outcome rating'] = rating[:description]
 

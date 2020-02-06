@@ -166,7 +166,6 @@ describe ContentMigration do
       expect(unrelated_group.reload.name).not_to eql g.name
     end
 
-
     it "should copy assignment attributes" do
       assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
       @assignment.turnitin_enabled = true
@@ -187,6 +186,7 @@ describe ContentMigration do
       @assignment.omit_from_final_grade = true
       @assignment.only_visible_to_overrides = true
       @assignment.post_to_sis = true
+      @assignment.allowed_attempts = 10
 
       @assignment.save!
 
@@ -196,7 +196,7 @@ describe ContentMigration do
       attrs = [:turnitin_enabled, :vericite_enabled, :turnitin_settings, :peer_reviews,
           :automatic_peer_reviews, :anonymous_peer_reviews,
           :grade_group_students_individually, :allowed_extensions,
-          :position, :peer_review_count, :omit_from_final_grade, :post_to_sis]
+          :position, :peer_review_count, :omit_from_final_grade, :post_to_sis, :allowed_attempts]
 
       run_course_copy
 
@@ -210,6 +210,124 @@ describe ContentMigration do
       end
       expect(new_assignment.muted).to be_falsey
       expect(new_assignment.only_visible_to_overrides).to be_falsey
+    end
+
+    it "copies an assignment's post policy along with the assignment" do
+      assignment_model(course: @copy_from, points_possible: 40)
+      @assignment.post_policy.update!(post_manually: true)
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.find_by(migration_id: mig_id(@assignment))
+      expect(new_assignment.post_policy).to be_post_manually
+    end
+
+    it "always sets a moderated assignment to post manually" do
+      @copy_to.enable_feature!(:moderated_grading)
+      assignment_model(course: @copy_from, points_possible: 40, moderated_grading: true, grader_count: 2)
+      @assignment.post_policy.update!(post_manually: false)
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.find_by(migration_id: mig_id(@assignment))
+      expect(new_assignment.post_policy).to be_post_manually
+    end
+
+    it "should unset allowed extensions" do
+      assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload',
+        :grading_type => 'points', :allowed_extensions => ["txt", "doc"])
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      expect(new_assignment.allowed_extensions).to eq ["txt", "doc"]
+      @assignment.update_attribute(:allowed_extensions, [])
+
+      run_course_copy
+
+      expect(new_assignment.reload.allowed_extensions).to eq []
+    end
+
+    it "should only auto-import into an active assignment group" do
+      assign = @copy_from.assignments.create!
+      run_export_and_import do |export|
+        export.selected_content = { 'assignments' => { mig_id(assign) => "1" } }
+      end
+      group = @copy_to.assignments.first.assignment_group
+      expect(group.name).to eq "Imported Assignments" # hi
+      group.destroy # bye
+
+      assign2 = @copy_from.assignments.create!
+      run_export_and_import do |export|
+        export.selected_content = { 'assignments' => { mig_id(assign2) => "1" } }
+      end
+      new_group = @copy_to.assignments.where(:migration_id => mig_id(assign2)).first.assignment_group
+      expect(new_group).to_not eq group
+      expect(new_group).to be_available
+      expect(new_group.name).to eq "Imported Assignments"
+    end
+
+    describe "allowed_attempts copying" do
+      it "copies nil over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = nil
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to be_nil
+      end
+
+      it "copies -1 over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = -1
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to eq(-1)
+      end
+
+      it "copies values > 0 over properly" do
+        assignment_model(course: @copy_from, points_possible: 40, submission_types: 'file_upload', grading_type: 'points')
+        @assignment.allowed_attempts = 3
+        @assignment.save!
+
+        run_course_copy
+        new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).last
+        expect(new_assignment.allowed_attempts).to eq(3)
+      end
+    end
+
+    it "should copy other feature-dependent assignment attributes (if enabled downstream)" do
+      assignment_model(:course => @copy_from)
+      @assignment.moderated_grading = true
+      @assignment.grader_count = 2
+      @assignment.grader_comments_visible_to_graders = true
+      @assignment.anonymous_grading = true
+      @assignment.graders_anonymous_to_graders = true
+      @assignment.grader_names_visible_to_final_grader = true
+      @assignment.anonymous_instructor_annotations = true
+      @assignment.save!
+
+      run_course_copy
+
+      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
+      [:moderated_grading, :anonymous_grading].each do |attr|
+        expect(new_assignment.send(attr)).to eq false
+      end
+
+      @copy_to.enable_feature!(:moderated_grading)
+      @copy_to.enable_feature!(:anonymous_marking)
+
+      run_course_copy
+
+      new_assignment.reload
+      [:moderated_grading, :grader_count, :grader_comments_visible_to_graders,
+        :anonymous_grading, :graders_anonymous_to_graders, :grader_names_visible_to_final_grader,
+        :anonymous_instructor_annotations].each do |attr|
+        expect(new_assignment.send(attr)).to eq @assignment.send(attr)
+      end
     end
 
     it "shouldn't copy turnitin/vericite_enabled if it's not enabled on the copyee's account" do
@@ -241,14 +359,6 @@ describe ContentMigration do
       new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
       expect(new_assignment).to be_has_group_category
       expect(new_assignment.group_category.name).to eq "Project Groups"
-    end
-
-    it "should copy moderated_grading setting" do
-      assignment_model(:course => @copy_from, :points_possible => 40,
-                       :submission_types => 'file_upload', :grading_type => 'points', :moderated_grading => true)
-      run_course_copy
-      new_assignment = @copy_to.assignments.where(migration_id: mig_id(@assignment)).first
-      expect(new_assignment).to be_moderated_grading
     end
 
     it "should not copy peer_reviews_assigned" do
@@ -601,6 +711,18 @@ describe ContentMigration do
         expect(to_override.due_at_overridden).to eq true
         expect(to_override.unlock_at_overridden).to eq false
       end
+
+      it "preserves only_visible_to_overrides for page assignments" do
+        a1 = assignment_model(context: @copy_from, title: 'a1', submission_types: 'wiki_page', only_visible_to_overrides: true)
+        a1.build_wiki_page(title: a1.title, context: a1.context).save!
+        a2 = assignment_model(context: @copy_from, title: 'a2', submission_types: 'wiki_page', only_visible_to_overrides: false)
+        a2.build_wiki_page(title: a2.title, context: a2.context).save!
+        run_course_copy
+        a1_to = @copy_to.assignments.where(migration_id: mig_id(a1)).take
+        expect(a1_to.only_visible_to_overrides).to eq true
+        a2_to = @copy_to.assignments.where(migration_id: mig_id(a2)).take
+        expect(a2_to.only_visible_to_overrides).to eq false
+      end
     end
 
     context 'external tools' do
@@ -627,11 +749,11 @@ describe ContentMigration do
         allow(Lti::ToolProxy).to receive(:find_active_proxies_for_context_by_vendor_code_and_product_code) do
           Lti::ToolProxy.where(id: tool_proxy.id)
         end
-        product_family.update_attributes!(
+        product_family.update!(
           product_code: 'product_code',
           vendor_code: 'vendor_code'
         )
-        tool_proxy.update_attributes!(
+        tool_proxy.update!(
           resources: [resource_handler],
           context: @copy_to
         )
@@ -662,6 +784,58 @@ describe ContentMigration do
       it 'sets the custom parameters of the new tool setting' do
         run_course_copy
         expect(Lti::ToolSetting.last.custom_parameters).to eq custom_parameters
+      end
+    end
+
+    context 'post_to_sis' do
+      before :each do
+        @course.root_account.enable_feature!(:new_sis_integrations)
+        @course.root_account.settings[:sis_syncing] = true
+        @course.root_account.settings[:sis_require_assignment_due_date] = true
+        @course.root_account.save!
+      end
+
+      it "should not break trying to copy over an assignment with required due dates but only specified via overrides" do
+        assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
+        assignment_override_model(assignment: @assignment, set_type: 'CourseSection', set_id: @copy_from.default_section.id, due_at: 1.day.from_now)
+        @assignment.only_visible_to_overrides = true
+        @assignment.post_to_sis = true
+        @assignment.due_at = nil
+        @assignment.save!
+
+        run_course_copy(["The Sync to SIS setting could not be enabled for the assignment \"#{@assignment.title}\" without a due date."])
+
+        a_to = @copy_to.assignments.where(:migration_id => mig_id(@assignment)).first
+        expect(a_to.post_to_sis).to eq false
+        expect(a_to).to be_valid
+      end
+
+      it "should not break trying to copy over a graded discussion assignment with required due dates but only specified via overrides" do
+        graded_discussion_topic(:context => @copy_from)
+        assignment_override_model(assignment: @assignment, set_type: 'CourseSection', set_id: @copy_from.default_section.id, due_at: 1.day.from_now)
+        @assignment.only_visible_to_overrides = true
+        @assignment.post_to_sis = true
+        @assignment.due_at = nil
+        @assignment.save!
+
+        run_course_copy(["The Sync to SIS setting could not be enabled for the assignment \"#{@assignment.title}\" without a due date."])
+
+        topic_to = @copy_to.discussion_topics.where(:migration_id => mig_id(@topic)).first
+        expect(topic_to).to be_valid
+        expect(topic_to.assignment.post_to_sis).to eq false
+      end
+
+      it "should be able to copy post_to_sis" do
+        assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'file_upload', :grading_type => 'points')
+        @assignment.post_to_sis = true
+        @assignment.due_at = 1.day.from_now
+        @assignment.save!
+
+        run_course_copy
+
+        a_to = @copy_to.assignments.where(:migration_id => mig_id(@assignment)).first
+        expect(a_to.post_to_sis).to eq true
+        expect(a_to).to be_valid
       end
     end
   end

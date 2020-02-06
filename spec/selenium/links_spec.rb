@@ -116,7 +116,7 @@ describe "links", priority: "2" do
       it "should navigate user to user settings page after settings link is clicked" do
         expect_new_page_load {
           f('#global_nav_profile_link').click
-          fj('[aria-label="Global navigation tray"] a:contains("Settings")').click
+          fj('[aria-label="Profile tray"] a:contains("Settings")').click
         }
         expect(f("a.edit_settings_link")).to be_displayed
       end
@@ -132,6 +132,13 @@ describe "links", priority: "2" do
       it "should navigate user to the calendar page after calender link is clicked" do
         expect_new_page_load { fln('Calendar').click }
         expect(f('.calendar_header')).to be_displayed
+      end
+
+      it "should navigate to main content from skip_to_link" do
+        driver.action.send_keys(:tab).perform
+        expect(check_element_has_focus(f('a#skip_navigation_link'))).to eq(true)
+        driver.action.send_keys(:enter).perform
+        expect(driver.switch_to.active_element.attribute("id")).to eq("content")
       end
     end
   end

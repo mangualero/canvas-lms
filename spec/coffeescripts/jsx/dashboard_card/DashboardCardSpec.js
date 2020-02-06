@@ -19,7 +19,12 @@
 import $ from 'jquery'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import TestUtils from 'react-addons-test-utils'
+import TestUtils from 'react-dom/test-utils'
+import moxios from 'moxios'
+import sinon from 'sinon'
+import {moxiosWait} from 'jest-moxios-utils'
+import {wait} from '@testing-library/react'
+
 import DashboardCard from 'jsx/dashboard_card/DashboardCard'
 import CourseActivitySummaryStore from 'jsx/dashboard_card/CourseActivitySummaryStore'
 import assertions from 'helpers/assertions'
@@ -47,11 +52,15 @@ QUnit.module('DashboardCard', {
       id: '1',
       backgroundColor: '#EF4437',
       image: null,
-      imagesEnabled: false
+      isFavorited: true,
+      connectDragSource: c => c,
+      connectDropTarget: c => c
     }
-    return this.stub(CourseActivitySummaryStore, 'getStateForCourse').returns({})
+    moxios.install()
+    return sandbox.stub(CourseActivitySummaryStore, 'getStateForCourse').returns({})
   },
   teardown() {
+    moxios.uninstall()
     localStorage.clear()
     ReactDOM.unmountComponentAtNode(ReactDOM.findDOMNode(this.component).parentNode)
     if (this.wrapper) {
@@ -60,12 +69,18 @@ QUnit.module('DashboardCard', {
   }
 })
 
+function errorRendered() {
+  if (document.querySelector['.FlashAlert']) {
+    return true
+  }
+}
+
 test('render', function() {
   const DashCard = <DashboardCard {...this.props} />
   this.component = TestUtils.renderIntoDocument(DashCard)
   const $html = $(ReactDOM.findDOMNode(this.component))
   ok($html.attr('class').match(/DashboardCard/))
-  const renderSpy = this.spy(this.component, 'render')
+  const renderSpy = sandbox.spy(this.component, 'render')
   ok(!renderSpy.called, 'precondition')
   CourseActivitySummaryStore.setState({streams: {1: {stream: this.stream}}})
   ok(renderSpy.called, 'should re-render on state update')
@@ -92,7 +107,6 @@ test('unreadCount', function() {
 })
 
 test('does not have image attribute when a url is not provided', function() {
-  this.props.imagesEnabled = true
   const DashCard = <DashboardCard {...this.props} />
   this.component = TestUtils.renderIntoDocument(DashCard)
   ok(
@@ -103,7 +117,6 @@ test('does not have image attribute when a url is not provided', function() {
 })
 
 test('has image attribute when url is provided', function() {
-  this.props.imagesEnabled = true
   this.props.image = 'http://coolUrl'
   const DashCard = <DashboardCard {...this.props} />
   this.component = TestUtils.renderIntoDocument(DashCard)
@@ -112,4 +125,56 @@ test('has image attribute when url is provided', function() {
     'ic-DashboardCard__header_image'
   )
   ok($html, 'image showing')
+})
+
+test('#removeCourseFromFavorites succeeds', function(async) {
+  const handleRerenderSpy = sinon.spy()
+  this.props.onConfirmUnfavorite = handleRerenderSpy
+
+  function waitForResponse() {
+    if (handleRerenderSpy.calledOnce) {
+      return true
+    }
+  }
+
+  const DashCard = <DashboardCard {...this.props} />
+  this.component = TestUtils.renderIntoDocument(DashCard)
+  this.component.removeCourseFromFavorites()
+
+  return moxiosWait(function() {
+    const request = moxios.requests.mostRecent()
+    request.respondWith({
+      status: 200,
+      response: []
+    })
+  }).then(async function() {
+    await wait(() => waitForResponse())
+    ok(handleRerenderSpy.calledOnce)
+  })
+})
+
+test('#removeCourseFromFavorites fails', function(async) {
+  const handleRerenderSpy = sinon.spy()
+  this.props.onConfirmUnfavorite = handleRerenderSpy
+
+  function waitForAlert() {
+    if (errorRendered) {
+      return true
+    }
+  }
+
+  const DashCard = <DashboardCard {...this.props} />
+  this.component = TestUtils.renderIntoDocument(DashCard)
+  this.component.removeCourseFromFavorites()
+
+  return moxiosWait(function() {
+    const request = moxios.requests.mostRecent()
+    request.respondWith({
+      status: 403,
+      response: []
+    })
+  }).then(async function() {
+    await wait(() => waitForAlert())
+    ok(errorRendered)
+  })
 })

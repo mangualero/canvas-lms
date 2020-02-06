@@ -36,7 +36,6 @@ describe "discussions" do
     context "as anyone" do # we actually use a student, but the idea is that it would work the same for a teacher or anyone else
       before(:each) do
         user_session(somebody)
-        enable_all_rcs @course.account
         stub_rcs_config
       end
 
@@ -44,7 +43,7 @@ describe "discussions" do
 
       it "should start a new topic", priority: "1", test_id: 140669 do
         get url
-        expect_new_page_load { f('.btn-primary').click }
+        expect_new_page_load { f('#add_discussion').click }
         edit('new topic title', 'new topic')
       end
     end

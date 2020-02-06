@@ -16,9 +16,9 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
 
-<% content_for :page_title do %><%= @section.name %><% end %>
+<% provide :page_title do %><%= @section.name %><% end %>
 
-<% content_for :right_side do %>
+<% provide :right_side do %>
   <% if can_do(@section, @current_user, :update) %>
     <a href="#" class="btn button-sidebar-wide edit_section_link"><i class="icon-edit"></i> <%= t('buttons.edit_section', 'Edit Section') %></a>
     <% if @section.nonxlist_course_id %>
@@ -33,7 +33,6 @@
   <a href="<%= context_url(@context, :context_settings_url) %>" class="btn button-sidebar-wide"><i class="icon-settings"></i> <%= t('buttons.back_to_course', 'Back to Course Settings') %></a>
 <% end %>
 
-<% content_for :stylesheets do %>
 <style>
 #course_form .course_form {
   display: none;
@@ -120,7 +119,7 @@ h3 .tally {
   text-align: <%= direction('left') %>;
 }
 </style>
-<% end %>
+
 <%= form_for @section, :url => context_url(@context, :context_section_url, @section), :html => {:id => "edit_section_form", :style => "display: none;"} do |f| %>
 <table class="formtable">
   <tr>
@@ -141,6 +140,14 @@ h3 .tally {
       </td>
     </tr>
   <% end %>
+  <tr>
+    <td></td>
+    <td>
+      <div style="font-size: 0.8em;">
+        <%= t "Changing section dates may override course and term availability settings and placement in the Courses page and Dashboard. Please confirm term and course dates before modifying section dates." %>
+      </div>
+    </td>
+  </tr>
   <tr>
     <td>
       <%= f.blabel :start_at, en: "Starts" %>
@@ -178,11 +185,12 @@ h3 .tally {
     </td>
   </tr>
   <tr>
-    <td colspan="2">
-      <%= f.check_box :restrict_enrollments_to_section_dates %>
-      <%= f.label :restrict_enrollments_to_section_dates, t('access_limit', "Users can only participate in the course between these dates") %>
-      <div style="font-size: 0.8em; padding-<%= direction('left') %>: 25px;">
-        <%= t('override_settings', 'This will override any term or course date settings.') %>
+    <td></td>
+    <td>
+      <%= f.check_box :restrict_enrollments_to_section_dates, 'aria-describedby' => 'restrict-enrollments-description' %>
+      <%= f.label :restrict_enrollments_to_section_dates, t("Students can only participate in the course between these dates") %>
+      <div style="font-size: 0.8em;" id="restrict-enrollments-description">
+        <%= t "When selected, the course section is in a read-only state outside these dates." %>
       </div>
     </td>
   </tr>

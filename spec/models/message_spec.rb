@@ -70,6 +70,35 @@ describe Message do
       expect(msg.html_body.index('<!DOCTYPE')).to eq 0
     end
 
+    it "should use slack template if present" do
+      @au = AccountUser.create(:account => account_model)
+      course_with_student
+      alert = @course.alerts.create!(recipients: [:student],
+        criteria: [
+          criterion_type: 'Interaction',
+          threshold: 7
+        ])
+      mock_template = "slack template"
+      expect_any_instance_of(Message).to receive(:get_template).with('alert.slack.erb').and_return(mock_template)
+      msg = generate_message(:alert, :slack, alert)
+      expect(msg.body).to eq mock_template
+    end
+
+    it "should sms template if no slack template present" do
+      @au = AccountUser.create(:account => account_model)
+      course_with_student
+      alert = @course.alerts.create!(recipients: [:student],
+                                      criteria: [
+                                        criterion_type: 'Interaction',
+                                        threshold: 7
+                                      ])
+      mock_template = "sms template"
+      expect_any_instance_of(Message).to receive(:get_template).with('alert.slack.erb').and_return(nil)
+      expect_any_instance_of(Message).to receive(:get_template).with('alert.sms.erb').and_return(mock_template)
+      msg = generate_message(:alert, :slack, alert)
+      expect(msg.body).to eq mock_template
+    end
+
     it "should not html escape the subject" do
       assignment_model(:title => "hey i have weird&<stuff> in my name but that's okay")
       msg = generate_message(:assignment_created, :email, @assignment)
@@ -157,6 +186,19 @@ describe Message do
     end
   end
 
+  it "should raise an error when trying to re-save an existing message" do
+    message_model
+    @message.body = "something else"
+    expect(@message.save).to be_falsey
+  end
+
+  it "should still set new attributes defined in workflow transitions" do
+    message_model(:workflow_state => "sending", :user => user_factory)
+    @message.complete_dispatch
+    expect(@message.reload.workflow_state).to eq "sent"
+    expect(@message.sent_at).to be_present
+  end
+
   context "named scopes" do
     it "should be able to get messages in any state" do
       m1 = message_model(:workflow_state => 'bounced', :user => user_factory)
@@ -169,8 +211,7 @@ describe Message do
 
     it "should be able to search on its context" do
       user_model
-      message_model
-      @message.update_attribute(:context, @user)
+      message_model(:context => @user)
       expect(Message.for(@user)).to eq [@message]
     end
 
@@ -256,6 +297,16 @@ describe Message do
       allow(Mailer).to receive(:create_message).and_return(double(deliver_now: "Response!"))
       expect(message.workflow_state).to eq("staged")
       expect{ message.deliver }.not_to raise_error
+    end
+
+    it "logs stats on deliver" do
+      expect(InstStatsd::Statsd).to receive(:increment).with("message.deliver.email.my_name",
+                                                             {short_stat: "message.deliver",
+                                                              tags: {path_type: "email", notification_name: 'my_name'}})
+
+      message = message_model(dispatch_at: Time.now - 1, notification_name: 'my_name', workflow_state: 'staged', to: 'somebody', updated_at: Time.now.utc - 11.minutes, path_type: 'email', user: @user)
+      expect(message).to receive(:dispatch).and_return(true)
+      @message.deliver
     end
 
     context 'push' do
@@ -462,7 +513,7 @@ describe Message do
           account.settings[:outgoing_email_default_name] = "OutgoingName"
           account.save!
           expect(account.reload.settings[:outgoing_email_default_name]).to eq "OutgoingName"
-          mesage = message_model(:context => course_model)
+          message = message_model(:context => course_model)
           expect(message.from_name).to eq "OutgoingName"
         end
 
@@ -613,7 +664,7 @@ describe Message do
     url = "a" * 256
     msg = Message.new
     msg.url = url
-    msg.save!
+    expect{ msg.save! }.to_not raise_error
   end
 
   describe "#context_context" do

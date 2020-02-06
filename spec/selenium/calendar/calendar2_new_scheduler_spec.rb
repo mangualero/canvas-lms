@@ -35,7 +35,7 @@ describe "scheduler" do
 
     before :each do
       user_session(@student1)
-      make_full_screen
+
     end
 
     it 'shows the find appointment button with feature flag turned on', priority: "1", test_id: 2908326 do
@@ -51,9 +51,8 @@ describe "scheduler" do
     it 'changes the Find Appointment button to a close button once the modal to select courses is closed', priority: "1", test_id: 2916527 do
       get "/calendar2"
       f('#FindAppointmentButton').click
-      expect(f('.ReactModalPortal')).to contain_css('.ReactModal__Layout')
-      expect(f('.ReactModal__Header')).to include_text('Select Course')
-      f('.ReactModal__Footer-Actions .btn').click
+      expect(f('[role="dialog"][aria-label="Select Course"]')).to contain_css('select')
+      f('[role="dialog"][aria-label="Select Course"] button[type="submit"]').click
       expect(f('#FindAppointmentButton')).to include_text('Close')
     end
 
@@ -113,9 +112,9 @@ describe "scheduler" do
       reserve_appointment_for(@student1, @student1, @app1)
       expect(@app1.appointments.first.workflow_state).to eq('locked')
       get "/calendar2"
-      move_to_click('.fc-event.scheduler-event')
+      f('.fc-event.scheduler-event').click
       wait_for_ajaximations
-      move_to_click('.unreserve_event_link')
+      f('.unreserve_event_link').click
       expect(f('#delete_event_dialog')).to be_present
       f('.ui-dialog-buttonset .btn-primary').click
       # save the changes so the appointment object is updated

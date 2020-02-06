@@ -35,10 +35,10 @@ class Role < ActiveRecord::Base
   module AssociationHelper
     # this is an override to take advantage of built-in role caching since those are by far the most common
     def role
-      self.association(:role).target ||= self.shard.activate do
+      return super if association(:role).loaded?
+      self.role = self.shard.activate do
         Role.get_role_by_id(read_attribute(:role_id)) || (self.respond_to?(:default_role) ? self.default_role : nil)
       end
-      super
     end
 
     def role=(role)
@@ -48,6 +48,7 @@ class Role < ActiveRecord::Base
 
   belongs_to :account
   belongs_to :root_account, :class_name => 'Account'
+  has_many :role_overrides
 
   before_validation :infer_root_account_id, :if => :belongs_to_account?
 
@@ -220,6 +221,17 @@ class Role < ActiveRecord::Base
   scope :inactive, -> { where(:workflow_state => 'inactive') }
   scope :for_courses, -> { where(:base_role_type => ENROLLMENT_TYPES) }
   scope :for_accounts, -> { where(:base_role_type => ACCOUNT_TYPES) }
+  scope :full_account_admin, -> { where(base_role_type: 'AccountAdmin') }
+  scope :custom_account_admin_with_permission, -> (permission) do
+    where(base_role_type: 'AccountMembership').
+    where("EXISTS (
+      SELECT 1
+      FROM #{RoleOverride.quoted_table_name}
+      WHERE role_overrides.role_id = roles.id
+        AND role_overrides.permission = ?
+        AND role_overrides.enabled = ?
+    )", permission, true)
+  end
 
   # Returns a list of hashes for each base enrollment type, and each will have a
   # custom_roles key, each will look like:

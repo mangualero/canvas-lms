@@ -17,25 +17,26 @@
  */
 
 import React from 'react'
-import {mount, ReactWrapper} from 'enzyme'
+import {mount} from 'enzyme'
 import SpeedGraderSettingsMenu from 'jsx/speed_grader/SpeedGraderSettingsMenu'
 
 QUnit.module('SpeedGraderSettingsMenu', hooks => {
   let $container
   let $menuContent
   let props
-  let qunitTimeout
+  let resolveOpen
   let wrapper
 
   hooks.beforeEach(() => {
-    qunitTimeout = QUnit.config.testTimeout
-    QUnit.config.testTimeout = 500 // protect against unresolved async mistakes
     props = {
       assignmentID: '71',
       courseID: '8',
       helpURL: 'example.com/support',
       menuContentRef(ref) {
         $menuContent = ref
+      },
+      onMenuShow() {
+        resolveOpen()
       },
       openOptionsModal() {},
       openKeyboardShortcutsModal() {},
@@ -45,46 +46,37 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
 
     $container = document.createElement('div')
     document.body.appendChild($container)
+    sinon.stub(SpeedGraderSettingsMenu, 'setURL')
+    sinon.stub(window, 'open')
   })
 
   hooks.afterEach(() => {
+    window.open.restore()
+    SpeedGraderSettingsMenu.setURL.restore()
     $container.remove()
-    QUnit.config.testTimeout = qunitTimeout
   })
 
   function mountComponent() {
-    wrapper = mount(<SpeedGraderSettingsMenu {...props} />, {appendTo: $container})
+    wrapper = mount(<SpeedGraderSettingsMenu {...props} />, {attachTo: $container})
   }
 
   function clickToOpenMenu() {
     return new Promise(resolve => {
-      const waitForMenuReady = () => {
-        setTimeout(() => {
-          if ($menuContent && $menuContent.contains(document.activeElement)) {
-            resolve()
-          } else {
-            waitForMenuReady()
-          }
-        })
-      }
+      resolveOpen = resolve
       wrapper.find('button').simulate('click')
-      waitForMenuReady()
     })
   }
 
   function getMenuItem(text) {
-    const options = new ReactWrapper(
-      [...$menuContent.querySelectorAll('[role="menuitem"]')],
-      $menuContent
+    return [...$menuContent.querySelectorAll('[role="menuitem"]')].find(
+      $option => $option.textContent === text
     )
-    return options.filterWhere(option => option.text() === text).at(0)
   }
 
   test('includes an "Options" menu item', () => {
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Options')
-      strictEqual(menuItem.length, 1)
+      ok(getMenuItem('Options'))
     })
   })
 
@@ -92,8 +84,7 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
     props.openOptionsModal = sinon.stub()
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Options')
-      menuItem.simulate('click')
+      getMenuItem('Options').click()
       strictEqual(props.openOptionsModal.callCount, 1)
     })
   })
@@ -101,8 +92,7 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
   test('includes a "Keyboard Shortcuts" menu item', () => {
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Keyboard Shortcuts')
-      strictEqual(menuItem.length, 1)
+      ok(getMenuItem('Keyboard Shortcuts'))
     })
   })
 
@@ -110,8 +100,7 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
     props.openKeyboardShortcutsModal = sinon.stub()
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Keyboard Shortcuts')
-      menuItem.simulate('click')
+      getMenuItem('Keyboard Shortcuts').click()
       strictEqual(props.openKeyboardShortcutsModal.callCount, 1)
     })
   })
@@ -119,8 +108,7 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
   test('does not include a "Moderation Page" menu item if passed showModerationMenuItem: false', () => {
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Moderation Page')
-      strictEqual(menuItem.length, 0)
+      notOk(getMenuItem('Moderation Page'))
     })
   })
 
@@ -128,54 +116,43 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
     props.showModerationMenuItem = true
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Moderation Page')
-      strictEqual(menuItem.length, 1)
+      ok(getMenuItem('Moderation Page'))
     })
   })
 
   test('calls window.open when the "Moderation Page" is clicked', () => {
     props.showModerationMenuItem = true
-    sinon.stub(window, 'open')
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Moderation Page')
-      menuItem.simulate('click')
+      getMenuItem('Moderation Page').click()
       strictEqual(window.open.callCount, 1)
-      window.open.restore()
     })
   })
 
   test('opens the moderation page when the "Moderation Page" is clicked', () => {
     props.showModerationMenuItem = true
-    sinon.stub(window, 'open')
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Moderation Page')
-      menuItem.simulate('click')
+      getMenuItem('Moderation Page').click()
       const expectedURL = `/courses/${props.courseID}/assignments/${props.assignmentID}/moderate`
-      strictEqual(window.open.firstCall.args[0], expectedURL)
-      window.open.restore()
+      strictEqual(window.open.lastCall.args[0], expectedURL)
     })
   })
 
   test('opens the page in a new tab when the "Moderation Page" is clicked', () => {
     props.showModerationMenuItem = true
-    sinon.stub(window, 'open')
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Moderation Page')
-      menuItem.simulate('click')
+      getMenuItem('Moderation Page').click()
       const openInNewTabArgument = '_blank'
-      strictEqual(window.open.firstCall.args[1], openInNewTabArgument)
-      window.open.restore()
+      strictEqual(window.open.lastCall.args[1], openInNewTabArgument)
     })
   })
 
   test('does not include a "Help" menu item if passed showHelpMenuItem: false', () => {
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Help')
-      strictEqual(menuItem.length, 0)
+      notOk(getMenuItem('Help'))
     })
   })
 
@@ -183,32 +160,25 @@ QUnit.module('SpeedGraderSettingsMenu', hooks => {
     props.showHelpMenuItem = true
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Help')
-      strictEqual(menuItem.length, 1)
+      ok(getMenuItem('Help'))
     })
   })
 
   test('sets the URL when "Help" is clicked', () => {
     props.showHelpMenuItem = true
-    sinon.stub(SpeedGraderSettingsMenu, 'setURL')
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Help')
-      menuItem.simulate('click')
+      getMenuItem('Help').click()
       strictEqual(SpeedGraderSettingsMenu.setURL.callCount, 1)
-      SpeedGraderSettingsMenu.setURL.restore()
     })
   })
 
   test('navigates to the help URL when "Help" is clicked', () => {
     props.showHelpMenuItem = true
-    sinon.stub(SpeedGraderSettingsMenu, 'setURL')
     mountComponent()
     return clickToOpenMenu().then(() => {
-      const menuItem = getMenuItem('Help')
-      menuItem.simulate('click')
-      strictEqual(SpeedGraderSettingsMenu.setURL.firstCall.args[0], props.helpURL)
-      SpeedGraderSettingsMenu.setURL.restore()
+      getMenuItem('Help').click()
+      strictEqual(SpeedGraderSettingsMenu.setURL.lastCall.args[0], props.helpURL)
     })
   })
 })

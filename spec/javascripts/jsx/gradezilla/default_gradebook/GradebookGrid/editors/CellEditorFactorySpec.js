@@ -18,15 +18,23 @@
 
 import CellEditorFactory from 'jsx/gradezilla/default_gradebook/GradebookGrid/editors/CellEditorFactory'
 import AssignmentCellEditor from 'jsx/gradezilla/default_gradebook/GradebookGrid/editors/AssignmentCellEditor'
+import TotalGradeOverrideCellEditor from 'jsx/gradezilla/default_gradebook/GradebookGrid/editors/TotalGradeOverrideCellEditor'
 
-QUnit.module('CellEditorFactory');
+QUnit.module('GradebookGrid CellEditorFactory', () => {
+  QUnit.module('#getEditor()', () => {
+    test('returns AssignmentCellEditor for columns of type "assignment"', () => {
+      const factory = new CellEditorFactory()
+      strictEqual(factory.getEditor({type: 'assignment'}), AssignmentCellEditor)
+    })
 
-test('#getEditor returns AssignmentCellEditor for columns of type "assignment"', function () {
-  const factory = new CellEditorFactory();
-  equal(factory.getEditor({ type: 'assignment' }), AssignmentCellEditor);
-});
+    test('returns TotalGradeOverrideCellEditor for columns of type "total_grade_override"', () => {
+      const factory = new CellEditorFactory()
+      strictEqual(factory.getEditor({type: 'total_grade_override'}), TotalGradeOverrideCellEditor)
+    })
 
-test('#getEditor returns undefined for unhandled column types', function () {
-  const factory = new CellEditorFactory();
-  equal(typeof factory.getEditor({ type: 'unknown' }), 'undefined');
-});
+    test('returns undefined for unhandled column types', () => {
+      const factory = new CellEditorFactory()
+      equal(typeof factory.getEditor({type: 'unknown'}), 'undefined')
+    })
+  })
+})

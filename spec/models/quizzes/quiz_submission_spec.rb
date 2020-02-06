@@ -166,7 +166,7 @@ describe Quizzes::QuizSubmission do
 
       context 'on a graded_survey' do
         it "should award all points for a graded_survey" do
-          @quiz.update_attributes(points_possible: 42, quiz_type: 'graded_survey')
+          @quiz.update(points_possible: 42, quiz_type: 'graded_survey')
 
           qs = @quiz.generate_submission(@student)
           qs.submission_data = { "question_1" => "wrong" }
@@ -500,19 +500,19 @@ describe Quizzes::QuizSubmission do
       expect(s.version_number).to eql(2)
       expect(s.kept_score).to eql(4.0)
 
-      q.update_attributes!(:scoring_policy => "keep_highest")
+      q.update!(:scoring_policy => "keep_highest")
       s.reload
       s.score = 3.0
       s.attempt = 3
       s.with_versioning(true, &:save!)
       expect(s.kept_score).to eql(5.0)
 
-      q.update_attributes!(scoring_policy: "keep_average")
+      q.update!(scoring_policy: "keep_average")
       s.reload
       s.with_versioning(true, &:save!)
       expect(s.kept_score).to eql(4.0)
 
-      q.update_attributes!(:scoring_policy => "keep_highest")
+      q.update!(:scoring_policy => "keep_highest")
       s.update_scores(:submission_version_number => 2, :fudge_points => 6.0)
       expect(s.kept_score).to eql(6.0)
     end
@@ -729,31 +729,64 @@ describe Quizzes::QuizSubmission do
     end
 
     context "update_assignment_submission" do
-      before(:once) do
+      let(:quiz) do
+        quiz = @course.quizzes.create!
+        quiz.generate_quiz_data
+        quiz.update!(
+          published_at: Time.zone.now,
+          workflow_state: "available",
+          scoring_policy: "keep_highest",
+          due_at: 5.days.from_now
+        )
+        quiz
+      end
+      let(:assignment) { quiz.assignment }
+      let(:quiz_submission) { quiz.generate_submission(@user, false) }
+      let(:submission) { quiz_submission.submission }
+
+      def save_quiz_submission
+        quiz_submission.workflow_state = "complete"
+        quiz_submission.save!
+        quiz_submission.score = 5
+        quiz_submission.fudge_points = 0
+        quiz_submission.kept_score = 5
+        quiz_submission.with_versioning(true, &:save!)
+      end
+
+      before(:each) do
+        @course.enable_feature!(:new_gradebook)
+        PostPolicy.enable_feature!
+
         student_in_course
-        @quiz.generate_quiz_data
-        @quiz.published_at = Time.now
-        @quiz.workflow_state = 'available'
-        @quiz.scoring_policy = "keep_highest"
-        @quiz.due_at = 5.days.from_now
-        @quiz.save!
-        @assignment = @quiz.assignment
-        @quiz_sub = @quiz.generate_submission @user, false
-        @quiz_sub.workflow_state = "complete"
-        @quiz_sub.save!
-        @quiz_sub.score = 5
-        @quiz_sub.fudge_points = 0
-        @quiz_sub.kept_score = 5
-        @quiz_sub.with_versioning(true, &:save!)
-        @submission = @quiz_sub.submission
       end
 
       it "should sync the score" do
-        expect(@submission.score).to eql(5.0)
+        save_quiz_submission
+        expect(submission.score).to be 5.0
       end
 
       it "should not set graded_at to be in the future" do
-        expect(@submission.graded_at.to_i).to be <= Time.zone.now.to_i
+        save_quiz_submission
+        expect(submission.graded_at.to_i).to be <= Time.zone.now.to_i
+      end
+
+      it "posts the submission if the assignment is automatically posted" do
+        save_quiz_submission
+        expect(submission).to be_posted
+      end
+
+      it "does not post the submission if the assignment is manually posted" do
+        assignment.post_policy.update!(post_manually: true)
+        save_quiz_submission
+        expect(submission).not_to be_posted
+      end
+
+      it "does not update the posted_at date of already-posted submissions" do
+        submission.update!(posted_at: 1.day.ago)
+
+        expect {
+          save_quiz_submission
+        }.not_to change { submission.reload.posted_at }
       end
     end
 
@@ -1404,7 +1437,7 @@ describe Quizzes::QuizSubmission do
       submission_data = { 'question_1' => 'Hello' }
       survey_with_submission(questions) { submission_data }
       teacher_in_course(course: @course, active_all: true)
-      @quiz.update_attributes(points_possible: 15, quiz_type: 'graded_survey')
+      @quiz.update(points_possible: 15, quiz_type: 'graded_survey')
       Quizzes::SubmissionGrader.new(@quiz_submission.reload).grade_submission
 
       expect(@quiz_submission).to be_completed
@@ -1460,6 +1493,22 @@ describe Quizzes::QuizSubmission do
         expect(@observer.messages.where(notification_name: "Submission Grade Changed").length).to eq 1
         expect(@other_student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
         expect(@other_observer.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+      end
+
+      it 'does not send a grade changed notification for an inactive user' do
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
+
+        enrollment = @student.student_enrollments.first
+        enrollment.workflow_state = 'inactive'
+        enrollment.save!
+        Quizzes::SubmissionGrader.new(@submission).grade_submission
+        @submission.score = @submission.score + 5
+        @submission.save!
+
+        expect(@submission.reload.messages_sent.keys).not_to include('Submission Graded')
+        expect(@submission.reload.messages_sent.keys).not_to include('Submission Grade Changed')
+        expect(@student.messages.where(notification_name: "Submission Graded").length).to eq 0
+        expect(@student.messages.where(notification_name: "Submission Grade Changed").length).to eq 0
       end
 
       it 'does not send any "graded" or "grade changed" notifications for a submission with essay questions before they have been graded' do
@@ -1608,7 +1657,7 @@ describe Quizzes::QuizSubmission do
           finished_at: Time.zone.now, user: @user, quiz: quiz, workflow_state: :complete
         )
 
-        expected_seconds_late = (Time.zone.now - 60.seconds - 5.minutes.ago.change(sec: 0)).to_i
+        expected_seconds_late = (Time.zone.now - 60.seconds - 5.minutes.ago.change(usec: 0)).to_i
         expect(qs.submission.seconds_late).to eql(expected_seconds_late)
       end
     end
@@ -1760,6 +1809,30 @@ describe Quizzes::QuizSubmission do
     end
     it 'should function without valid submission' do
       expect(quiz_submission.excused?).to eq nil
+    end
+  end
+
+  describe "#posted?" do
+    context "when this submission's quiz is a graded quiz" do
+      before(:each) { quiz_with_graded_submission([]) }
+
+      it "returns true if the underlying submission is posted" do
+        allow(@quiz_submission.submission).to receive(:posted?).and_return(true)
+        expect(@quiz_submission).to be_posted
+      end
+
+      it "returns false if the underlying submission is not posted" do
+        allow(@quiz_submission.submission).to receive(:posted?).and_return(false)
+        expect(@quiz_submission).not_to be_posted
+      end
+    end
+
+    it "always returns true when the associated quiz will not be graded" do
+      student_in_course
+      quiz = @course.quizzes.create!(title: "You shall digest the venom of your spleen", quiz_type: "survey")
+      quiz_submission = Quizzes::SubmissionManager.new(quiz).find_or_create_submission(@student)
+
+      expect(quiz_submission).to be_posted
     end
   end
 end

@@ -1,0 +1,15 @@
+<% if (google_analytics_key = Setting.get('google_analytics_key', nil)) %>
+  <script>
+    window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+    ga('create', <%= raw(google_analytics_key.to_json) %>, 'auto');
+    <% if @google_analytics_page_title %>
+      ga('set', 'title', <%= raw(@google_analytics_page_title.to_json) %>);
+    <% end %>
+    ga('send', 'pageview');
+    (window.requestIdleCallback || window.setTimeout)(function(){
+      var s=document.createElement('script'), m=document.getElementsByTagName('script')[0]
+      s.async=1; s.src='https://www.google-analytics.com/analytics.js'
+      m.parentNode.insertBefore(s,m)
+    });
+  </script>
+<% end %>

@@ -44,25 +44,65 @@ RSpec::Matchers.define :have_class do |class_name|
   end
 end
 
+RSpec::Matchers.define :have_text_absent do
+  match do |element|
+    wait_for(method: :have_text_absent) do
+      element.text.blank?
+    end
+  end
+
+  failure_message do |element|
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} text to be absent but was instead present.
+
+      Actual text was: "#{element.text}".
+    FAILURE_MESSAGE
+  end
+end
+
+RSpec::Matchers.define :have_text_present do
+  match do |element|
+    wait_for(method: :have_text_present) do
+      element.text.present?
+    end
+  end
+
+  failure_message do |element|
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} text to be present but was instead blank.
+
+      Actual text was: "#{element.text}".
+    FAILURE_MESSAGE
+  end
+end
+
 RSpec::Matchers.define :include_text do |text|
   match do |element|
     wait_for(method: :include_text) do
-      (@element_text = element.text).include?(text)
+      element.text.include?(text)
     end
   end
 
   match_when_negated do |element|
     wait_for(method: :include_text) do
-      !(@element_text = element.text).include?(text)
+      element.text.exclude?(text)
     end
   end
 
   failure_message do |element|
-    "expected #{element.inspect} text to include #{text}, actual text was: #{@element_text}"
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} text to include "#{text}".
+
+      Actual text was: "#{element.text}".
+    FAILURE_MESSAGE
   end
 
   failure_message_when_negated do |element|
-    "expected #{element.inspect} text to NOT include #{text}, actual text was: #{@element_text}"
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} text not to include "#{text}".
+
+      Actual text was: "#{element.text}".
+    FAILURE_MESSAGE
   end
 end
 
@@ -86,11 +126,19 @@ RSpec::Matchers.define :have_value do |value_attribute|
   end
 
   failure_message do |element|
-    "expected #{element.inspect} to have value #{value_attribute}, actual value: #{element.attribute('value')}"
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} to have value "#{value_attribute}".
+
+      Actual value was: "#{element.attribute('value')}".
+    FAILURE_MESSAGE
   end
 
   failure_message_when_negated do |element|
-    "expected #{element.inspect} to NOT have value #{value_attribute}, actual value: #{element.attribute('value')}"
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect} not to have value "#{value_attribute}".
+
+      Actual value was: "#{element.attribute('value')}".
+    FAILURE_MESSAGE
   end
 end
 
@@ -160,13 +208,13 @@ end
 RSpec::Matchers.define :be_disabled do
   match do |element|
     wait_for(method: :be_disabled) do
-      element.attribute(:disabled) == "true"
+      element.attribute(:disabled) == "true" || element.attribute("aria-disabled") == "true"
     end
   end
 
   match_when_negated do |element|
     wait_for(method: :be_disabled) do
-      element.attribute(:disabled) != "true"
+      element.attribute(:disabled) != "true" && element.attribute("aria-disabled") != "true"
     end
   end
 
@@ -176,6 +224,41 @@ RSpec::Matchers.define :be_disabled do
 
   failure_message_when_negated do |element|
     "expected #{element.inspect}'s disabled attribute to NOT be true, actual disabled attribute type: #{element.attribute(:disabled)}"
+  end
+end
+
+# assert whether or not an element has an aria-diabled value of "true".
+# will return as soon as the expectation is met, e.g.
+#
+#   expect(element).to be_aria_disabled
+#
+RSpec::Matchers.define :be_aria_disabled do
+  match do |element|
+    wait_for(method: :be_aria_disabled) do
+      element.attribute('aria-disabled') == 'true'
+    end
+  end
+
+  match_when_negated do |element|
+    wait_for(method: :be_aria_disabled) do
+      element.attribute('aria-disabled') != 'true'
+    end
+  end
+
+  failure_message do |element|
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect}'s aria-disabled attribute to be true.
+
+      Actual aria-disabled attribute value: "#{element.attribute('aria-disabled')}".
+    FAILURE_MESSAGE
+  end
+
+  failure_message_when_negated do |element|
+    <<~FAILURE_MESSAGE
+      Expected #{element.inspect}'s aria-disabled attribute to be false.
+
+      Actual aria-disabled attribute value: "#{element.attribute('aria-disabled')}"
+    FAILURE_MESSAGE
   end
 end
 
@@ -267,6 +350,30 @@ RSpec::Matchers.define :contain_link_partial_text do |text|
   end
 end
 
+# assert whether or not an element meets the desired contrast ratio.
+# will wait up to TIMEOUTS[:finder] seconds
+require_relative '../helpers/color_common'
+RSpec::Matchers.define :meet_contrast_ratio do |ratio = 3.5|
+  match do |element|
+    wait_for(method: :be_displayed) do
+      LuminosityContrast.ratio(
+        ColorCommon.rgba_to_hex(element.style('background-color')),
+        ColorCommon.rgba_to_hex(element.style('color'))
+      ) >= ratio
+    end
+  end
+
+  match_when_negated do |element|
+    wait_for(method: :be_displayed) do
+      LuminosityContrast.ratio(
+        ColorCommon.rgba_to_hex(element.style('background-color')),
+        ColorCommon.rgba_to_hex(element.style('color'))
+      ) < ratio
+    end
+  end
+end
+
+
 # assert whether or not an element is displayed. will wait up to
 # TIMEOUTS[:finder] seconds
 RSpec::Matchers.define :be_displayed do
@@ -312,6 +419,19 @@ RSpec::Matchers.define :become do |size|
     raise "The `become` matcher expects a block, e.g. `expect { actual }.to become(value)`, NOT `expect(actual).to become(value)`" unless actual.is_a? Proc
     wait_for(method: :become) do
       disable_implicit_wait { actual.call == expected }
+    end
+  end
+end
+
+RSpec::Matchers.define :become_between do |min, max|
+  def supports_block_expectations?
+    true
+  end
+
+  match do |actual|
+    raise "The `become` matcher expects a block, e.g. `expect { actual }.to become(value)`, NOT `expect(actual).to become(value)`" unless actual.is_a? Proc
+    wait_for(method: :become) do
+      disable_implicit_wait { a = actual.call; min < a && a < max }
     end
   end
 end

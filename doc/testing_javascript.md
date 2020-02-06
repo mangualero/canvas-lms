@@ -35,6 +35,8 @@ it('sums numbers', () => {
 All `expect()` matchers supported by Jest are [extensively documented here](http://facebook.github.io/jest/docs/api.html#expect-value).<br>
 You can also use [`jest.fn()` and `expect(fn).toBeCalled()`](http://facebook.github.io/jest/docs/api.html#tobecalled) to create “spies” or mock functions and in jest tests you should probably use that instead of sinon mocks/spies/stubs like we use in our QUnit tests.
 
+*NOTE: You cannot run jest if there is anything with AMD, CoffeeScript, or some of the Webpack aliases (which lead to AMD or CoffeeScript).
+
 ### Testing Components
 
 There is a broad spectrum of component testing techniques. They range from a “smoke test” using a jest snapshot, to shallow rendering and testing some of the output, to full rendering and testing component lifecycle and state changes.
@@ -78,6 +80,23 @@ All Jest matchers are [extensively documented here](http://facebook.github.io/je
 
 You can replace `it()` with `xit()` to temporarily exclude a test from being executed.<br>
 Similarly, `fit()` lets you focus on a specific test without running any other tests.
+
+### Running Tests
+
+To run all tests:
+```
+yarn test:jest
+```
+
+To run a subset of files or directories:
+```
+yarn test:jest path/to/components/__tests__/spec.js path/to/other_component/ ...
+```
+
+To rerun tests on a file change and/or debug remotely:
+```
+yarn test:jest:debug path/to/components/__tests__/spec.js
+```
 
 ### Coverage Reporting
 

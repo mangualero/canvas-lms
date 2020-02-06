@@ -158,6 +158,16 @@ RSpec.describe Outcomes::Import do
         new_group = LearningOutcomeGroup.find_by!(context: context, vendor_guid: group_vendor_guid)
         expect(new_group.id).not_to eq existing_group.id
       end
+
+      it 'given two groups with the same guid, update an active group before resurrecting a deleted group' do
+        deleted_group = outcome_group_model(context: context, vendor_guid: group_vendor_guid, workflow_state: "deleted")
+        importer.import_group(group_attributes)
+        deleted_group.reload
+        existing_group.reload
+        expect(existing_group.title).to eq "i'm a group"
+        expect(deleted_group.workflow_state).to eq "deleted"
+        expect(deleted_group.title).not_to eq existing_group.title
+      end
     end
 
     it 'updates attributes' do
@@ -221,7 +231,7 @@ RSpec.describe Outcomes::Import do
 
   describe '#import_outcome' do
     let_once(:existing_outcome) do
-      outcome_model(context: context, vendor_guid: outcome_vendor_guid, display_name: '')
+      outcome_model(context: context, vendor_guid: outcome_vendor_guid, display_name: '', calculation_method: 'highest')
     end
 
     context 'with magic vendor_guid' do
@@ -240,7 +250,7 @@ RSpec.describe Outcomes::Import do
         existing_outcome.update! context: other_context
         expect do
           importer.import_outcome(**outcome_attributes, vendor_guid: magic_guid)
-        end.to raise_error(TestImporter::InvalidDataError, /not in visible context/)
+        end.to raise_error(TestImporter::InvalidDataError, /in another unrelated course or account/)
       end
 
       it 'updates description if outcome in current context' do
@@ -250,6 +260,15 @@ RSpec.describe Outcomes::Import do
           description: 'changed!'
         )
         expect(existing_outcome.reload.description).to eq 'changed!'
+      end
+
+      it 'defaults to decaying_average if no calculation_method is given' do
+        expect(existing_outcome.reload.calculation_method).to eq 'highest'
+        importer.import_outcome(
+          **outcome_attributes,
+          calculation_method: nil
+        )
+        expect(existing_outcome.reload.calculation_method).to eq 'decaying_average'
       end
 
       context 'importing outcome into visible context' do
@@ -283,7 +302,7 @@ RSpec.describe Outcomes::Import do
         existing_outcome.update! context: other_context
         expect do
           importer.import_outcome(**outcome_attributes)
-        end.to raise_error(TestImporter::InvalidDataError, /not in visible context/)
+        end.to raise_error(TestImporter::InvalidDataError, /in another unrelated course or account/)
       end
 
       it 'updates if outcome in current context' do
@@ -315,12 +334,29 @@ RSpec.describe Outcomes::Import do
         expect(new_outcome).not_to eq existing_outcome
         expect(new_outcome.context).to eq context
       end
+
+      it 'given two outcomes with the same guid, update an active outcome rather than a deleted outcome' do
+        new_outcome = outcome_model(context: context, vendor_guid: outcome_vendor_guid, display_name: '', calculation_method: 'highest')
+        existing_outcome.update! workflow_state: "deleted"
+        importer.import_outcome(**outcome_attributes)
+        new_outcome.reload
+        existing_outcome.reload
+        expect(new_outcome.title).to eq "i'm an outcome"
+        expect(existing_outcome.title).not_to eq new_outcome.title
+        expect(existing_outcome.workflow_state).to eq "deleted"
+      end
     end
 
     it 'updates attributes' do
       importer.import_outcome(**outcome_attributes)
       existing_outcome.reload
       expect(existing_outcome.reload).to have_attributes outcome_attributes
+    end
+
+    it 'restores deleted outcome' do
+      existing_outcome.update!(workflow_state: 'deleted')
+      importer.import_outcome(**outcome_attributes.merge(workflow_state: ''))
+      expect(existing_outcome.reload.workflow_state).to eq 'active'
     end
 
     it 'fails if outcome has already appeared in import' do
@@ -379,7 +415,15 @@ RSpec.describe Outcomes::Import do
       it 'reassigns parents of existing outcome' do
         parent1.add_outcome(existing_outcome)
         importer.import_outcome(**outcome_attributes, parent_guids: 'parent2')
-          expect(parent1.child_outcome_links.active.map(&:content)).to be_empty
+        expect(parent1.child_outcome_links.active.map(&:content)).to be_empty
+        expect(parent2.child_outcome_links.active.map(&:content)).to include existing_outcome
+      end
+
+      it 'reassigns parents of an aligned outcome' do
+        outcome_with_rubric(outcome: existing_outcome)
+        parent1.add_outcome(existing_outcome)
+        importer.import_outcome(**outcome_attributes, parent_guids: 'parent2')
+        expect(parent1.child_outcome_links.active.map(&:content)).to be_empty
         expect(parent2.child_outcome_links.active.map(&:content)).to include existing_outcome
       end
 

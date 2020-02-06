@@ -28,6 +28,7 @@ module Lti
       external_tools_collection = BookmarkedCollection.wrap(ExternalToolNameBookmarker, external_tools_scope)
       tool_proxy_scope = ToolProxy.find_installed_proxies_for_context(@context)
       tool_proxy_collection = BookmarkedCollection.wrap(ToolProxyNameBookmarker, tool_proxy_scope)
+
       BookmarkedCollection.merge(
         ['external_tools', external_tools_collection],
         ['message_handlers', tool_proxy_collection]
@@ -46,14 +47,14 @@ module Lti
         when ToolProxy
           tool_proxy_definition(o)
         end
-      end
+      end.compact
     end
 
     private
 
     def external_tool_definition(external_tool)
       {
-        app_type: external_tool.class.name,
+        app_type: 'ContextExternalTool',
         app_id: external_tool.id,
         name: external_tool.name,
         description: external_tool.description,
@@ -63,7 +64,9 @@ module Lti
         context: external_tool.context_type,
         context_id: external_tool.context.id,
         reregistration_url: nil,
-        has_update: nil
+        has_update: nil,
+        lti_version: external_tool.use_1_3? ? '1.3' : '1.1',
+        deployment_id: external_tool.deployment_id
       }
     end
 
@@ -79,7 +82,8 @@ module Lti
         context: tool_proxy.context_type,
         context_id: tool_proxy.context.id,
         reregistration_url: build_reregistration_url(tool_proxy),
-        has_update: root_account.feature_enabled?(:lti2_rereg) ? tool_proxy.update? : nil
+        has_update: root_account.feature_enabled?(:lti2_rereg) ? tool_proxy.update? : nil,
+        lti_version: '2.0'
       }
     end
 

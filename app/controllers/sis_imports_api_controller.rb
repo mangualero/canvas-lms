@@ -43,6 +43,104 @@
 #       }
 #     }
 #
+# @model SisImportStatistic
+#     {
+#       "id": "SisImportStatistic",
+#       "description": "",
+#       "properties": {
+#         "created": {
+#           "description": "This is the number of items that were created.",
+#           "example": 18,
+#           "type": "integer"
+#         },
+#         "concluded": {
+#           "description": "This is the number of items that marked as completed. This only applies to courses and enrollments.",
+#           "example": 3,
+#           "type": "integer"
+#         },
+#         "deactivated": {
+#           "description": "This is the number of Enrollments that were marked as 'inactive'. This only applies to enrollments.",
+#           "example": 1,
+#           "type": "integer"
+#         },
+#         "restored": {
+#           "description": "This is the number of items that were set to an active state from a completed, inactive, or deleted state.",
+#           "example": 2,
+#           "type": "integer"
+#         },
+#         "deleted": {
+#           "description": "This is the number of items that were deleted.",
+#           "example": 40,
+#           "type": "integer"
+#         }
+#       }
+#     }
+#
+# @model SisImportStatistics
+#     {
+#       "id": "SisImportStatistics",
+#       "description": "",
+#       "properties": {
+#         "total_state_changes": {
+#           "description": "This is the total number of items that were changed in the sis import. There are a few caveats that can cause this number to not add up to the individual counts. There are some state changes that happen that have no impact to the object. An example would be changing a course from 'created' to 'claimed'. Both of these would be considered an active course, but would increment this counter. In this example the course would not increment the created or restored counters for course statistic.",
+#           "example": 382,
+#           "type": "integer"
+#         },
+#         "Account": {
+#           "description": "This contains that statistics for accounts.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "EnrollmentTerm": {
+#           "description": "This contains that statistics for terms.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "CommunicationChannel": {
+#           "description": "This contains that statistics for communication channels. This is an indirect effect from creating or deleting a user.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "AbstractCourse": {
+#           "description": "This contains that statistics for abstract courses.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "Course": {
+#           "description": "This contains that statistics for courses.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "CourseSection": {
+#           "description": "This contains that statistics for course sections.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "Enrollment": {
+#           "description": "This contains that statistics for enrollments.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "GroupCategory": {
+#           "description": "This contains that statistics for group categories.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "Group": {
+#           "description": "This contains that statistics for groups.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "GroupMembership": {
+#           "description": "This contains that statistics for group memberships. This can be a direct impact from the import or indirect from an enrollment being deleted.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "Pseudonym": {
+#           "description": "This contains that statistics for pseudonyms. Pseudonyms are logins for users, and are the object that ties an enrollment to a user. This would be impacted from the user importer. ",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "UserObserver": {
+#           "description": "This contains that statistics for user observers.",
+#           "$ref": "SisImportStatistic"
+#         },
+#         "AccountUser": {
+#           "description": "This contains that statistics for account users.",
+#           "$ref": "SisImportStatistic"
+#         }
+#       }
+#     }
+#
 # @model SisImportCounts
 #     {
 #       "id": "SisImportCounts",
@@ -144,25 +242,33 @@
 #           "type": "datetime"
 #         },
 #         "workflow_state": {
-#           "description": "The current state of the SIS import.\n - 'created': The SIS import has been created.\n - 'importing': The SIS import is currently processing.\n - 'cleanup_batch': The SIS import is currently cleaning up courses, sections, and enrollments not included in the batch for batch_mode imports.\n - 'imported': The SIS import has completed successfully.\n - 'imported_with_messages': The SIS import completed with errors or warnings.\n - 'aborted': The SIS import was aborted.\n - 'failed_with_messages': The SIS import failed with errors.\n - 'failed': The SIS import failed.",
+#           "description": "The current state of the SIS import.\n - 'initializing': The SIS import is being created, if this gets stuck in initializing, it will not import and will continue on to next import.\n - 'created': The SIS import has been created.\n - 'importing': The SIS import is currently processing.\n - 'cleanup_batch': The SIS import is currently cleaning up courses, sections, and enrollments not included in the batch for batch_mode imports.\n - 'imported': The SIS import has completed successfully.\n - 'imported_with_messages': The SIS import completed with errors or warnings.\n - 'aborted': The SIS import was aborted.\n - 'failed_with_messages': The SIS import failed with errors.\n - 'failed': The SIS import failed.\n - 'restoring': The SIS import is restoring states of imported items.\n - 'partially_restored': The SIS import is restored some of the states of imported items. This is generally due to passing a param like undelete only.\n - 'restored': The SIS import is restored all of the states of imported items.",
 #           "example": "imported",
 #           "type": "string",
 #           "allowableValues": {
 #             "values": [
+#               "initializing",
 #               "created",
 #               "importing",
 #               "cleanup_batch",
 #               "imported",
 #               "imported_with_messages",
 #               "aborted",
+#               "failed",
 #               "failed_with_messages",
-#               "failed"
+#               "restoring",
+#               "partially_restored",
+#               "restored"
 #             ]
 #           }
 #         },
 #         "data": {
 #           "description": "data",
 #           "$ref": "SisImportData"
+#         },
+#         "statistics": {
+#           "description": "statistics",
+#           "$ref": "SisImportStatistics"
 #         },
 #         "progress": {
 #           "description": "The progress of the SIS import. The progress will reset when using batch_mode and have a different progress for the cleanup stage",
@@ -239,6 +345,15 @@
 #           "description": "The ID of the SIS Import that this import was diffed against",
 #           "example": 1,
 #           "type": "integer"
+#         },
+#         "csv_attachments": {
+#           "description": "An array of CSV files for processing",
+#           "example": [],
+#           "type": "array",
+#           "items": {
+#             "type": "array",
+#             "items": {"$ref": "File"}
+#           }
 #         }
 #       }
 #     }
@@ -247,6 +362,7 @@ class SisImportsApiController < ApplicationController
   before_action :get_context
   before_action :check_account
   include Api::V1::SisImport
+  include Api::V1::Progress
 
   def check_account
     return render json: {errors: ["SIS imports can only be executed on root accounts"]}, status: :bad_request unless @account.root_account?
@@ -260,6 +376,9 @@ class SisImportsApiController < ApplicationController
   # @argument created_since [Optional, DateTime]
   #   If set, only shows imports created after the specified date (use ISO8601 format)
   #
+  # @argument workflow_state[] [String, "initializing"|"created"|"importing"|"cleanup_batch"|"imported"|"imported_with_messages"|"aborted"|"failed"|"failed_with_messages"|"restoring"|"partially_restored"|"restored"]
+  #   If set, only returns imports that are in the given state.
+  #
   # Example:
   #   curl https://<canvas>/api/v1/accounts/<account_id>/sis_imports \
   #     -H 'Authorization: Bearer <token>'
@@ -271,8 +390,31 @@ class SisImportsApiController < ApplicationController
       if (created_since = CanvasTime.try_parse(params[:created_since]))
         scope = scope.where("created_at > ?", created_since)
       end
-      @batches = Api.paginate(scope, self, api_v1_account_sis_imports_url)
+
+      state = Array(params[:workflow_state])&['initializing', 'created', 'importing', 'cleanup_batch', 'imported', 'imported_with_messages',
+                                              'aborted', 'failed', 'failed_with_messages', 'restoring', 'partially_restored', 'restored']
+      scope = scope.where(workflow_state: state) if state.present?
+
+      # we don't need to know how many there are
+      @batches = Api.paginate(scope, self, api_v1_account_sis_imports_url, total_entries: nil)
       render json: {sis_imports: sis_imports_json(@batches, @current_user, session)}
+    end
+  end
+
+  # @API Get the current importing SIS import
+  #
+  # Returns the SIS imports that are currently processing for an account. If no
+  # imports are running, will return an empty array.
+  #
+  # Example:
+  #   curl https://<canvas>/api/v1/accounts/<account_id>/sis_imports/importing \
+  #     -H 'Authorization: Bearer <token>'
+  #
+  # @returns SisImport
+  def importing
+    if authorized_action(@account, @current_user, [:import_sis, :manage_sis])
+      batches = @account.sis_batches.importing
+      render json: {sis_imports: sis_imports_json(batches, @current_user, session)}
     end
   end
 
@@ -386,13 +528,20 @@ class SisImportsApiController < ApplicationController
   #   the enrollments the batch will abort before the enrollments are deleted.
   #   The change_threshold will be evaluated for course, sections, and
   #   enrollments independently.
-  #   If set with diffing, diffing  will not be performed if the files are
+  #   If set with diffing, diffing will not be performed if the files are
   #   greater than the threshold as a percent. If set to 5 and the file is more
   #   than 5% smaller or more than 5% larger than the file that is being
   #   compared to, diffing will not be performed. If the files are less than 5%,
-  #   diffing will be performed. See the SIS CSV Format documentation for more
-  #   details.
+  #   diffing will be performed. The way the percent is calculated is by taking
+  #   the size of the current import and dividing it by the size of the previous
+  #   import. The formula used is:
+  #   |(1 - current_file_size / previous_file_size)| * 100
+  #   See the SIS CSV Format documentation for more details.
   #   Required for multi_term_batch_mode.
+  #
+  # @argument diff_row_count_threshold [Integer]
+  #   If set with diffing, diffing will not be performed if the number of rows
+  #   to be run in the fully calculated diff import exceeds the threshold.
   #
   # @returns SisImport
   def create
@@ -458,7 +607,11 @@ class SisImportsApiController < ApplicationController
 
       batch = SisBatch.create_with_attachment(@account, params[:import_type], file_obj, @current_user) do |batch|
         batch.change_threshold = params[:change_threshold]
+
         batch.options ||= {}
+        if (threshold = params[:diff_row_count_threshold]&.to_i) && threshold > 0
+          batch.options[:diff_row_count_threshold] = threshold
+        end
         if batch_mode_term
           batch.batch_mode = true
           batch.batch_mode_term = batch_mode_term
@@ -482,7 +635,7 @@ class SisImportsApiController < ApplicationController
           end
         end
         if params[:diffing_drop_status].present?
-          batch.options[:diffing_drop_status] = (Array(params[:diffing_drop_status])&%w(deleted inactive completed)).first
+          batch.options[:diffing_drop_status] = (Array(params[:diffing_drop_status])&SIS::CSV::DiffGenerator::VALID_ENROLLMENT_DROP_STATUS).first
           return render json: {message: 'Invalid diffing_drop_status'}, status: :bad_request unless batch.options[:diffing_drop_status]
         end
       end
@@ -535,24 +688,36 @@ class SisImportsApiController < ApplicationController
   #   If set, will only restore items that were deleted. This will ignore any
   #   items that were created or modified.
   #
+  # @argument unconclude_only [Boolean]
+  #   If set, will only restore enrollments that were concluded. This will
+  #   ignore any items that were created or deleted.
+  #
   # @example_request
   #   curl https://<canvas>/api/v1/accounts/<account_id>/sis_imports/<sis_import_id>/restore_states \
   #     -H 'Authorization: Bearer <token>'
   #
-  # @returns SisImport
+  # @returns Progress
   def restore_states
     if authorized_action(@account, @current_user, :manage_sis)
       @batch = @account.sis_batches.find(params[:id])
       batch_mode = value_to_boolean(params[:batch_mode])
       undelete_only = value_to_boolean(params[:undelete_only])
-      @batch.restore_states_for_batch(batch_mode: batch_mode, undelete_only: undelete_only)
-      render json: sis_import_json(@batch, @current_user, session, includes: ['errors'])
+      unconclude_only = value_to_boolean(params[:unconclude_only])
+      if undelete_only && unconclude_only
+        return render json: 'cannot set both undelete_only and unconclude_only', status: :bad_request
+      end
+      progress = @batch.restore_states_later(batch_mode: batch_mode, undelete_only: undelete_only, unconclude_only: unconclude_only)
+      render json: progress_json(progress, @current_user, session)
     end
   end
 
   # @API Abort SIS import
   #
   # Abort a SIS import that has not completed.
+  #
+  # Aborting a sis batch that is running can take some time for every process to
+  # see the abort event. Subsequent sis batches begin to process 10 minutes
+  # after the abort to allow each process to clean up properly.
   #
   # @example_request
   #   curl https://<canvas>/api/v1/accounts/<account_id>/sis_imports/<sis_import_id>/abort \
@@ -584,5 +749,4 @@ class SisImportsApiController < ApplicationController
       render json: {aborted: true}
     end
   end
-
 end

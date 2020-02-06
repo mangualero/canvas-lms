@@ -73,9 +73,8 @@ describe "Gradezilla" do
     before { Gradezilla.visit(@course) }
 
     it "after arrange columns is clicked", priority: "2", test_id: 720462 do
-      Gradezilla.open_view_menu_and_arrange_by_menu
+      view_menu = Gradezilla.open_view_menu_and_arrange_by_menu
       Gradezilla.select_gradebook_menu_option('Due Date - Oldest to Newest')
-
       expect(check_element_has_focus(Gradezilla.view_options_menu_selector)).to be true
     end
   end
@@ -87,7 +86,6 @@ describe "Gradezilla" do
     it 'returns focus to the view options menu after clicking the "Notes" option' do
       Gradezilla.select_view_dropdown
       Gradezilla.select_notes_option
-
       expect(check_element_has_focus(Gradezilla.view_options_menu_selector)).to be true
     end
   end
@@ -334,10 +332,8 @@ describe "Gradezilla" do
       Gradezilla.grading_cell.click
       driver.action.send_keys(:escape).perform
 
-      expect_new_page_load do
-        driver.action.send_keys('g').perform
-        expect(driver.current_url.end_with?(@course.assignments.first.id.to_s)).to be(true)
-      end
+      expect_new_page_load { driver.action.send_keys('g').perform }
+      expect(driver.current_url.end_with?(@course.assignments.first.id.to_s)).to be(true)
     end
   end
 
@@ -349,16 +345,44 @@ describe "Gradezilla" do
       Gradezilla.click_assignment_header_menu(assignment.id)
       Gradezilla.click_assignment_popover_sort_by('low-to-high')
 
+      driver.action.send_keys(:escape).perform
+
       check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
     end
 
-    %w[message-students-who curve-grades set-default-grade assignment-muter download-submissions].each do |dialog|
-      it "is placed on assignment header trigger upon #{dialog} dialog close" do
-        Gradezilla.click_assignment_header_menu_element(assignment.id,dialog)
-        Gradezilla.close_open_dialog
+    it 'is placed on assignment header trigger upon "message students who" dialog close' do
+      Gradezilla.click_assignment_header_menu_element(assignment.id, 'message students -who')
+      Gradezilla.close_open_dialog
 
-        check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
-      end
+      check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
+    end
+
+    it 'is placed on assignment header trigger upon "curve grades" dialog close' do
+      Gradezilla.click_assignment_header_menu_element(assignment.id, 'curve grades')
+      Gradezilla.close_open_dialog
+
+      check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
+    end
+
+    it 'is placed on assignment header trigger upon "set default grade" dialog close' do
+      Gradezilla.click_assignment_header_menu_element(assignment.id, 'set default grade')
+      Gradezilla.close_open_dialog
+
+      check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
+    end
+
+    it 'is placed on assignment header trigger upon "assignment muting" dialog close' do
+      Gradezilla.click_assignment_header_menu_element(assignment.id, 'assignment muter')
+      Gradezilla.close_open_dialog
+
+      check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
+    end
+
+    it 'is placed on assignment header trigger upon "download submissions" dialog close' do
+      Gradezilla.click_assignment_header_menu_element(assignment.id, 'download submissions')
+      Gradezilla.close_open_dialog
+
+      check_element_has_focus Gradezilla.assignment_header_menu_trigger_element(assignment.title)
     end
   end
 end

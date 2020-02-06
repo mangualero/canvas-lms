@@ -18,12 +18,20 @@
 
 import WikiPage from 'compiled/models/WikiPage'
 import WikiPageIndexItemView from 'compiled/views/wiki/WikiPageIndexItemView'
+import fakeENV from 'helpers/fakeENV'
 
-QUnit.module('WikiPageIndexItemView')
+QUnit.module('WikiPageIndexItemView', {
+  setup() {
+    fakeENV.setup()
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
 
 test('model.view maintained by item view', () => {
   const model = new WikiPage()
-  const view = new WikiPageIndexItemView({model})
+  const view = new WikiPageIndexItemView({model, collectionHasTodoDate: () => {}})
   strictEqual(model.view, view, 'model.view is set to the item view')
   view.render()
   strictEqual(model.view, view, 'model.view is set to the item view')
@@ -31,7 +39,7 @@ test('model.view maintained by item view', () => {
 
 test('detach/reattach the publish icon view', () => {
   const model = new WikiPage()
-  const view = new WikiPageIndexItemView({model})
+  const view = new WikiPageIndexItemView({model, collectionHasTodoDate: () => {}})
   view.render()
   const $previousEl = view.$el.find('> *:first-child')
   view.publishIconView.$el.data('test-data', 'test-is-good')
@@ -44,15 +52,32 @@ test('detach/reattach the publish icon view', () => {
   )
 })
 
-test('delegate useAsFrontPage to the model', function() {
+test('delegate useAsFrontPage to the model', () => {
   const model = new WikiPage({
     front_page: false,
     published: true
   })
-  const view = new WikiPageIndexItemView({model})
-  const stub = this.stub(model, 'setFrontPage')
+  const view = new WikiPageIndexItemView({model, collectionHasTodoDate: () => {}})
+  const stub = sandbox.stub(model, 'setFrontPage')
   view.useAsFrontPage()
   ok(stub.calledOnce)
+})
+
+test('only shows direct share menu items if enabled', () => {
+  const view = new WikiPageIndexItemView({
+    model: new WikiPage(),
+    collectionHasTodoDate: () => {},
+    WIKI_RIGHTS: {read: true, manage: true},
+    CAN: {MANAGE: true}
+  })
+  view.render()
+  strictEqual(view.$('.send-wiki-page-to').length, 0)
+  strictEqual(view.$('.copy-wiki-page-to').length, 0)
+
+  ENV.DIRECT_SHARE_ENABLED = true
+  view.render()
+  ok(view.$('.send-wiki-page-to').length)
+  ok(view.$('.copy-wiki-page-to').length)
 })
 
 QUnit.module('WikiPageIndexItemView:JSON')
@@ -63,7 +88,8 @@ const testRights = (subject, options) =>
     const view = new WikiPageIndexItemView({
       model,
       contextName: options.contextName,
-      WIKI_RIGHTS: options.WIKI_RIGHTS
+      WIKI_RIGHTS: options.WIKI_RIGHTS,
+      collectionHasTodoDate: () => {}
     })
     const json = view.toJSON()
     for (const key in options.CAN) {

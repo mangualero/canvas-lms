@@ -47,13 +47,13 @@ describe SubmissionList do
     @assignment3 = @course.assignments.create!(:title => 'three', :points_possible => 10)
 
     Time.zone = 'Alaska'
-    allow(Time).to receive(:now).and_return(Time.utc(2011, 12, 31, 23, 0)).ordered   # 12/31 14:00 local time
+    allow(Time).to receive(:now).and_return(Time.utc(2011, 12, 31, 23, 0))   # 12/31 14:00 local time
     @assignment1.grade_student(@student, {:grade => 10, :grader => @teacher})
-    allow(Time).to receive(:now).and_return(Time.utc(2012, 1, 1, 1, 0)).ordered      # 12/31 16:00 local time
+    allow(Time).to receive(:now).and_return(Time.utc(2012, 1, 1, 1, 0))      # 12/31 16:00 local time
     @assignment2.grade_student(@student, {:grade => 10, :grader => @teacher})
-    allow(Time).to receive(:now).and_return(Time.utc(2012, 1, 1, 10, 0)).ordered     #  1/01 01:00 local time
+    allow(Time).to receive(:now).and_return(Time.utc(2012, 1, 1, 10, 0))     #  1/01 01:00 local time
     @assignment3.grade_student(@student, {:grade => 10, :grader => @teacher})
-    allow(Time).to receive(:now).and_call_original.ordered
+    allow(Time).to receive(:now).and_call_original
 
     @days = SubmissionList.new(@course).days
     expect(@days.size).to eq 2
@@ -148,7 +148,7 @@ describe SubmissionList do
           :current_grader, :grade_matches_current_submission, :graded_at,
           :graded_on, :grader, :grader_id, :group_id, :id, :new_grade,
           :new_graded_at, :new_grader, :previous_grade, :previous_graded_at,
-          :previous_grader, :process_attempts, :processed, :published_grade,
+          :previous_grader, :processed, :published_grade,
           :published_score, :safe_grader_id, :score, :student_entered_score,
           :student_user_id, :submission_id, :student_name, :submission_type,
           :updated_at, :url, :user_id, :workflow_state

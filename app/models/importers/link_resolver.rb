@@ -56,7 +56,8 @@ module Importers
         type = 'context_modules' if type == 'modules'
         type = 'pages' if type == 'wiki'
         if type == 'pages'
-          link[:new_value] = "#{context_path}/pages/#{migration_id}#{link[:query]}"
+          query = resolve_module_item_query(context, link[:query])
+          link[:new_value] = "#{context_path}/pages/#{migration_id}#{query}"
         elsif type == 'attachments'
           if att_id = context.attachments.where(migration_id: migration_id).limit(1).pluck(:id).first
             link[:new_value] = "#{context_path}/files/#{att_id}/preview"
@@ -65,7 +66,8 @@ module Importers
           scope = context.send(type).scope
           if scope.klass.columns_hash['migration_id']
             if object_id = scope.where(migration_id: migration_id).limit(1).pluck(:id).first
-              link[:new_value] = "#{context_path}/#{type_for_url}/#{object_id}#{link[:query]}"
+              query = resolve_module_item_query(context, link[:query])
+              link[:new_value] = "#{context_path}/#{type_for_url}/#{object_id}#{query}"
             end
           end
         end
@@ -94,9 +96,26 @@ module Importers
           link[:missing_url] = new_url
         end
         link[:new_value] = new_url
+      when :file_ref
+        file_id = context.attachments.where(migration_id: link[:migration_id]).limit(1).pluck(:id).first
+        if file_id
+          rest = link[:rest].presence || '/preview'
+          link[:new_value] = "#{context_path}/files/#{file_id}#{rest}"
+        end
       else
         raise "unrecognized link_type in unresolved link"
       end
+    end
+
+    def resolve_module_item_query(context, query)
+      return query unless query&.include?("module_item_id=")
+
+      original_param = query.sub("?", "").split("&").detect{|p| p.include?("module_item_id=")}
+      mig_id = original_param.split("=").last
+      tag = context.context_module_tags.where(:migration_id => mig_id).first
+      return query unless tag
+      new_param = "module_item_id=#{tag.id}"
+      query.sub(original_param, new_param)
     end
 
     def missing_relative_file_url(rel_path)

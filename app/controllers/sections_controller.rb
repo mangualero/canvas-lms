@@ -113,7 +113,7 @@ class SectionsController < ApplicationController
 
       includes = Array(params[:include])
 
-      sections = @context.active_course_sections.order(CourseSection.best_unicode_collation_key('name'))
+      sections = @context.active_course_sections.order(CourseSection.best_unicode_collation_key('name'), :id)
 
       unless params[:all].present?
         sections = Api.paginate(sections, self, api_v1_course_sections_url)
@@ -216,7 +216,7 @@ class SectionsController < ApplicationController
   def crosslist
     @new_course = api_find(@section.root_account.all_courses.not_deleted, params[:new_course_id])
     if authorized_action(@section, @current_user, :update) && authorized_action(@new_course, @current_user, :manage)
-      @section.crosslist_to_course @new_course
+      @section.crosslist_to_course(@new_course, updating_user: @current_user)
       respond_to do |format|
         flash[:notice] = t('section_crosslisted', "Section successfully cross-listed!")
         format.html { redirect_to named_context_url(@new_course, :context_section_url, @section.id) }
@@ -233,7 +233,7 @@ class SectionsController < ApplicationController
     @new_course = @section.nonxlist_course
     return render(:json => {:message => "section is not cross-listed"}, :status => :bad_request) if @new_course.nil?
     if authorized_action(@section, @current_user, :update) && authorized_action(@new_course, @current_user, :manage)
-      @section.uncrosslist
+      @section.uncrosslist(updating_user: @current_user)
       respond_to do |format|
         flash[:notice] = t('section_decrosslisted', "Section successfully de-cross-listed!")
         format.html { redirect_to named_context_url(@new_course, :context_section_url, @section.id) }
@@ -280,7 +280,7 @@ class SectionsController < ApplicationController
       end
 
       respond_to do |format|
-        if @section.update_attributes(course_section_params)
+        if @section.update(course_section_params)
           @context.touch
           flash[:notice] = t('section_updated', "Section successfully updated!")
           format.html { redirect_to course_section_url(@context, @section) }
@@ -324,7 +324,7 @@ class SectionsController < ApplicationController
               :manage_account_settings => @context.account.grants_right?(@current_user, session, :manage_account_settings)
             })
           if @context.grants_right?(@current_user, session, :manage)
-            js_env STUDENT_CONTEXT_CARDS_ENABLED: @domain_root_account.feature_enabled?(:student_context_cards)
+            set_student_context_cards_js_env
           end
         end
         format.json { render :json => section_json(@section, @current_user, session, Array(params[:include])) }

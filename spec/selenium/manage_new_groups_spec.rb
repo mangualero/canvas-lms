@@ -172,6 +172,7 @@ describe "manage groups" do
     end
 
     it "should allow a teacher to reassign a student with an accessible modal dialog" do
+      skip('KNO-190')
       students = groups_student_enrollment 2
       group_categories = create_categories(@course, 1)
       groups = add_groups_in_category(group_categories[0],2)
@@ -192,26 +193,27 @@ describe "manage groups" do
       expect(fj(".group-summary:visible:last").text).to eq "0 students"
 
       # Move the user from one group into the other
-      fj(".groups .group .group-user .group-user-actions").click
-      wait_for_ajaximations
+      f(".groups .group .group-user .group-user-actions").click
       fj(".edit-group-assignment:first").click
-      wait_for_ajaximations
-      ff(".move-select .move-select__group option").last.click
-      wait_for_ajaximations
-      fj(".move-select button[type='submit']").click
-      wait_for_ajaximations
+      f("div[aria-label='Move Student']") # wait for element
+      f(".move-select .move-select__group option:last-child").click
+      expect(f('body')).to contain_jqcss(".move-select button[type='submit']:visible")
+      f(".move-select button[type='submit']").click
+      # wait for tray to not exist
+      keep_trying_until { element_exists?("div[aria-label='Move Student']") == false }
       expect(fj(".group-summary:visible:first").text).to eq "0 students"
       expect(fj(".group-summary:visible:last").text).to eq "1 student"
 
       # Move the user back
-      fj(".groups .group .group-user .group-user-actions").click
-      wait_for_ajaximations
+      f(".groups .group .group-user .group-user-actions").click
+      scroll_into_view('.edit-group-assignment:first')
       fj(".edit-group-assignment:first").click
-      wait_for_ajaximations
+      f("div[aria-label='Move Student']") # wait for element
       ff(".move-select .move-select__group option").last.click
-      wait_for_ajaximations
-      fj('.move-select button[type="submit"]').click
-      wait_for_ajaximations
+      expect(f('body')).to contain_jqcss(".move-select button[type='submit']:visible")
+      f(".move-select button[type='submit']").click
+      # wait for tray to not exist
+      keep_trying_until { element_exists?("div[aria-label='Move Student']") == false }
       expect(fj(".group-summary:visible:first").text).to eq "1 student"
       expect(fj(".group-summary:visible:last").text).to eq "0 students"
     end

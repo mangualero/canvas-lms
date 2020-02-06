@@ -36,6 +36,7 @@ describe DiscussionTopic do
     opts.reverse_merge!({
       :workflow_state => "active"
     })
+    topic.sections_changed = true
     topic.is_section_specific = true
     topic.discussion_topic_section_visibilities <<
       DiscussionTopicSectionVisibility.new(
@@ -237,7 +238,7 @@ describe DiscussionTopic do
 
     it "should not grant moderate permissions without read permissions" do
       @course.account.role_overrides.create!(:role => teacher_role, :permission => 'read_forum', :enabled => false)
-      expect((@topic.check_policy(@teacher2) & @relevant_permissions)).to be_empty
+      expect(@topic.reload.check_policy(@teacher2)).to eql [:create, :attach]
     end
 
     it "should grant permissions if it not locked" do
@@ -276,7 +277,6 @@ describe DiscussionTopic do
 
   describe "visibility" do
     before(:once) do
-      #student_in_course(:active_all => 1)
       @topic = @course.discussion_topics.create!(:user => @teacher)
     end
 
@@ -299,6 +299,18 @@ describe DiscussionTopic do
 
     it "should be visible to students when topic is not locked" do
       expect(@topic.visible_for?(@student)).to be_truthy
+    end
+
+    it 'should clear the context modules cache on section change' do
+      context_module = @course.context_modules.create!(name: 'some module')
+      context_module.add_item(type: 'discussion_topic', id: @topic.id)
+      context_module.updated_at = 1.day.ago
+      context_module.save!
+      last_updated_at = context_module.updated_at
+      add_section_to_topic(@topic, @course.course_sections.create!)
+      @topic.save!
+      context_module.reload
+      expect(last_updated_at).not_to eq context_module.updated_at
     end
 
     it "should be visible to students when topic delayed_post_at is in the future" do
@@ -395,7 +407,6 @@ describe DiscussionTopic do
 
     it "section-specific-topics should be visible to account admins" do
       account = @course.root_account
-      account.enable_feature!(:section_specific_discussions)
       section = @course.course_sections.create!(name: "Section of topic")
       add_section_to_topic(@topic, section)
       @topic.save!
@@ -487,7 +498,6 @@ describe DiscussionTopic do
         end
 
         it "should filter out-of-section students" do
-          @course.root_account.enable_feature!(:section_specific_discussions)
           topic = @course.discussion_topics.create(
             :title => "foo", :message => "bar", :user => @teacher)
           section1 = @course.course_sections.create!
@@ -532,7 +542,7 @@ describe DiscussionTopic do
           group_category = @course.group_categories.create(:name => "new cat")
           @group = @course.groups.create(:name => "group", :group_category => group_category)
           @group.add_user(@student1)
-          @course.update_attributes(:start_at => 2.days.ago, :conclude_at => 1.day.ago, :restrict_enrollments_to_course_dates => true)
+          @course.update(:start_at => 2.days.ago, :conclude_at => 1.day.ago, :restrict_enrollments_to_course_dates => true)
           @topic = @group.discussion_topics.create(:title => "group topic")
           @topic.save!
 
@@ -545,8 +555,8 @@ describe DiscussionTopic do
           group_category = @course.group_categories.create(:name => "new cat")
           @group = @course.groups.create(:name => "group", :group_category => group_category)
           @group.add_user(@student1)
-          @course.update_attributes(:start_at => 2.days.ago, :conclude_at => 1.day.ago, :restrict_enrollments_to_course_dates => true)
-          @section.update_attributes(:start_at => 2.days.ago, :end_at => 2.days.from_now,
+          @course.update(:start_at => 2.days.ago, :conclude_at => 1.day.ago, :restrict_enrollments_to_course_dates => true)
+          @section.update(:start_at => 2.days.ago, :end_at => 2.days.from_now,
             :restrict_enrollments_to_section_dates => true)
           @topic = @group.discussion_topics.create(:title => "group topic")
           @topic.save!
@@ -609,11 +619,13 @@ describe DiscussionTopic do
   describe "allow_student_discussion_topics setting" do
 
     before(:once) do
-      @topic = @course.discussion_topics.create!(:user => @teacher)
+      @topic = @course.discussion_topics.create!(:user => @teacher, :unlock_at => 1.week.from_now)
+      @admin = account_admin_user(:account => @course.root_account)
     end
 
     it "should allow students to create topics by default" do
       expect(@topic.check_policy(@teacher)).to include :create
+      expect(@topic.check_policy(@admin)).to include :create
       expect(@topic.check_policy(@student)).to include :create
       expect(@topic.check_policy(@course.student_view_student)).to include :create
     end
@@ -623,6 +635,7 @@ describe DiscussionTopic do
       @course.save!
       @topic.reload
       expect(@topic.check_policy(@teacher)).to include :create
+      expect(@topic.check_policy(@admin)).to include :create
       expect(@topic.check_policy(@student)).not_to include :create
       expect(@topic.check_policy(@course.student_view_student)).not_to include :create
     end
@@ -1446,16 +1459,20 @@ describe DiscussionTopic do
     end
 
     it "should create submissions for existing entries when setting the assignment (even if locked)" do
-      @topic.reply_from(:user => @student, :text => "entry")
+      entry = @topic.reply_from(:user => @student, :text => "entry")
       @student.reload
       expect(@student.submissions).to be_empty
 
+      entry_time = 1.minute.ago
+      DiscussionEntry.where(:id => entry.id).update_all(:created_at => entry_time)
       @assignment = assignment_model(:course => @course, :lock_at => 1.day.ago)
       @topic.assignment = @assignment
       @topic.save
       @student.reload
       expect(@student.submissions.size).to eq 1
-      expect(@student.submissions.first.submission_type).to eq 'discussion_topic'
+      sub = @student.submissions.first
+      expect(sub.submission_type).to eq 'discussion_topic'
+      expect(sub.submitted_at).to eq entry_time # the submission time should be backdated to the entry creation time
     end
 
     it 'should use fancy midnight' do
@@ -1601,9 +1618,7 @@ describe DiscussionTopic do
       expect(sub.attachments.to_a).to eq [@attachment]
 
       entry.destroy
-      entry2 = @topic.reply_from(:user => @student, :text => "entry2")
-      @topic.ensure_submission(@student)
-      expect(sub.reload.attachments.to_a).to eq []
+      expect(sub.reload.attachments.to_a).to eq [] # should update the attachments right away and not depend on another entry being created
     end
 
     it "should associate attachments with graded discussion submissions even with silly deleted topics" do
@@ -1928,7 +1943,7 @@ describe DiscussionTopic do
       reply = @topic.reply_from(:user => @user, :text => "ohai")
       run_jobs
       expect(Delayed::Job.strand_size("materialized_discussion:#{@topic.id}")).to eq 0
-      reply.update_attributes(:message => "i got that wrong before")
+      reply.update(:message => "i got that wrong before")
       expect(Delayed::Job.strand_size("materialized_discussion:#{@topic.id}")).to eq 1
     end
 
@@ -2140,18 +2155,7 @@ describe DiscussionTopic do
       expect(errors.include?("Only course announcements and discussions can be section-specific")).to eq true
     end
 
-    it "does not allow discussions to be section-specific if the feature is disabled" do
-      @course.root_account.disable_feature!(:section_specific_discussions)
-      topic = DiscussionTopic.create!(:title => "some title", :context => @course,
-        :user => @teacher)
-      add_section_to_topic(topic, @section)
-      expect(topic.valid?).to eq false
-      errors = topic.errors[:is_section_specific]
-      expect(errors).to eq ["Section-specific discussions are disabled"]
-    end
-
     it "allows discussions to be section-specific if the feature is enabled" do
-      @course.root_account.enable_feature!(:section_specific_discussions)
       topic = DiscussionTopic.create!(:title => "some title", :context => @course,
         :user => @teacher)
       add_section_to_topic(topic, @section)
@@ -2160,14 +2164,12 @@ describe DiscussionTopic do
 
     it "does not allow graded discussions to be section-specific" do
       group_discussion_assignment
-      @course.root_account.enable_feature!(:section_specific_discussions)
       add_section_to_topic(@topic, @section)
       expect(@topic.valid?).to eq false
     end
 
     it "does not allow course grouped discussions to be section-specific" do
       group_discussion_topic_model
-      @course.root_account.enable_feature!(:section_specific_discussions)
       add_section_to_topic(@group_topic, @section)
       expect(@group_topic.valid?).to eq false
     end
@@ -2330,12 +2332,12 @@ describe DiscussionTopic do
     end
 
     it 'returns student entries if specified' do
-      @topic.update_attributes(podcast_has_student_posts: true)
+      @topic.update(podcast_has_student_posts: true)
       expect(@topic.entries_for_feed(@student, true)).to match_array([@entry1, @entry2])
     end
 
     it 'only returns admin entries if specified' do
-      @topic.update_attributes(podcast_has_student_posts: false)
+      @topic.update(podcast_has_student_posts: false)
       expect(@topic.entries_for_feed(@student, true)).to match_array([@entry1])
     end
 
@@ -2344,7 +2346,7 @@ describe DiscussionTopic do
       membership = group_with_user(group_category: @group_category, user: @student)
       @topic = @group.discussion_topics.create(title: "group topic", user: @teacher)
       @topic.discussion_entries.create(message: "some message", user: @student)
-      @topic.update_attributes(podcast_has_student_posts: false)
+      @topic.update(podcast_has_student_posts: false)
       expect(@topic.entries_for_feed(@student, true)).to_not be_empty
     end
   end
@@ -2480,7 +2482,6 @@ describe DiscussionTopic do
     end
 
     it "duplicates sections" do
-      @course.root_account.enable_feature!(:section_specific_discussions)
       discussion_topic_model(:context => @course)
       @topic.is_section_specific = true
       @topic.course_sections = [@course_section1, @course_section2]
@@ -2493,7 +2494,6 @@ describe DiscussionTopic do
     end
 
     it "does not duplicate deleted visibilities" do
-      @course.root_account.enable_feature!(:section_specific_discussions)
       discussion_topic_model(:context => @course)
       @topic.is_section_specific = true
       @topic.course_sections = [@course_section1, @course_section2]
@@ -2509,7 +2509,6 @@ describe DiscussionTopic do
   describe "users with permissions" do
     before :once do
       @course = course_factory(:active_all => true)
-      @course.root_account.enable_feature!(:section_specific_discussions)
       @section1 = @course.course_sections.create!
       @section2 = @course.course_sections.create!
       @limited_teacher = create_enrolled_user(@course, @section1, :name => 'limited teacher',

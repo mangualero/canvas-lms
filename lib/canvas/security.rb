@@ -25,6 +25,9 @@ module Canvas::Security
   class TokenExpired < RuntimeError
   end
 
+  class InvalidJwtKey < RuntimeError
+  end
+
   def self.encryption_key
     @encryption_key ||= begin
       res = config && config['encryption_key']
@@ -44,6 +47,37 @@ module Canvas::Security
       raise('config/security.yml missing, see security.yml.example') unless File.exist?(path)
       YAML.safe_load(ERB.new(File.read(path)).result)[Rails.env]
     end
+  end
+
+  def self.encrypt_data(data)
+    nonce = SecureRandom.bytes(12)
+    encryptor = OpenSSL::Cipher.new('aes-256-gcm').encrypt
+    encryptor.key = Digest::SHA1.hexdigest(self.encryption_key)[0...32]
+    encryptor.iv = nonce
+    encryptor.auth_data = 'Canvas-v1.0.0'
+    encrypted_data = encryptor.update(data) + encryptor.final
+    tag = encryptor.auth_tag
+    [encrypted_data, nonce, tag]
+  end
+
+  def self.decrypt_data(data, nonce, tag)
+    decipher = OpenSSL::Cipher.new('aes-256-gcm').decrypt
+    decipher.key = Digest::SHA1.hexdigest(self.encryption_key)[0...32]
+    decipher.iv = nonce
+    decipher.auth_tag = tag
+    decipher.auth_data = 'Canvas-v1.0.0'
+    decipher.update(data) + decipher.final
+  end
+
+  def self.url_key_encrypt_data(data)
+    encryption_data = encrypt_data("#{data.encoding}~#{data.dup.force_encoding('ASCII-8BIT')}")
+    encryption_data.map{|item| Base64.urlsafe_encode64(item, padding: false)}.join('~')
+  end
+
+  def self.url_key_decrypt_data(data)
+    encrypted_data, nonce, tag = data.split('~').map{|item| Base64.urlsafe_decode64(item)}
+    encoding, data = decrypt_data(encrypted_data, nonce, tag).split('~', 2)
+    data.force_encoding(encoding)
   end
 
   def self.encrypt_password(secret, key)
@@ -138,6 +172,7 @@ module Canvas::Security
   #
   # Returns the token as a string.
   def self.create_encrypted_jwt(payload, signing_secret, encryption_secret, alg = nil)
+    raise InvalidJwtKey unless signing_secret && encryption_secret
     jwt = JSON::JWT.new(payload)
     jws = jwt.sign(signing_secret, alg || :HS256)
     jwe = jws.encrypt(encryption_secret, 'dir', :A256GCM)
@@ -154,13 +189,13 @@ module Canvas::Security
   #
   # Raises Canvas::Security::TokenExpired if the token has expired, and
   # Canvas::Security::InvalidToken if the token is otherwise invalid.
-  def self.decode_jwt(token, keys = [])
+  def self.decode_jwt(token, keys = [], ignore_expiration: false)
     keys += encryption_keys
 
     keys.each do |key|
       begin
         body = JSON::JWT.decode(token, key)
-        verify_jwt(body)
+        verify_jwt(body, ignore_expiration: ignore_expiration)
         return body.with_indifferent_access
       rescue JSON::JWS::VerificationFailed
         # Keep looping, to try all the keys. If none succeed,
@@ -329,27 +364,29 @@ module Canvas::Security
   class << self
     private
     def verify_jwt(body, ignore_expiration: false)
+      verification_time = Time.now.utc
+      if body[:iat].present?
+        iat = timestamp_as_integer(body[:iat])
+        if iat > verification_time.to_i && iat < verification_time.to_i + 300
+          verification_time = iat
+        end
+      end
+
       if body[:exp].present? && !ignore_expiration
-        if timestamp_is_expired?(body[:exp])
+        if timestamp_as_integer(body[:exp]) < verification_time.to_i
           raise Canvas::Security::TokenExpired
         end
       end
 
       if body[:nbf].present?
-        if timestamp_is_future?(body[:nbf])
+        if timestamp_as_integer(body[:nbf]) > verification_time.to_i
           raise Canvas::Security::InvalidToken
         end
       end
     end
 
-    def timestamp_is_expired?(exp_val)
-      now = Time.zone.now
-      (exp_val.is_a?(Time) && exp_val <= now) || exp_val <= now.to_i
-    end
-
-    def timestamp_is_future?(nbf_val)
-      now = Time.zone.now
-      (nbf_val.is_a?(Time) && nbf_val > now) || nbf_val > now.to_i
+    def timestamp_as_integer(timestamp)
+      timestamp.is_a?(Time) ? timestamp.to_i : timestamp
     end
 
     def services_encryption_secret

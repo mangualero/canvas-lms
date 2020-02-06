@@ -200,6 +200,21 @@ describe Api do
       lti_course.save!
       expect(@api.api_find(Course, "uuid:#{lti_course.uuid}")).to eq lti_course
     end
+
+    it "should find assignment by id" do
+      assignment = assignment_model()
+      expect(@api.api_find(Assignment, "#{assignment.id}")).to eq assignment
+    end
+
+    it "should find assignment by sis_assignment_id" do
+      assignment = assignment_model(sis_assignment_id: 'LTI_CTX_ID1')
+      expect(@api.api_find(Assignment, "sis_assignment_id:#{assignment.sis_assignment_id}")).to eq assignment
+    end
+
+    it "should find assignment by lti_context_id" do
+      assignment = assignment_model(lti_context_id: 'LTI_CTX_ID1')
+      expect(@api.api_find(Assignment, "lti_context_id:#{assignment.lti_context_id}")).to eq assignment
+    end
   end
 
   context 'api_find_all' do
@@ -755,14 +770,15 @@ describe Api do
       specs_require_sharding
 
       it 'transposes ids in urls' do
-        @shard1.activate do
+        html = @shard1.activate do
           a = Account.create!
-          student_in_course(account: a)
+          student_in_course(account: a, active_all: true)
+          @file = attachment_model(context: @course, folder: Folder.root_folders(@course).first)
+          <<-HTML
+<img src="/courses/#{@course.id}/files/#{@file.id}/download?wrap=1" data-api-returntype="File" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/files/#{@file.id}">
+<a href="/courses/#{@course.id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/#{@course.id}/pages/module-1">link</a>
+          HTML
         end
-        html = <<-HTML
-<img src="/courses/34/files/2082/download?wrap=1" data-api-returntype="File" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/34/files/2082">
-<a href="/courses/34/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://canvas.vanity.edu/api/v1/courses/34/pages/module-1">link</a>
-        HTML
 
         @k = klass.new
         @k.instance_variable_set(:@domain_root_account, Account.default)
@@ -774,8 +790,8 @@ describe Api do
 
         res = @k.api_user_content(html, @course, @student)
         expect(res).to eq <<-HTML
-<img src="https://school.instructure.com/courses/#{@shard1.id}~34/files/#{@shard1.id}~2082/download?wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~34/files/#{@shard1.id}~2082">
-<a href="https://school.instructure.com/courses/#{@shard1.id}~34/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~34/pages/module-1">link</a>
+<img src="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}/download?verifier=#{@file.uuid}&amp;wrap=1" data-api-returntype="File" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/files/#{@shard1.id}~#{@file.local_id}">
+<a href="https://school.instructure.com/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1" data-api-returntype="Page" data-api-endpoint="https://school.instructure.com/api/v1/courses/#{@shard1.id}~#{@course.local_id}/pages/module-1">link</a>
         HTML
       end
     end
@@ -821,6 +837,11 @@ describe Api do
     it 'passes host and port to Content.process_incoming' do
       expect(Api::Html::Content).to receive(:process_incoming).with(anything, host: 'some-host.com', port: 80)
       T.process_incoming_html_content('<div/>')
+    end
+
+    it "doesn't explode with invalid mailtos" do
+      html = %{<a href="mailto:spamme%20example.com">beep</a>http://some-host.com/linktotricktheparserintoparsinglinks}
+      expect(T.process_incoming_html_content(html)).to eq html
     end
   end
 
@@ -979,6 +1000,24 @@ describe Api do
         :next => 4,
       })
       expect(links.first).to eq "<www.example.com/?page=4&per_page=10>; rel=\"next\""
+    end
+
+    it "prevents link headers from consuming more than 6K of header space" do
+      links = Api.build_links("www.example.com/", {
+        :query_parameters => { :blah => 'a' * 2000 },
+        :per_page => 10,
+        :current => 8,
+        :next => 4,
+        :prev => 2,
+        :first => 1,
+        :last => 10,
+      })
+      expect(links.all?{ |l| l =~ /www.example.com\/\?/ }).to be_truthy
+      expect(links.find{ |l| l.match(/rel="current"/)}).to be_nil
+      expect(links.find{ |l| l.match(/rel="next"/)}).to match /page=4&per_page=10>/
+      expect(links.find{ |l| l.match(/rel="prev"/)}).to match /page=2&per_page=10>/
+      expect(links.find{ |l| l.match(/rel="first"/)}).to be_nil
+      expect(links.find{ |l| l.match(/rel="last"/)}).to match /page=10&per_page=10>/
     end
   end
 

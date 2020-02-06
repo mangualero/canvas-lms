@@ -241,6 +241,7 @@ class WikiPagesApiController < ApplicationController
   # @returns [Page]
   def index
     if authorized_action(@context.wiki, @current_user, :read) && tab_enabled?(@context.class::TAB_PAGES)
+      log_api_asset_access([ "pages", @context ], "pages", "other")
       pages_route = polymorphic_url([:api_v1, @context, :wiki_pages])
       # omit body from selection, since it's not included in index results
       scope = @context.wiki_pages.select(WikiPage.column_names - ['body']).preload(:user)
@@ -257,19 +258,19 @@ class WikiPagesApiController < ApplicationController
       scope = WikiPage.search_by_attribute(scope, :title, params[:search_term])
 
       order_clause = case params[:sort]
-        when 'title'
-          WikiPage.title_order_by_clause
-        when 'created_at'
-          'wiki_pages.created_at'
-        when 'updated_at'
-          'wiki_pages.updated_at'
-      end
+                     when 'title'
+                       WikiPage.title_order_by_clause
+                     when 'created_at',
+                       'updated_at',
+                       'todo_date'
+                       params[:sort].to_sym
+                     end
       if order_clause
-        order_clause += ' DESC' if params[:order] == 'desc'
-        scope = scope.order(WikiPage.send(:sanitize_sql, order_clause))
+        order_clause = { order_clause => :desc } if params[:order] == 'desc'
+        scope = scope.order(order_clause)
       end
-      id_clause = "wiki_pages.id"
-      id_clause += ' DESC' if params[:order] == 'desc'
+      id_clause = :id
+      id_clause = { id: :desc } if params[:order] == 'desc'
       scope = scope.order(id_clause)
 
       wiki_pages = Api.paginate(scope, self, pages_route)
@@ -325,7 +326,7 @@ class WikiPagesApiController < ApplicationController
     if authorized_action(@page, @current_user, :create)
       update_params = get_update_params(Set[:title, :body])
       assign_todo_date
-      if !update_params.is_a?(Symbol) && @page.update_attributes(update_params) && process_front_page
+      if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
         log_asset_access(@page, "wiki", @wiki, 'participate')
         apply_assignment_parameters(assignment_params, @page) if @context.feature_enabled?(:conditional_release)
         render :json => wiki_page_json(@page, @current_user, session)
@@ -397,7 +398,7 @@ class WikiPagesApiController < ApplicationController
     if perform_update
       assign_todo_date
       update_params = get_update_params
-      if !update_params.is_a?(Symbol) && @page.update_attributes(update_params) && process_front_page
+      if !update_params.is_a?(Symbol) && @page.update(update_params) && process_front_page
         log_asset_access(@page, "wiki", @wiki, 'participate')
         @page.context_module_action(@current_user, @context, :contributed)
         apply_assignment_parameters(assignment_params, @page) if @context.feature_enabled?(:conditional_release)
@@ -467,20 +468,22 @@ class WikiPagesApiController < ApplicationController
   #
   # @returns PageRevision
   def show_revision
-    if params.has_key?(:revision_id)
-      permission = :read_revisions
-      revision = @page.versions.where(number: params[:revision_id].to_i).first!
-    else
-      permission = :read
-      revision = @page.versions.current
-    end
-    if authorized_action(@page, @current_user, permission)
-      include_content = if params.has_key?(:summary)
-                          !value_to_boolean(params[:summary])
-                        else
-                          true
-                        end
-      render :json => wiki_page_revision_json(revision, @current_user, session, include_content, @page.current_version)
+    Shackles.activate(:slave) do
+      if params.has_key?(:revision_id)
+        permission = :read_revisions
+        revision = @page.versions.where(number: params[:revision_id].to_i).first!
+      else
+        permission = :read
+        revision = @page.versions.current
+      end
+      if authorized_action(@page, @current_user, permission)
+        include_content = if params.has_key?(:summary)
+                            !value_to_boolean(params[:summary])
+                          else
+                            true
+                          end
+        render :json => wiki_page_revision_json(revision, @current_user, session, include_content, @page.current_version)
+      end
     end
   end
 
@@ -655,14 +658,14 @@ class WikiPagesApiController < ApplicationController
   end
 
   def assign_todo_date
-    if @context.root_account.feature_enabled?(:student_planner) && @page.context.grants_any_right?(@current_user, session, :manage)
-      @page.todo_date = params[:wiki_page][:student_todo_at] if params[:wiki_page][:student_todo_at]
+    return if params.dig(:wiki_page, :student_todo_at).nil? && params.dig(:wiki_page, :student_planner_checkbox).nil?
+    if @context.root_account.feature_enabled?(:student_planner) && @page.context.grants_any_right?(@current_user, session, :manage_content)
+      @page.todo_date = params.dig(:wiki_page, :student_todo_at) if params.dig(:wiki_page, :student_todo_at)
       # Only clear out if the checkbox is explicitly specified in the request
       if params[:wiki_page].key?("student_planner_checkbox") &&
         !value_to_boolean(params[:wiki_page][:student_planner_checkbox])
         @page.todo_date = nil
       end
-      @page.save!
     end
   end
 

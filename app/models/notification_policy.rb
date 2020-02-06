@@ -59,10 +59,10 @@ class NotificationPolicy < ActiveRecord::Base
         bool_val = (value == 'true')
         # save the preference as a symbol (convert from string)
         case key.to_sym
-          when :send_scores_in_emails
+          when :send_scores_in_emails, :send_observed_names_in_notifications
             # Only set if a root account and the root account allows the setting.
             if params[:root_account].settings[:allow_sending_scores_in_emails] != false
-              user.preferences[:send_scores_in_emails] = bool_val
+              user.preferences[key.to_sym] = bool_val
             end
           when :no_submission_comments_inbox
             user.preferences[:no_submission_comments_inbox] = bool_val
@@ -129,7 +129,8 @@ class NotificationPolicy < ActiveRecord::Base
   # Finds the current policy for a given communication channel, or creates it (with default)
   # and/or updates it
   def self.find_or_update_for(communication_channel, notification_name, frequency = nil)
-    notification_name = notification_name.titleize
+    # Titlize changes SMS to Sms :sadlol:
+    notification_name = notification_name.titleize unless notification_name == 'Confirm SMS Communication Channel'
     notification = BroadcastPolicy.notification_finder.by_name(notification_name)
     raise ActiveRecord::RecordNotFound unless notification
     communication_channel.shard.activate do

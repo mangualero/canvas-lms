@@ -21,8 +21,8 @@ import 'compiled/jquery/outerclick'
 
 QUnit.module('outerclick')
 
-test('should work', function() {
-  const handler = this.spy()
+test('should work', () => {
+  const handler = sinon.spy()
   const $doc = $(document)
   const $foo = $('<b>hello <i>world</i></b>').appendTo($doc)
   $foo.on('outerclick', handler)

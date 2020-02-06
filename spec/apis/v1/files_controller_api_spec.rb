@@ -79,7 +79,7 @@ describe "Files API", type: :request do
     it 'includes include capture param in inst_fs token' do
       secret = 'secret'
       allow(InstFS).to receive(:enabled?).and_return true
-      allow(InstFS).to receive(:jwt_secret).and_return(secret)
+      allow(InstFS).to receive(:jwt_secrets).and_return([secret])
       json = call_course_create_file
       query = Rack::Utils.parse_nested_query(URI(json['upload_url']).query)
       payload = Canvas::Security.decode_jwt(query['token'], [secret])
@@ -161,6 +161,7 @@ describe "Files API", type: :request do
         'hidden_for_user' => false,
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
+        'upload_status' => "success",
         'thumbnail_url' => nil,
         'modified_at' => @attachment.modified_at.as_json,
         'mime_class' => @attachment.mime_class,
@@ -199,6 +200,7 @@ describe "Files API", type: :request do
         'hidden_for_user' => false,
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
+        'upload_status' => "success",
         'thumbnail_url' => nil,
         'modified_at' => @attachment.modified_at.as_json,
         'mime_class' => @attachment.mime_class,
@@ -328,7 +330,7 @@ describe "Files API", type: :request do
 
     before do
       allow(InstFS).to receive(:enabled?).and_return true
-      allow(InstFS).to receive(:jwt_secret).and_return(secret)
+      allow(InstFS).to receive(:jwt_secrets).and_return([secret])
     end
 
     it "is not available without the InstFS feature" do
@@ -365,7 +367,8 @@ describe "Files API", type: :request do
     end
 
     it "creates file locked when usage rights required" do
-      @course.enable_feature!(:usage_rights_required)
+      @course.usage_rights_required = true
+      @course.save!
       api_call(:post, "/api/v1/files/capture?#{base_params.to_query}",
                base_params.merge(controller: "files", action: "api_capture", format: "json"))
       attachment = Attachment.where(instfs_uuid: instfs_uuid).first
@@ -373,7 +376,8 @@ describe "Files API", type: :request do
     end
 
     it "creates file unlocked when usage rights not required" do
-      @course.disable_feature!(:usage_rights_required)
+      @course.usage_rights_required = false
+      @course.save!
       api_call(:post, "/api/v1/files/capture?#{base_params.to_query}",
                base_params.merge(controller: "files", action: "api_capture", format: "json"))
       attachment = Attachment.where(instfs_uuid: instfs_uuid).first
@@ -410,6 +414,35 @@ describe "Files API", type: :request do
         )
       )
       expect(redirect_params['include']).to include('preview_url')
+      expect(redirect_params['include']).not_to include('enhanced_preview_url')
+    end
+
+    it "includes enhanced_preview_url in course context" do
+      raw_api_call(
+        :post,
+        "/api/v1/files/capture?#{base_params.to_query}",
+        base_params.merge(
+          controller: "files",
+          action: "api_capture",
+          format: "json"
+        )
+      )
+      expect(redirect_params['include']).to include('enhanced_preview_url')
+    end
+
+    it "includes enhanced_preview_url in group context" do
+      group = @course.groups.create!
+      params = base_params.merge(context_type: Group, context_id: group.id)
+      raw_api_call(
+        :post,
+        "/api/v1/files/capture?#{params.to_query}",
+        params.merge(
+          controller: "files",
+          action: "api_capture",
+          format: "json"
+        )
+      )
+      expect(redirect_params['include']).to include('enhanced_preview_url')
     end
   end
 
@@ -437,7 +470,7 @@ describe "Files API", type: :request do
     it "should omit verifiers using session auth" do
       user_session(@user)
       get @files_path
-      expect(response).to be_success
+      expect(response).to be_successful
       json = json_parse
       json.map{|f|f['url']}.each { |url| expect(url).not_to include 'verifier=' }
     end
@@ -445,7 +478,7 @@ describe "Files API", type: :request do
     it "should not omit verifiers using session auth if params[:use_verifiers] is given" do
       user_session(@user)
       get @files_path + "?use_verifiers=1"
-      expect(response).to be_success
+      expect(response).to be_successful
       json = json_parse
       json.map{|f|f['url']}.each { |url| expect(url).to include 'verifier=' }
     end
@@ -557,7 +590,8 @@ describe "Files API", type: :request do
           "id" => @user.id,
           "display_name" => @user.short_name,
           "avatar_image_url" => User.avatar_fallback_url(nil, request),
-          "html_url" => "http://www.example.com/courses/#{@course.id}/users/#{@user.id}"
+          "html_url" => "http://www.example.com/courses/#{@course.id}/users/#{@user.id}",
+          "pronouns"=>nil
         }
       ]
     end
@@ -578,36 +612,76 @@ describe "Files API", type: :request do
       ]
     end
 
-    it "should include user even for user files" do
-      my_root_folder = Folder.root_folders(@user).first
-      my_file = Attachment.create! :filename => 'ztest.txt',
-                                   :display_name => "ztest.txt",
-                                   :position => 1,
-                                   :uploaded_data => StringIO.new('file'),
-                                   :folder => my_root_folder,
-                                   :context => @user,
-                                   :user => @user
-
-      json = api_call(:get, "/api/v1/folders/#{my_root_folder.id}/files?include[]=user", {
-        :controller => "files",
-        :action => "api_index",
-        :format => "json",
-        :id => my_root_folder.id.to_param,
-        :include => ['user']
-      })
-      expect(json.map{|f|f['user']}).to eql [
-        {
-          "id" => @user.id,
-          "display_name" => @user.short_name,
-          "avatar_image_url" => User.avatar_fallback_url(nil, request),
-          "html_url" => "http://www.example.com/about/#{@user.id}"
-        }
-      ]
-    end
-
     it "includes an instfs_uuid if ?include[]-ed" do
       json = api_call(:get, @files_path, @files_path_options.merge(include: ['instfs_uuid']))
       expect(json[0].key? "instfs_uuid").to be true
+    end
+
+    context 'when the context is a user' do
+      subject do
+        api_call(:get, request_url, request_params)
+      end
+
+      let(:user) { @user }
+      let(:root_folder) { Folder.root_folders(user).first }
+      let(:request_url) { "/api/v1/folders/#{root_folder.id}/files?include[]=user" }
+      let(:file) do
+        Attachment.create!(
+          :filename => 'ztest.txt',
+          :display_name => "ztest.txt",
+          :position => 1,
+          :uploaded_data => StringIO.new('file'),
+          :folder => root_folder,
+          :context => user,
+          :user => user
+        )
+      end
+      let(:request_params) do
+        {
+          :controller => "files",
+          :action => "api_index",
+          :format => "json",
+          :id => root_folder.id.to_param,
+          :include => ['user']
+        }
+      end
+
+      before { file }
+
+      it "should include user even for user files" do
+        expect(subject.map{|f|f['user']}).to eql [
+          {
+            "id" => user.id,
+            "display_name" => user.short_name,
+            "avatar_image_url" => User.avatar_fallback_url(nil, request),
+            "html_url" => "http://www.example.com/about/#{user.id}",
+            "pronouns"=>nil
+          }
+        ]
+      end
+
+      context 'when the request url contains the user id' do
+        let(:request_url) { "/api/v1/users/#{user.id}/files" }
+        let(:request_params) do
+          {
+            :controller => "files",
+            :action => "api_index",
+            :format => "json",
+            :user_id => user.to_param
+          }
+        end
+
+        it 'triggers a user asset access live event' do
+          expect(Canvas::LiveEvents).to receive(:asset_access).with(
+            ['files', user],
+            'files',
+            'User',
+            nil,
+            {context: nil, context_membership: @user}
+          )
+          subject
+        end
+      end
     end
 
   end
@@ -829,10 +903,13 @@ describe "Files API", type: :request do
               'hidden_for_user' => false,
               'created_at' => @att.created_at.as_json,
               'updated_at' => @att.updated_at.as_json,
+              'upload_status' => "success",
               'thumbnail_url' => thumbnail_image_url(@att, @att.uuid, host: 'www.example.com'),
               'modified_at' => @att.modified_at.as_json,
               'mime_class' => @att.mime_class,
-              'media_entry_id' => @att.media_entry_id
+              'media_entry_id' => @att.media_entry_id,
+              "canvadoc_session_url" => nil,
+              "crocodoc_session_url" => nil,
       })
     end
 
@@ -853,7 +930,7 @@ describe "Files API", type: :request do
     it "should omit verifiers when using session auth" do
       user_session(@user)
       get @file_path
-      expect(response).to be_success
+      expect(response).to be_successful
       json = json_parse
       expect(json['url']).to eq file_download_url(@att, :download => '1', :download_frd => '1')
     end
@@ -861,7 +938,7 @@ describe "Files API", type: :request do
     it "should not omit verifiers when using session auth and params[:use_verifiers] is given" do
       user_session(@user)
       get @file_path + "?use_verifiers=1"
-      expect(response).to be_success
+      expect(response).to be_successful
       json = json_parse
       expect(json['url']).to eq file_download_url(@att, :download => '1', :download_frd => '1', :verifier => @att.uuid)
     end
@@ -927,7 +1004,7 @@ describe "Files API", type: :request do
     end
 
     it "should return not found error" do
-      api_call(:get, "/api/v1/files/0", @file_path_options.merge(:id => '0'), {}, {}, :expected_status => 404)
+      expect{api_call(:get, "/api/v1/files/0", @file_path_options.merge(id: '0'), {}, {}, expected_status: 404)}.not_to change { ErrorReport.count }
     end
 
     it "should return not found for deleted attachment" do
@@ -954,7 +1031,8 @@ describe "Files API", type: :request do
         "id" => @user.id,
         "display_name" => @user.short_name,
         "avatar_image_url" => User.avatar_fallback_url(nil, request),
-        "html_url" => "http://www.example.com/courses/#{@course.id}/users/#{@user.id}"
+        "html_url" => "http://www.example.com/courses/#{@course.id}/users/#{@user.id}",
+        "pronouns"=>nil
       })
     end
 
@@ -990,7 +1068,31 @@ describe "Files API", type: :request do
       account_admin_user(account: @account)
       @att.context = u
       @att.save!
-      expect_any_instance_of(Attachment).to receive(:destroy_content_and_replace).once
+      expect_any_instantiation_of(@att).to receive(:destroy_content_and_replace).once
+      @file_path_options[:replace] = true
+      api_call(:delete, @file_path, @file_path_options, {}, {}, expected_status: 200)
+    end
+
+    it 'should delete/replace a file tied to an assignment' do
+      assignment = @course.assignments.create!(title: 'one')
+      account_admin_user(account: @account)
+      @att.context = assignment
+      @att.save!
+      expect_any_instantiation_of(@att).to receive(:destroy_content_and_replace).once
+      @file_path_options[:replace] = true
+      api_call(:delete, @file_path, @file_path_options, {}, {}, expected_status: 200)
+    end
+
+    it 'should delete/replace a file tied to a quiz submission' do
+      course_with_student(:active_all => true)
+      quiz_model(:course => @course)
+      @quiz.update_attribute :one_question_at_a_time, true
+      @qs = @quiz.generate_submission(@student, false)
+
+      account_admin_user(account: @account)
+      @att.context = @qs
+      @att.save!
+      expect_any_instantiation_of(@att).to receive(:destroy_content_and_replace).once
       @file_path_options[:replace] = true
       api_call(:delete, @file_path, @file_path_options, {}, {}, expected_status: 200)
     end
@@ -1145,7 +1247,8 @@ describe "Files API", type: :request do
 
     context "with usage_rights_required" do
       before do
-        @course.enable_feature! :usage_rights_required
+        @course.usage_rights_required = true
+        @course.save!
         user_session(@teacher)
         @att.update_attribute(:locked, true)
       end

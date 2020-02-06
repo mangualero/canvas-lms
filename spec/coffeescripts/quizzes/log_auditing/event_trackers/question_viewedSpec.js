@@ -53,9 +53,9 @@ test('#identifyVisibleQuestions', () => {
   )
 })
 
-test('capturing: it works', function() {
+test('capturing: it works', () => {
   const tracker = new Subject({frequency: 0})
-  const capture = this.stub()
+  const capture = sinon.stub()
   tracker.install(capture, scrollSelector)
   const offsetTop = 3500
   const $fakeQuestion = createQuestion('123')

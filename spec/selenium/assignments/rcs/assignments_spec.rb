@@ -30,7 +30,6 @@ describe "assignments" do
   context "as a teacher" do
     before(:each) do
       course_with_teacher_logged_in
-      enable_all_rcs @course.account
       stub_rcs_config
       @course.start_at = nil
       @course.save!
@@ -148,14 +147,8 @@ describe "assignments" do
       close_visible_dialog
       f('.btn-primary[type=submit]').click
       wait_for_ajaximations
-      keep_trying_until do
-        expect(driver.execute_script(
-          "return $('.errorBox').filter('[id!=error_box_template]')"
-        )).to be_present
-      end
-      errorBoxes = driver.execute_script("return $('.errorBox').filter('[id!=error_box_template]').toArray();")
-      visBoxes, hidBoxes = errorBoxes.partition { |eb| eb.displayed? }
-      expect(visBoxes.first.text).to eq "Please create a group set"
+      error_box = f('.errorBox[role=alert]')
+      expect(f('.error_text', error_box).text).to eq "Please create a group set"
     end
 
     context "group assignments" do
@@ -279,7 +272,6 @@ describe "assignments" do
       account_rcs_model
       @account.set_feature_flag! 'post_grades', 'on'
       course_with_teacher_logged_in(:active_all => true, :account => @account)
-      enable_all_rcs @course.account
       stub_rcs_config
     end
 
@@ -300,7 +292,6 @@ describe "assignments" do
   context 'adding new assignment groups from assignment creation page' do
     before do
       course_with_teacher_logged_in
-      enable_all_rcs @course.account
       stub_rcs_config
       @new_group = 'fine_leather_jacket'
       get "/courses/#{@course.id}/assignments/new"

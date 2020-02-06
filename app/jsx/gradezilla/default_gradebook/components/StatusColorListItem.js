@@ -16,29 +16,29 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react';
-import { func, string, bool } from 'prop-types';
-import I18n from 'i18n!gradebook';
-import Button from '@instructure/ui-core/lib/components/Button';
-import Popover, { PopoverTrigger, PopoverContent } from '@instructure/ui-core/lib/components/Popover';
-import Text from '@instructure/ui-core/lib/components/Text';
-import IconDiscussionReplySolid from '@instructure/ui-icons/lib/Solid/IconDiscussionReply';
-import ScreenReaderContent from '@instructure/ui-core/lib/components/ScreenReaderContent';
-import Grid, { GridRow, GridCol } from '@instructure/ui-core/lib/components/Grid';
-import ColorPicker from '../../../shared/ColorPicker';
-import { statusesTitleMap } from '../../../gradezilla/default_gradebook/constants/statuses';
-import { defaultColors } from '../../../gradezilla/default_gradebook/constants/colors';
+import React from 'react'
+import {func, string, bool} from 'prop-types'
+import I18n from 'i18n!gradezilla'
+import {Button} from '@instructure/ui-buttons'
+import {Popover} from '@instructure/ui-overlays'
+import {Text} from '@instructure/ui-elements'
+import {IconMoreSolid} from '@instructure/ui-icons'
+import {ScreenReaderContent} from '@instructure/ui-a11y'
+import {Grid} from '@instructure/ui-layout'
+import ColorPicker from '../../../shared/ColorPicker'
+import {statusesTitleMap} from '../constants/statuses'
+import {defaultColors} from '../constants/colors'
 
 const colorPickerColors = Object.keys(defaultColors).reduce((obj, key) => {
-  obj.push({ hexcode: defaultColors[key], name: key });
-  return obj;
-}, []);
+  obj.push({hexcode: defaultColors[key], name: key})
+  return obj
+}, [])
 
-function formatColor (color) {
+function formatColor(color) {
   if (color[0] !== '#') {
-    return `#${color}`;
+    return `#${color}`
   }
-  return color;
+  return color
 }
 
 class StatusColorListItem extends React.Component {
@@ -53,20 +53,20 @@ class StatusColorListItem extends React.Component {
     afterSetColor: func.isRequired
   }
 
-  constructor (props) {
-    super(props);
+  constructor(props) {
+    super(props)
 
-    this.state = { color: props.color };
+    this.state = {color: props.color}
   }
 
   setColor = (unformattedColor, successFn, errorFn) => {
-    const color = formatColor(unformattedColor);
-    this.setState({ color }, () => {
-      this.props.afterSetColor(color, successFn, errorFn);
-    });
+    const color = formatColor(unformattedColor)
+    this.setState({color}, () => {
+      this.props.afterSetColor(color, successFn, errorFn)
+    })
   }
 
-  render () {
+  render() {
     const {
       status,
       isColorPickerShown,
@@ -74,49 +74,38 @@ class StatusColorListItem extends React.Component {
       colorPickerButtonRef,
       colorPickerContentRef,
       colorPickerAfterClose
-    } = this.props;
+    } = this.props
 
     return (
       <li
         className="Gradebook__StatusModalListItem"
         key={status}
-        style={{ backgroundColor: this.state.color }}
+        style={{backgroundColor: this.state.color}}
       >
         <Grid vAlign="middle">
-          <GridRow>
-            <GridCol>
-
-              <Text>
-                {statusesTitleMap[status]}
-              </Text>
-
-            </GridCol>
-            <GridCol width="auto">
-
+          <Grid.Row>
+            <Grid.Col>
+              <Text>{statusesTitleMap[status]}</Text>
+            </Grid.Col>
+            <Grid.Col width="auto">
               <Popover
                 on="click"
                 show={isColorPickerShown}
                 onToggle={colorPickerOnToggle}
                 contentRef={colorPickerContentRef}
-                applicationElement={() => document.getElementById('application')}
               >
-                <PopoverTrigger>
-
-                  <Button
-                    buttonRef={colorPickerButtonRef}
-                    variant="icon"
-                    size="small"
-                  >
+                <Popover.Trigger>
+                  <Button buttonRef={colorPickerButtonRef} variant="icon" size="small">
                     <Text size="medium">
-                      <ScreenReaderContent>{I18n.t('%{status} Color Picker', { status })}</ScreenReaderContent>
-                      <IconDiscussionReplySolid />
+                      <ScreenReaderContent>
+                        {I18n.t('%{status} Color Picker', {status})}
+                      </ScreenReaderContent>
+                      <IconMoreSolid />
                     </Text>
                   </Button>
+                </Popover.Trigger>
 
-                </PopoverTrigger>
-
-                <PopoverContent>
-
+                <Popover.Content>
                   <ColorPicker
                     parentComponent="StatusColorListItem"
                     colors={colorPickerColors}
@@ -134,16 +123,14 @@ class StatusColorListItem extends React.Component {
                     withBoxShadow={false}
                     setStatusColor={this.setColor}
                   />
-
-                </PopoverContent>
+                </Popover.Content>
               </Popover>
-
-            </GridCol>
-          </GridRow>
+            </Grid.Col>
+          </Grid.Row>
         </Grid>
       </li>
-    );
+    )
   }
 }
 
-export default StatusColorListItem;
+export default StatusColorListItem

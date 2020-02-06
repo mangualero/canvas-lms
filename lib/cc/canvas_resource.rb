@@ -129,8 +129,8 @@ JOKE
       ) do |c|
         c.title @course.name
         c.course_code @course.course_code
-        c.start_at ims_datetime(@course.start_at) if @course.start_at
-        c.conclude_at ims_datetime(@course.conclude_at) if @course.conclude_at
+        c.start_at ims_datetime(@course.start_at, nil)
+        c.conclude_at ims_datetime(@course.conclude_at, nil)
         if @course.tab_configuration.present?
           tab_config = []
           @course.tab_configuration.each do |t|
@@ -150,6 +150,7 @@ JOKE
         atts -= Canvas::Migration::MigratorHelper::COURSE_NO_COPY_ATTS
         atts << :grading_standard_enabled
         atts << :storage_quota
+        atts << :restrict_enrollments_to_course_dates
 
         if @course.image_url.present?
           atts << :image_url
@@ -163,6 +164,7 @@ JOKE
           atts.uniq.each do |att|
             c.tag!(att, @course.send(att)) unless @course.send(att).nil? || @course.send(att) == ''
           end
+          c.tag!(:overridden_course_visibility, @course.overridden_course_visibility)
         end
         if @course.grading_standard
           if @course.grading_standard.context_type == "Account"
@@ -173,6 +175,10 @@ JOKE
           end
         end
         c.root_account_uuid(@course.root_account.uuid) if @course.root_account
+
+        if @course.default_post_policy.present?
+          c.default_post_policy { |policy| policy.post_manually(@course.default_post_policy.post_manually?) }
+        end
       end
       course_file.close if course_file
       rel_path

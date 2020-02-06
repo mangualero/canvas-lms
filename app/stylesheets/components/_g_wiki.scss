@@ -51,8 +51,8 @@ $revision-button-color: $ic-color-dark;
   position: fixed;
   z-index: 1000;
   top: 0px;
-  left: 0px;
-  right: 0px;
+  #{direction(left)}: 0px;
+  #{direction(right)}: 0px;
   margin-#{direction(left)}: 1px;
   background: white;
   height: 33px;
@@ -126,7 +126,7 @@ $revision-button-color: $ic-color-dark;
       height: 103px;
       animation: page-changed-header-bar 1.15s;
       .page-changed-alert {
-        margin: (-1px) 0 0 0;
+        margin: direction-sides((-1px) 0 0 0);
         border-bottom: $pages-border;
         box-shadow: $shadow;
         height: 39px;
@@ -277,7 +277,6 @@ $revision-button-color: $ic-color-dark;
 }
 /// pulled out of the specific table class so the new UI could take advantage of the header sorting
 .header-row {
-  text-transform: uppercase;
   a.sort-field {
     cursor: pointer;
     user-select: none;
@@ -305,7 +304,6 @@ $revision-button-color: $ic-color-dark;
     display: none;
     font-size: 1.8em;
     font-weight: bold;
-    line-height: 30px;
     margin: 0;
     color: #666;
   }
@@ -317,18 +315,18 @@ $revision-button-color: $ic-color-dark;
   }
   .header-bar {
     .publish-button {
-      margin: 0 12px 0 0;
+      margin: direction-sides(0 12px 0 0);
     }
     .front-page.label {
-      margin: 6px 12px 6px 0;
+      margin: direction-sides(6px 12px 6px 0);
     }
     .published, .unpublished {
       display: inline-block;
-      margin: 6px 8px 6px 5px;
+      margin: direction-sides(6px 8px 6px 5px);
     }
   }
   .locked-alert ul {
-    margin: 4px 0 6px 25px;
+    margin: direction-sides(4px 0 6px 25px);
   }
   .show-content {
     word-wrap: break-word;
@@ -454,26 +452,22 @@ $revision-button-color: $ic-color-dark;
   .revision {
     list-style-type: none;
     overflow: hidden;
-    // height and transitions
-    height: 34px;
-    transition: height 400ms;
 
     border-#{direction(left)}: 2px solid transparent;
 
-    &.selected, &.latest {
-      height: 56px;
-      transition: height 400ms;
-    }
     .revision-content {
       padding: 7px 8px;
       @include fontSize($ic-font-size--xsmall);
 
       .revision-details {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        padding-#{direction(left)}: 3px;
+        text-align: #{direction(left)};
         font-size: 12px;
         color: #333;
+      }
+
+      .revision-actions {
+        padding-#{direction(left)}: 3px;
       }
     }
     &:not(.selected):hover {
@@ -545,7 +539,7 @@ $revision-button-color: $ic-color-dark;
 
 #last_edited_by {
   border: solid #eee;
-  border-width: 0 0 1px 0;
+  border-width: 0 0 1px;
   font-size: 0.8em;
   margin-bottom: 10px;
   margin-#{direction(right)}: 2px;

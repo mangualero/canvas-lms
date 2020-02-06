@@ -17,128 +17,16 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require_relative "./graphql_spec_helper"
 
 describe "legacyNode" do
   before(:once) do
     course_with_student(active_all: true)
+    @teacher = @course.enroll_user(User.create!, "TeacherEnrollment", enrollment_state: "active").user
   end
 
   def run_query(query, user)
     CanvasSchema.execute(query, context: {current_user: user})
-  end
-
-  context "courses" do
-    before(:once) do
-      @query = <<-GQL
-      query {
-        course: legacyNode(type: Course, _id: "#{@course.id}") {
-          ... on Course {
-            _id,
-            name
-          }
-        }
-      }
-      GQL
-    end
-
-    it "works" do
-      expect(
-        run_query(@query, @student)["data"]["course"]["_id"]
-      ).to eq @course.id.to_s
-    end
-
-    it "needs read permission" do
-      @course1, @student1 = @course, @student
-      course_with_student
-      @course2, @student2 = @course, @student
-
-      expect(run_query(@query, @student2)["data"]["course"]).to be_nil
-    end
-  end
-
-  context "assignments" do
-    before(:once) do
-      @assignment = @course.assignments.create! name: "Some Assignment"
-      @query = <<-GQL
-      query {
-        assignment: legacyNode(type: Assignment, _id: "#{@assignment.id}") {
-          ... on Assignment {
-            _id
-            name
-          }
-        }
-      }
-      GQL
-    end
-
-    it "works" do
-      expect(
-        run_query(@query, @student)["data"]["assignment"]["_id"]
-      ).to eq @assignment.id.to_s
-    end
-
-    it "needs read permission" do
-      @assignment.unpublish
-      expect(run_query(@query, @student)["data"]["assignment"]).to be_nil
-    end
-  end
-
-  context "sections" do
-    before(:once) do
-      @section = @course.course_sections.create! name: "Section 1"
-      @query = <<-GQL
-      query {
-        section: legacyNode(type: Section, _id: "#{@section.id}") {
-          ... on Section {
-            _id
-          }
-        }
-      }
-      GQL
-    end
-
-    it "works" do
-      @course.enroll_student(@student,
-                             enrollment_state: 'active',
-                             section: @section,
-                             allow_multiple_enrollments: true)
-      expect(
-        run_query(@query, @student)["data"]["section"]["_id"]
-      ).to eq @section.id.to_s
-    end
-
-    it "requires read permission" do
-      @student.enrollments.update_all limit_privileges_to_course_section: true
-      expect(
-        run_query(@query, @student)["data"]["section"]
-      ).to be_nil
-    end
-  end
-
-  context "users" do
-    before(:once) do
-      @query = <<-GQL
-      query {
-        user: legacyNode(type: User, _id: "#{@student.id}") {
-          ... on User {
-            _id
-          }
-        }
-      }
-      GQL
-    end
-
-    it "works" do
-      expect(
-        run_query(@query, @student)["data"]["user"]["_id"]
-      ).to eq @student.id.to_s
-    end
-
-    it "requires read_full_profile permission" do
-      orig_student = @student
-      student_in_course
-      expect(run_query(@query, @student)["data"]["user"]).to be_nil
-    end
   end
 
   context "enrollments" do
@@ -226,6 +114,33 @@ describe "legacyNode" do
       @page.unpublish
       expect(
         run_query(@query, @student)["data"]["page"]
+      ).to be_nil
+    end
+  end
+
+  context "PostPolicy" do
+    before(:once) do
+      @course.default_post_policy.update!(post_manually: true)
+      @query = <<~GQL
+        query {
+          postPolicy: legacyNode(type: PostPolicy, _id: "#{@course.default_post_policy.id}") {
+            ... on PostPolicy {
+              _id
+            }
+          }
+        }
+      GQL
+    end
+
+    it "returns a PostPolicy for users with manage_grades permission" do
+      expect(
+        run_query(@query, @teacher)["data"]["postPolicy"]["_id"].to_i
+      ).to eql @course.default_post_policy.id
+    end
+
+    it "returns null for users without manage_grades permission" do
+      expect(
+        run_query(@query, @student)["data"]["postPolicy"]
       ).to be_nil
     end
   end

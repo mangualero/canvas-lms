@@ -91,7 +91,7 @@ module Users
       it "raises InvalidVerifier if too old" do
         verifier = Users::AccessVerifier.generate(user: user)
         Timecop.freeze(10.minutes.from_now) do
-          expect{ Users::AccessVerifier.validate(verifier) }.to raise_exception(Users::AccessVerifier::InvalidVerifier)
+          expect{ Users::AccessVerifier.validate(verifier) }.to raise_exception(Canvas::Security::TokenExpired)
         end
       end
 
@@ -99,24 +99,6 @@ module Users
         verifier = Users::AccessVerifier.generate(user: user)
         tampered = verifier.merge(sf_verifier: 'tampered')
         expect{ Users::AccessVerifier.validate(tampered) }.to raise_exception(Users::AccessVerifier::InvalidVerifier)
-      end
-
-      describe "with a legacy verifier" do
-        let(:verifier) do
-          ts = Time.now.utc.to_i.to_s
-          signature = OpenSSL::HMAC.hexdigest(OpenSSL::Digest::MD5.new, user.uuid, ts)
-          { ts: ts, user_id: user.global_id, sf_verifier: signature }
-        end
-
-        it "validates" do
-          expect{ Users::AccessVerifier.validate(verifier) }.not_to raise_exception
-        end
-
-        it "returns verified user claim" do
-          verified = Users::AccessVerifier.validate(verifier)
-          expect(verified).to have_key(:user)
-          expect(verified[:user]).to eql(user)
-        end
       end
     end
   end

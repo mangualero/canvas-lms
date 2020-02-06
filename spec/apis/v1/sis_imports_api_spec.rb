@@ -71,6 +71,7 @@ describe SisImportsApiController, type: :request do
           "clear_sis_stickiness" => opts[:clear_sis_stickiness] ? true : nil,
           "multi_term_batch_mode" => nil,
           "diffing_data_set_identifier" => nil,
+          "diff_row_count_threshold" => nil,
           "diffed_against_import_id" => nil,
           "diffing_drop_status" => nil,
           "skip_deletes" => false,
@@ -101,6 +102,8 @@ describe SisImportsApiController, type: :request do
     expect(json.has_key?("started_at")).to eq true
     json.delete("started_at")
     json.delete("user")
+    json.delete("csv_attachments")
+    json['data'].delete("downloadable_attachment_ids")
     batch = SisBatch.last
     expect(json).to eq({
           "data" => { "import_type"=>"instructure_csv"},
@@ -114,6 +117,7 @@ describe SisImportsApiController, type: :request do
           "add_sis_stickiness" => nil,
           "clear_sis_stickiness" => nil,
           "diffing_data_set_identifier" => nil,
+          "diff_row_count_threshold" => nil,
           "diffed_against_import_id" => nil,
           "diffing_drop_status" => nil,
           "skip_deletes" => false,
@@ -139,9 +143,12 @@ describe SisImportsApiController, type: :request do
     expect(json.has_key?("started_at")).to eq true
     json.delete("started_at")
     json.delete("user")
+    json.delete("csv_attachments")
+    json["data"].delete("downloadable_attachment_ids")
     expected_data = {
           "data" => { "import_type" => "instructure_csv",
-                      "use_parallel_imports" => false,
+                      "completed_importers" => ["user"],
+                      "running_immediately" => true,
                       "supplied_batches" => ["user"],
                       "counts" => { "change_sis_ids"=>0,
                                     "abstract_courses" => 0,
@@ -152,6 +159,7 @@ describe SisImportsApiController, type: :request do
                                     "admins" => 0,
                                     "grade_publishing_results" => 0,
                                     "users" => 1,
+                                    "logins" => 0,
                                     "user_observers" => 0,
                                     "xlists" => 0,
                                     "group_categories" => 0,
@@ -159,7 +167,21 @@ describe SisImportsApiController, type: :request do
                                     "group_memberships" => 0,
                                     "terms" => 0,
                                     "error_count"=>0,
-                                    "warning_count"=>0 }},
+                                    "warning_count"=>0 },
+                      "statistics" => {"total_state_changes"=>2,
+                                       "Account"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "EnrollmentTerm"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "AbstractCourse"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "Course"=>{"created"=>0, "concluded"=>0, "restored"=>0, "deleted"=>0},
+                                       "CourseSection"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "GroupCategory"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "Group"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "Pseudonym"=>{"created"=>1, "restored"=>0, "deleted"=>0},
+                                       "CommunicationChannel"=>{"created"=>1, "restored"=>0, "deleted"=>0},
+                                       "Enrollment"=>{"created"=>0, "concluded"=>0, "deactivated"=>0, "restored"=>0, "deleted"=>0},
+                                       "GroupMembership"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "UserObserver"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                       "AccountUser"=>{"created"=>0, "restored"=>0, "deleted"=>0}}},
           "progress" => 100,
           "id" => batch.id,
           "workflow_state"=>"imported",
@@ -170,22 +192,39 @@ describe SisImportsApiController, type: :request do
           "add_sis_stickiness" => nil,
           "clear_sis_stickiness" => nil,
           "diffing_data_set_identifier" => nil,
+          "diff_row_count_threshold" => nil,
           "diffed_against_import_id" => nil,
           "skip_deletes" => false,
           "diffing_drop_status" => nil,
           "change_threshold" => nil
     }
-    expected_data["data"]["completed_importers"] = ["user"] if SisBatch.use_parallel_importers?(@account)
-    expected_data["data"]["use_parallel_imports"] = true if SisBatch.use_parallel_importers?(@account)
     expect(json).to eq expected_data
   end
 
-  it 'should restore batch on restore_states' do
+  it 'should restore batch on restore_states and return progress' do
     batch = @account.sis_batches.create
-    api_call(:put, "/api/v1/accounts/#{@account.id}/sis_imports/#{batch.id}/restore_states",
-             {controller: 'sis_imports_api', action: 'restore_states', format: 'json',
-              account_id: @account.id.to_s, id: batch.id.to_s})
+    json = api_call(:put, "/api/v1/accounts/#{@account.id}/sis_imports/#{batch.id}/restore_states",
+                    {controller: 'sis_imports_api', action: 'restore_states', format: 'json',
+                     account_id: @account.id.to_s, id: batch.id.to_s})
+    run_jobs
     expect(batch.reload.workflow_state).to eq 'restored'
+
+    params = {controller: 'progress', action: 'show', id: json['id'].to_param, format: 'json'}
+    api_call(:get, "/api/v1/progress/#{json['id']}", params, {}, {}, expected_status: 200)
+  end
+
+  it 'should show current running sis import' do
+    batch = @account.sis_batches.create!
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports/importing",
+                    {controller: 'sis_imports_api', action: 'importing', format: 'json',
+                     account_id: @account.id.to_s})
+    expect(json["sis_imports"]).to eq []
+    batch.workflow_state = 'importing'
+    batch.save!
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports/importing",
+                    {controller: 'sis_imports_api', action: 'importing', format: 'json',
+                     account_id: @account.id.to_s})
+    expect(json["sis_imports"].first['id']).to eq batch.id
   end
 
   it 'should abort batch on abort' do
@@ -327,11 +366,33 @@ describe SisImportsApiController, type: :request do
         diffing_data_set_identifier: 'my-users-data',
         diffing_drop_status: 'inactive',
         change_threshold: 7,
+        diff_row_count_threshold: 4,
       })
     batch = SisBatch.find(json["id"])
     expect(batch.batch_mode).to be_falsey
     expect(batch.change_threshold).to eq 7
     expect(batch.options[:diffing_drop_status]).to eq 'inactive'
+    expect(json['change_threshold']).to eq 7
+    expect(batch.diffing_data_set_identifier).to eq 'my-users-data'
+    expect(batch.diff_row_count_threshold).to eq 4
+  end
+
+  it "should allow for other diffing_drop_status" do
+    json = api_call(
+      :post,
+      "/api/v1/accounts/#{@account.id}/sis_imports.json",
+      {controller: 'sis_imports_api', action: 'create',
+       format: 'json', account_id: @account.id.to_s},
+      {import_type: 'instructure_csv',
+       attachment: fixture_file_upload("files/sis/test_user_1.csv", 'text/csv'),
+       diffing_data_set_identifier: 'my-users-data',
+       diffing_drop_status: 'deleted_last_completed',
+       change_threshold: 7,}
+    )
+    batch = SisBatch.find(json["id"])
+    expect(batch.batch_mode).to be_falsey
+    expect(batch.change_threshold).to eq 7
+    expect(batch.options[:diffing_drop_status]).to eq 'deleted_last_completed'
     expect(json['change_threshold']).to eq 7
     expect(batch.diffing_data_set_identifier).to eq 'my-users-data'
   end
@@ -666,10 +727,13 @@ describe SisImportsApiController, type: :request do
     json["sis_imports"].first.delete("ended_at")
     json["sis_imports"].first.delete("started_at")
     json["sis_imports"].first.delete("user")
+    json["sis_imports"].first.delete("csv_attachments")
+    json["sis_imports"].first['data'].delete("downloadable_attachment_ids")
 
     expected_data = {"sis_imports"=>[{
                       "data" => { "import_type" => "instructure_csv",
-                                  "use_parallel_imports" => false,
+                                  "completed_importers" => ["account"],
+                                  "running_immediately" => true,
                                   "supplied_batches" => ["account"],
                                   "counts" => { "change_sis_ids"=>0,
                                                 "abstract_courses" => 0,
@@ -680,6 +744,7 @@ describe SisImportsApiController, type: :request do
                                                 "admins" => 0,
                                                 "grade_publishing_results" => 0,
                                                 "users" => 0,
+                                                "logins" => 0,
                                                 "user_observers" => 0,
                                                 "xlists" => 0,
                                                 "group_categories" => 0,
@@ -687,7 +752,21 @@ describe SisImportsApiController, type: :request do
                                                 "group_memberships" => 0,
                                                 "terms" => 0,
                                                 "error_count"=>0,
-                                                "warning_count"=>0 }},
+                                                "warning_count"=>0 },
+                                  "statistics" => {"total_state_changes"=>1,
+                                                   "Account"=>{"created"=>1, "restored"=>0, "deleted"=>0},
+                                                   "EnrollmentTerm"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "AbstractCourse"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "Course"=>{"created"=>0, "concluded"=>0, "restored"=>0, "deleted"=>0},
+                                                   "CourseSection"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "GroupCategory"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "Group"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "Pseudonym"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "CommunicationChannel"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "Enrollment"=>{"created"=>0, "concluded"=>0, "deactivated"=>0, "restored"=>0, "deleted"=>0},
+                                                   "GroupMembership"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "UserObserver"=>{"created"=>0, "restored"=>0, "deleted"=>0},
+                                                   "AccountUser"=>{"created"=>0, "restored"=>0, "deleted"=>0}}},
                       "progress" => 100,
                       "id" => batch.id,
                       "workflow_state"=>"imported",
@@ -698,18 +777,54 @@ describe SisImportsApiController, type: :request do
           "add_sis_stickiness" => nil,
           "clear_sis_stickiness" => nil,
           "diffing_data_set_identifier" => nil,
+          "diff_row_count_threshold" => nil,
           "diffed_against_import_id" => nil,
           "skip_deletes" => false,
           "diffing_drop_status" => nil,
           "change_threshold" => nil,
       }]
     }
-    expected_data["sis_imports"].first["data"]["completed_importers"] = ["account"] if SisBatch.use_parallel_importers?(@account)
-    expected_data["sis_imports"].first["data"]["use_parallel_imports"] = true if SisBatch.use_parallel_importers?(@account)
     expect(json).to eq expected_data
 
     links = Api.parse_pagination_links(response.headers['Link'])
     expect(links.first[:uri].path).to eq api_v1_account_sis_imports_path
+  end
+
+  it "should return downloadable attachments if available" do
+    batch = post_csv(
+      "user_id,password,login_id,status,ssha_password",
+      "user_1,supersecurepwdude,user_1,active,hunter2"
+    )
+
+    run_jobs
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports.json",
+      { :controller => 'sis_imports_api', :action => 'index',
+        :format => 'json', :account_id => @account.id.to_s })
+
+    atts_json = json["sis_imports"].first["csv_attachments"]
+    expect(atts_json.count).to eq 1
+    expect(atts_json.first["id"]).to eq batch.downloadable_attachments.last.id
+    expect(atts_json.first["url"]).to be_present
+  end
+
+  it "should return downloadable attachments from the diff if available" do
+    batch = @account.sis_batches.create
+    att1 = Attachment.create!(:filename => 'blah.txt', :uploaded_data => StringIO.new('blah'), :context => batch)
+    att2 = Attachment.create!(:filename => 'blah2.txt', :uploaded_data => StringIO.new('blah2'), :context => batch)
+    batch.data = {:downloadable_attachment_ids => [att1.id, att2.id], :diffed_attachment_ids => [att2.id]}
+    batch.save!
+
+    json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports.json",
+      { :controller => 'sis_imports_api', :action => 'index',
+        :format => 'json', :account_id => @account.id.to_s })
+
+    atts_json = json["sis_imports"].first["csv_attachments"]
+    expect(atts_json.count).to eq 1
+    expect(atts_json.first["id"]).to eq att1.id
+
+    diff_atts_json = json["sis_imports"].first["diffed_csv_attachments"]
+    expect(diff_atts_json.count).to eq 1
+    expect(diff_atts_json.first["id"]).to eq att2.id
   end
 
   it "should filter sis imports by date if requested" do
@@ -727,9 +842,9 @@ describe SisImportsApiController, type: :request do
     expect(json["sis_imports"].count).to eq 1
   end
 
-  it "should not fail when options are nil" do
+  it "should not fail when options are empty" do
     batch = @account.sis_batches.create
-    expect(batch.options).to be_nil
+    expect(batch.options).to be_empty
     json = api_call(:get, "/api/v1/accounts/#{@account.id}/sis_imports.json",
                     { :controller => 'sis_imports_api', :action => 'index',
                       :format => 'json', :account_id => @account.id.to_s })

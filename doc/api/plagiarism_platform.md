@@ -178,51 +178,8 @@ HTTPS Webhooks will be transmitted over HTTPS via a POST request with a content 
 
 SQS Webhooks will contain the same JSON body as the body of the SQS Message.
 
-See assignment_updated, submission_created, and submission_updated at https://canvas.instructure.com/doc/api/file.live_events.html for additional field definitions.
+For additional field definitions and example JSON payloads, see the documentation for assignment_updated, submission_created, and submission_updated event types in the Canvas Data Services LTI Tool, or on S3 here: <a href="https://d1raj86qipxohr.cloudfront.net/production/canvas/event-types/assignment_updated.json">assignment_updated</a>, <a href="https://d1raj86qipxohr.cloudfront.net/production/canvas/event-types/submission_created.json">submission_created</a>, <a href="https://d1raj86qipxohr.cloudfront.net/production/canvas/event-types/submission_updated.json">submission_updated</a>
 
-A JSON body example is shown below.
-
-```json
-{
-  "metadata": {
-    "root_account_uuid": "LC6nuzxUST0u7aNHzzzyCjEww5wAtjO5GiSlrHMu",
-    "root_account_id": "90000000000000001",
-    "root_account_lti_guid": "LC6nuzxUST0u7aNHCm0yCjEww5wAtjO5GiSlrHMu:canvas-lms",
-    "user_id": "10000000000000001",
-    "real_user_id": "10000000000000001",
-    "user_login": "student01@test.com",
-    "context_type": "Course",
-    "context_id": "10000000000000009",
-    "context_role": "StudentEnrollment",
-    "request_id": "1602a2f9-4c28-44ec-9cb2-372cbac73224",
-    "session_id": "337e3af6f38cd4ff31539d1ae677a288",
-    "hostname": "sandbox.beta.instructure.com",
-    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:54.0) Gecko/20100101 Firefox/54.0",
-    "producer": "canvas",
-    "event_name": "submission_updated",
-    "event_time": "2017-05-23T09:58:31Z"
-  },
-  "body": {
-    "submission_id": "93360000000000051",
-    "assignment_id": "93360000000000063",
-    "user_id": "93360000000000007",
-    "submitted_at": "2017-05-23T09:58:31Z",
-    "graded_at": null,
-    "updated_at": "2017-05-23T09:58:31Z",
-    "score": null,
-    "grade": null,
-    "submission_type": "online_upload",
-    "body": null,
-    "url": null,
-    "attempt": 1,
-    "lti_assignment_id": "5afe0638-5467-4a6b-b245-c4b2e646c547"
-  },
-  "subscription": {
-    "id": "ce95af25-a1c9-456a-a4b4-bae1233be2d8",
-    "owner_id": "ltiToolProxy:e43eed0a-e7e5-48d6-a578-378c575a3ac3"
-  }
-}
-```
 ### 3. Originality Reports
 Once the TP has been notified of a new submission (see section 2.2), it may access the submission through the <a href="plagiarism_detection_submissions.html">Canvas LTI Submissions API</a> for processing. The payload from this request will contain URLs for retrieving the submission’s attachment.
 
@@ -232,7 +189,7 @@ For more details on creating originality reports see the <a href="originality_re
 
 Using the Originality Report and Submissions APIs requires a JWT access token be sent in the authorization header. For more information on using JWT tokens in Canvas see <a href="jwt_access_tokens.html">JWT access tokens</a>.
 
-### 4. Other Features
+### 4. Other Features and Considerations
 The following are optional features the tool provider may wish to implement.
 
 #### Course Copy
@@ -324,7 +281,12 @@ Response:
 ```
 {"tp_custom_setting": "some value"}
 ```
+#### Group Assignments
+When a student submits to a group assignment, Canvas will send a `submission_created` webhook for *each student in that group*. The tool provider need only respond to one of these webhooks per group.
 
+Canvas will copy any originality reports created for a group submission to every other student in the same group. Canvas will also propagate edits to any originality reports for a group submission to every other student in the same group.
+
+The `submission_created` and `subission_updated` webhooks each contain a `group_id` that identifies what group a submission belongs to. Tool providers may use this value to make sure they only create one originality report per group.
 
 #### End-User License Agreement Verification
 ##### Description

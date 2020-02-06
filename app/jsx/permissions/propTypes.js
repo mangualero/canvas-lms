@@ -16,12 +16,20 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import {shape, string, bool, oneOf, number, object} from 'prop-types'
+import {shape, string, bool, oneOf, object} from 'prop-types'
+import I18n from 'i18n!permissions_v2_propTypes'
 
 const propTypes = {}
 
 export const COURSE = 'Course'
 export const ACCOUNT = 'Account'
+export const ALL_ROLES_VALUE = '0'
+export const ALL_ROLES_LABEL = I18n.t('All Roles')
+
+propTypes.permissionDetails = shape({
+  title: string.isRequired,
+  description: string.isRequired
+})
 
 propTypes.permission = shape({
   permission_name: string.isRequired,
@@ -40,12 +48,17 @@ propTypes.rolePermission = shape({
 })
 
 propTypes.role = shape({
-  id: number.isRequired,
+  id: string.isRequired,
   label: string.isRequired,
   base_role_type: string.isRequired,
   contextType: oneOf([COURSE, ACCOUNT]),
   displayed: bool.isRequired,
   permissions: object.isRequired // eslint-disable-line, shape is indeterminate
+})
+
+propTypes.filteredRole = shape({
+  label: string.isRequired,
+  value: string.isRequired
 })
 
 export default propTypes

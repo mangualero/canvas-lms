@@ -33,10 +33,10 @@ QUnit.module('$.fn.defaultAjaxError', {
   }
 })
 
-test('should call the function if not production', function() {
+test('should call the function if not production', () => {
   notEqual(INST.environment, 'production')
   deepEqual($.ajaxJSON.unhandledXHRs, [])
-  const spy = this.spy()
+  const spy = sinon.spy()
   $('#fixtures').defaultAjaxError(spy)
   const xhr = {
     status: 200,
@@ -46,23 +46,23 @@ test('should call the function if not production', function() {
   ok(spy.called)
 })
 
-test('should call the function if unhandled', function() {
+test('should call the function if unhandled', () => {
   INST.environment = 'production'
   const xhr = {
     status: 400,
     responseText: '{"status": "ok"}'
   }
   $.ajaxJSON.unhandledXHRs.push(xhr)
-  const spy = this.spy()
+  const spy = sinon.spy()
   $('#fixtures').defaultAjaxError(spy)
   $.fn.defaultAjaxError.func({}, xhr)
   ok(spy.called)
 })
 
-test('should call the function if unauthenticated', function() {
+test('should call the function if unauthenticated', () => {
   INST.environment = 'production'
   deepEqual($.ajaxJSON.unhandledXHRs, [])
-  const spy = this.spy()
+  const spy = sinon.spy()
   $('#fixtures').defaultAjaxError(spy)
   const xhr = {
     status: 401,
@@ -104,10 +104,10 @@ test('returns true if status is 401 and message is unauthenticated', () => {
 let abortXhr
 
 QUnit.module('$.ajaxJSON.abortRequest', {
-  setup () {
+  setup() {
     abortXhr = {
       readyState: 0,
-      abort: this.spy()
+      abort: sinon.spy()
     }
   }
 })
@@ -143,7 +143,7 @@ test('does not call success or error handler', () => {
   const spy = sinon.spy()
   $.ajaxJSON('/api', 'GET', {}, spy, spy)
   $.ajaxJSON.abortRequest(xhr)
-  xhr.readyStateChange(sinon.FakeXMLHttpRequest.DONE);
+  xhr.readyStateChange(sinon.FakeXMLHttpRequest.DONE)
   fakeXhr.restore()
   ok(spy.notCalled)
 })

@@ -16,25 +16,24 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-
-import React, { Component } from 'react'
+import React, {Component} from 'react'
 import {connect} from 'react-redux'
 import {bindActionCreators} from 'redux'
-import { DropTarget } from 'react-dnd';
-import { string, func, bool } from 'prop-types'
+import {DropTarget} from 'react-dnd'
+import {string, func, bool} from 'prop-types'
 import I18n from 'i18n!discussions_v2'
 import moment from 'moment'
+import {ScreenReaderContent} from '@instructure/ui-a11y'
 
-import ToggleDetails from '@instructure/ui-toggle-details/lib/components/ToggleDetails'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import {ToggleDetails} from '@instructure/ui-toggle-details'
+import {Text, Heading} from '@instructure/ui-elements'
 import update from 'immutability-helper'
 
 import select from '../../shared/select'
 import actions from '../actions'
-import { ConnectedDiscussionRow, ConnectedDraggableDiscussionRow } from './DiscussionRow'
-import { discussionList } from '../../shared/proptypes/discussion'
+import {ConnectedDiscussionRow, ConnectedDraggableDiscussionRow} from './DiscussionRow'
+import {discussionList} from '../../shared/proptypes/discussion'
 import propTypes from '../propTypes'
-
 
 // Handle drag and drop on a discussion. The props passed in tell us how we
 // should update the discussion if something is dragged into this container
@@ -44,15 +43,14 @@ export const discussionTarget = {
     const discussion = monitor.getItem()
     const updateFields = {}
     if (props.closedState !== undefined) updateFields.locked = props.closedState
-    if (props.pinned !== undefined) updateFields.pinned =  props.pinned
+    if (props.pinned !== undefined) updateFields.pinned = props.pinned
 
     // We currently cannot drag an item from a different container to a specific
     // position in the pinned container, thus we only need to set the order when
     // rearranging items in the pinned container, not when dragging a locked or
     // unpinned discussion to the pinned container.
-    const order = (props.pinned && discussion.pinned)
-      ? component.state.discussions.map(d => d.id)
-      : undefined
+    const order =
+      props.pinned && discussion.pinned ? component.state.discussions.map(d => d.id) : undefined
     props.handleDrop(discussion, updateFields, order)
   },
   canDrop(props, monitor) {
@@ -60,52 +58,55 @@ export const discussionTarget = {
       return moment(monitor.getItem().assignment.due_at) < moment()
     }
     return true
-  },
+  }
 }
 
 export class DiscussionsContainer extends Component {
   static propTypes = {
     cleanDiscussionFocus: func.isRequired,
-    closedState: bool, // eslint-disable-line
+    closedState: bool, // eslint-disable-line react/no-unused-prop-types this IS really used
     connectDropTarget: func,
     deleteDiscussion: func.isRequired,
     deleteFocusDone: func.isRequired,
-    deleteFocusPending: bool.isRequired, // eslint-disable-line
+    deleteFocusPending: bool.isRequired, // eslint-disable-line react/no-unused-prop-types this IS really used
     discussions: discussionList.isRequired,
-    handleDrop: func, // eslint-disable-line
+    handleDrop: func, // eslint-disable-line react/no-unused-prop-types this IS really used
     onMoveDiscussion: func,
     permissions: propTypes.permissions.isRequired,
     pinned: bool,
     renderContainerBackground: func.isRequired,
-    title: string.isRequired,
+    title: string.isRequired
   }
 
   static defaultProps = {
     closedState: undefined,
-    connectDropTarget (component) {return component},
+    connectDropTarget(component) {
+      return component
+    },
     handleDrop: undefined,
     onMoveDiscussion: null,
-    pinned: undefined,
+    pinned: undefined
   }
 
   constructor(props) {
     super(props)
-    this.moveCard = this.moveCard.bind(this)
     this.state = {
       discussions: props.discussions,
-      expanded: true,
+      expanded: true
     }
   }
 
   componentWillReceiveProps(props) {
-    if(this.props.discussions === props.discussions) { return }
-    this.setState({ discussions: props.discussions, expanded: true })
+    if (this.props.discussions === props.discussions) {
+      return
+    }
+    this.setState({discussions: props.discussions, expanded: true})
     this.handleDeleteFocus(props)
   }
 
-  getDiscussionPosition = (discussion) => {
-    const { id } = discussion
-    return this.state.discussions.findIndex((d) => d.id === id)
+  getDiscussionPosition = discussion => {
+    const {id} = discussion
+    return this.state.discussions.findIndex(d => d.id === id)
   }
 
   toggleExpanded = () => {
@@ -116,27 +117,35 @@ export class DiscussionsContainer extends Component {
     // Set the focus to the container toggle button if we are deleting an element,
     // and the new discussions list is empty or explictly said to set focus to
     // that toggle button.
-    if (!this.toggleBtn) { return }
-    if (!newProps.deleteFocusPending) { return }
-    if (this.props.discussions.length === 0) { return }
+    if (!this.toggleBtn) {
+      return
+    }
+    if (!newProps.deleteFocusPending) {
+      return
+    }
+    if (this.props.discussions.length === 0) {
+      return
+    }
 
-    if (newProps.discussions.length === 0 || newProps.discussions[0].focusOn === "toggleButton") {
+    if (newProps.discussions.length === 0 || newProps.discussions[0].focusOn === 'toggleButton') {
       this.toggleBtn.focus()
       this.props.cleanDiscussionFocus()
       this.props.deleteFocusDone()
     }
   }
 
-  wrapperToggleRef = (c) => {
+  wrapperToggleRef = c => {
     this.toggleBtn = c && c.querySelector('button')
   }
 
-  moveCard(dragIndex, hoverIndex) {
+  moveCard = (dragIndex, hoverIndex) => {
     // Only pinned discussions can be repositioned, others are sorted by
     // recent activity
-    if (!this.props.pinned) { return }
+    if (!this.props.pinned) {
+      return
+    }
 
-    const { discussions } = this.state
+    const {discussions} = this.state
     const dragDiscussion = discussions[dragIndex]
     if (!dragDiscussion) {
       return
@@ -144,32 +153,34 @@ export class DiscussionsContainer extends Component {
 
     const newDiscussions = update(this.state, {
       discussions: {
-        $splice: [[dragIndex, 1], [hoverIndex, 0, dragDiscussion]],
-      },
+        $splice: [[dragIndex, 1], [hoverIndex, 0, dragDiscussion]]
+      }
     })
     this.setState({discussions: newDiscussions.discussions})
   }
 
-  renderDiscussions () {
-    return this.state.discussions.map((discussion) => (
-      this.props.permissions.moderate
-        ? <ConnectedDraggableDiscussionRow
-            key={discussion.id}
-            discussion={discussion}
-            deleteDiscussion={this.props.deleteDiscussion}
-            getDiscussionPosition={this.getDiscussionPosition}
-            onMoveDiscussion={this.props.onMoveDiscussion}
-            moveCard={this.moveCard}
-            draggable
-          />
-        : <ConnectedDiscussionRow
-            key={discussion.id}
-            discussion={discussion}
-            deleteDiscussion={this.props.deleteDiscussion}
-            onMoveDiscussion={this.props.onMoveDiscussion}
-            draggable={false}
-          />
-    ))
+  renderDiscussions() {
+    return this.state.discussions.map(discussion =>
+      this.props.permissions.moderate ? (
+        <ConnectedDraggableDiscussionRow
+          key={discussion.id}
+          discussion={discussion}
+          deleteDiscussion={this.props.deleteDiscussion}
+          getDiscussionPosition={this.getDiscussionPosition}
+          onMoveDiscussion={this.props.onMoveDiscussion}
+          moveCard={this.moveCard}
+          draggable
+        />
+      ) : (
+        <ConnectedDiscussionRow
+          key={discussion.id}
+          discussion={discussion}
+          deleteDiscussion={this.props.deleteDiscussion}
+          onMoveDiscussion={this.props.onMoveDiscussion}
+          draggable={false}
+        />
+      )
+    )
   }
 
   renderBackgroundImage() {
@@ -180,20 +191,30 @@ export class DiscussionsContainer extends Component {
     )
   }
 
-  render () {
-    return this.props.connectDropTarget (
+  render() {
+    return this.props.connectDropTarget(
       <div className="discussions-container__wrapper">
         <span ref={this.wrapperToggleRef}>
+          <ScreenReaderContent>
+            <Heading level="h2">{this.props.title}</Heading>
+          </ScreenReaderContent>
           <ToggleDetails
             expanded={this.state.expanded}
             onToggle={this.toggleExpanded}
-            summary={<Text weight="bold" as="h2">{this.props.title}</Text>}
+            summary={
+              <div aria-hidden="true">
+                <Text weight="bold">{this.props.title}</Text>
+              </div>
+            }
           >
-            {!this.props.pinned ?
-            <span className="recent-activity-text-container">
-              <Text fontStyle="italic">{I18n.t('Ordered by Recent Activity')}</Text>
-            </span> : null }
-            {this.props.discussions.length ? this.renderDiscussions() : this.renderBackgroundImage()}
+            {!this.props.pinned ? (
+              <span className="recent-activity-text-container">
+                <Text fontStyle="italic">{I18n.t('Ordered by Recent Activity')}</Text>
+              </span>
+            ) : null}
+            {this.props.discussions.length
+              ? this.renderDiscussions()
+              : this.renderBackgroundImage()}
           </ToggleDetails>
         </span>
       </div>
@@ -204,32 +225,32 @@ export class DiscussionsContainer extends Component {
 export const mapState = (state, ownProps) => {
   // Filter out any discussions that are filtered here to keep things simplier
   // in the render calls
-  const { discussions } = ownProps
-  const filteredDiscussions = discussions.filter((d) => !d.filtered)
+  const {discussions} = ownProps
+  const filteredDiscussions = discussions.filter(d => !d.filtered)
 
   const propsFromState = {
     contextId: state.contextId,
     deleteFocusPending: state.deleteFocusPending,
     discussions: filteredDiscussions,
-    permissions: state.permissions,
+    permissions: state.permissions
   }
-  return Object.assign({}, ownProps, propsFromState)
+  return {...ownProps, ...propsFromState}
 }
 
-const mapDispatch = (dispatch) => {
-  const actionKeys = [
-    'cleanDiscussionFocus',
-    'deleteFocusDone',
-    'handleDrop',
-  ]
+const mapDispatch = dispatch => {
+  const actionKeys = ['cleanDiscussionFocus', 'deleteFocusDone', 'handleDrop']
   return bindActionCreators(select(actions, actionKeys), dispatch)
 }
 
-export const DroppableDiscussionsContainer = DropTarget('Discussion', discussionTarget, (dragConnect, monitor) => ({
-  connectDropTarget: dragConnect.dropTarget(),
-  isOver: monitor.isOver(),
-  canDrop: monitor.canDrop(),
-}))(DiscussionsContainer)
+export const DroppableDiscussionsContainer = DropTarget(
+  'Discussion',
+  discussionTarget,
+  (dragConnect, monitor) => ({
+    connectDropTarget: dragConnect.dropTarget(),
+    isOver: monitor.isOver(),
+    canDrop: monitor.canDrop()
+  })
+)(DiscussionsContainer)
 
 export const ConnectedDiscussionsContainer = connect(
   mapState,

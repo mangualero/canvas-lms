@@ -1,10 +1,6 @@
 Breaking Changes
 ================
 
-The breaking changes page displays a comprehensive list of all deprecations noted in the <a href="file.changelog.html">API Change Log</a>.
-<p>
-Instructure may deprecate API elements according to the timelines indicated in the <a href="https://www.canvaslms.com/policies/api-policy">Canvas API Policy page</a>.
+As of 2019-12-04, the breaking changes page has moved to the Canvas Community. Please see the [Canvas API Breaking Changes page](https://community.canvaslms.com/docs/DOC-18008).
 
-<h2>Changes</h2>
-
-Currently there are no breaking Canvas API changes.
+This page will be removed from Canvas LMS API Documentation on 2020-03-25.

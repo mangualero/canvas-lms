@@ -26,7 +26,6 @@ describe "Blueprint association settings" do
   include BlueprintCourseCommon
 
   before :once do
-    Account.default.enable_feature!(:master_courses)
     account_admin_user(active_all: true)
 
     @master = course_factory(active_all: true)
@@ -80,9 +79,9 @@ describe "Blueprint association settings" do
     it "course search dropdowns are populated", priority: "2", test_id: 3072438 do
       open_associations
       open_courses_list
-      select_boxes = ff('.bca-course-filter select')
-      expect(select_boxes[0]).to include_text("Default Term")
-      expect(select_boxes[1]).to include_text("sub account 0")
+
+      expect(term_options).to include 'Default Term'
+      expect(sub_account_options).to include 'sub account 0'
     end
   end
 end

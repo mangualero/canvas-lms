@@ -76,7 +76,7 @@ describe ContentMigration do
       @cm.save!
       run_course_copy
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to eq topic.message
       expect(@copy_to.syllabus_body).to match(/\/courses\/#{@copy_to.id}\/discussion_topics\/#{new_topic.id}/)
@@ -124,10 +124,10 @@ describe ContentMigration do
 
       run_course_copy
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
     end
@@ -140,10 +140,10 @@ describe ContentMigration do
 
       run_course_copy
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
 
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
@@ -158,7 +158,7 @@ describe ContentMigration do
       run_course_copy
 
       @copy_to.enroll_student(student)
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).to be_present
 
       expect(new_att.grants_right?(student, :download)).to be_falsey
@@ -177,6 +177,22 @@ describe ContentMigration do
       tag_to = mod1_to.content_tags.first
       page_to = @copy_to.wiki_pages.where(migration_id: mig_id(page)).first
       expect(page_to.body).to eq body % [@copy_to.id, tag_to.id]
+    end
+
+    it "should translate links to assignments with module item id" do
+      mod1 = @copy_from.context_modules.create!(:name => "some module")
+      asmnt1 = @copy_from.assignments.create!(:title => "some assignment")
+      tag = mod1.add_item({:id => asmnt1.id, :type => 'assignment', :indent => 1})
+      body = %{<p>Link to module item: <a href="/courses/%s/assignments/%s?module_item_id=%s">some assignment</a></p>}
+      page = @copy_from.wiki_pages.create!(:title => "some page", :body => body % [@copy_from.id, asmnt1.id, tag.id])
+
+      run_course_copy
+
+      mod1_to = @copy_to.context_modules.where(migration_id: mig_id(mod1)).first
+      asmnt_to = @copy_to.assignments.where(migration_id: mig_id(asmnt1)).first
+      tag_to = mod1_to.content_tags.first
+      page_to = @copy_to.wiki_pages.where(migration_id: mig_id(page)).first
+      expect(page_to.body).to eq body % [@copy_to.id, asmnt_to.id, tag_to.id]
     end
 
     it "should translate links to modules in quiz content" do
@@ -404,6 +420,7 @@ describe ContentMigration do
       #set all the possible values to non-default values
       @copy_from.start_at = 5.minutes.ago
       @copy_from.conclude_at = 1.month.from_now
+      @copy_from.restrict_enrollments_to_course_dates = true
       @copy_from.is_public = false
       @copy_from.name = "haha copy from test &amp;"
       @copy_from.course_code = 'something funny'
@@ -431,12 +448,14 @@ describe ContentMigration do
       @copy_from.public_syllabus = true
       @copy_from.public_syllabus_to_auth = true
       @copy_from.lock_all_announcements = true
+      @copy_from.usage_rights_required = true
       @copy_from.allow_student_discussion_editing = false
       @copy_from.restrict_student_future_view = true
       @copy_from.restrict_student_past_view = true
       @copy_from.show_total_grade_as_points = true
       @copy_from.organize_epub_by_content_type = true
       @copy_from.enable_offline_web_export = true
+      @copy_from.is_public_to_auth_users = true
       @copy_from.save!
 
       run_course_copy
@@ -444,6 +463,7 @@ describe ContentMigration do
       #compare settings
       expect(@copy_to.conclude_at).to eq nil
       expect(@copy_to.start_at).to eq nil
+      expect(@copy_to.restrict_enrollments_to_course_dates).to eq true
       expect(@copy_to.storage_quota).to eq 444
       expect(@copy_to.hide_final_grades).to eq true
       expect(@copy_to.grading_standard_enabled).to eq true
@@ -459,6 +479,21 @@ describe ContentMigration do
         expect(@copy_to.send(att)).to eq(@copy_from.send(att)), "@copy_to.#{att}: expected #{@copy_from.send(att)}, got #{@copy_to.send(att)}"
       end
       expect(@copy_to.tab_configuration).to eq @copy_from.tab_configuration
+    end
+
+    it "should copy the overridable course visibility setting" do
+      visibility_type = "superfunvisibility"
+      allow_any_instantiation_of(@copy_from.root_account).to receive(:available_course_visibility_override_options).
+        and_return({visibility_type=> {:setting => "Some label"}})
+      @copy_from.apply_visibility_configuration(visibility_type, nil)
+      @copy_from.save!
+      run_course_copy
+      expect(@copy_to.reload.overridden_course_visibility).to eq visibility_type
+
+      @copy_from.apply_visibility_configuration('public', nil)
+      @copy_from.save!
+      run_course_copy
+      expect(@copy_to.reload.overridden_course_visibility).to be_blank
     end
 
     it "should copy dashboard images" do
@@ -590,6 +625,17 @@ describe ContentMigration do
       expect(@copy_to.reload.syllabus_body).to include "/courses/#{@copy_to.id}/files/#{att2.id}/download"
     end
 
+    it "should copy weird longdesc things" do
+      page = @copy_from.wiki_pages.create!(:title => "page")
+      @copy_from.syllabus_body = "<img longdesc=\"/courses/#{@copy_from.id}/pages/#{page.url}/>"
+      @copy_from.save!
+
+      run_course_copy
+
+      page2 = @copy_to.wiki_pages.where(:migration_id => mig_id(page)).first
+      expect(@copy_to.reload.syllabus_body).to include "/courses/#{@copy_to.id}/pages/#{page2.url}"
+    end
+
     it "should re-use kaltura media objects" do
       expect {
         media_id = '0_deadbeef'
@@ -626,7 +672,7 @@ describe ContentMigration do
       run_course_copy
 
       expect(@copy_to.calendar_events.count).to eq 2
-      cal_2 = @copy_to.calendar_events.where(migration_id: CC::CCHelper.create_key(cal)).first
+      cal_2 = @copy_to.calendar_events.where(migration_id: mig_id(cal)).first
       expect(cal_2.title).to eq cal.title
       expect(cal_2.start_at.to_i).to eq cal.start_at.to_i
       expect(cal_2.end_at.to_i).to eq cal.end_at.to_i
@@ -634,7 +680,7 @@ describe ContentMigration do
       expect(cal_2.all_day_date).to eq cal.all_day_date
       cal_2.description = body_with_link % @copy_to.id
 
-      cal2_2 = @copy_to.calendar_events.where(migration_id: CC::CCHelper.create_key(cal2)).first
+      cal2_2 = @copy_to.calendar_events.where(migration_id: mig_id(cal2)).first
       expect(cal2_2.title).to eq cal2.title
       expect(cal2_2.start_at.to_i).to eq cal2.start_at.to_i
       expect(cal2_2.end_at.to_i).to eq cal2.end_at.to_i
@@ -652,10 +698,10 @@ describe ContentMigration do
         run_course_copy
       }.to raise_error(ArgumentError)
 
-      new_att = @copy_to.attachments.where(migration_id: CC::CCHelper.create_key(att)).first
+      new_att = @copy_to.attachments.where(migration_id: mig_id(att)).first
       expect(new_att).not_to be_nil
 
-      new_topic = @copy_to.discussion_topics.where(migration_id: CC::CCHelper.create_key(topic)).first
+      new_topic = @copy_to.discussion_topics.where(migration_id: mig_id(topic)).first
       expect(new_topic).not_to be_nil
       expect(new_topic.message).to match(Regexp.new("/courses/#{@copy_to.id}/files/#{new_att.id}/preview"))
     end

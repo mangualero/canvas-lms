@@ -33,7 +33,7 @@ describe SearchController do
       group.users = [@user, other]
 
       get 'recipients', params: {:search => 'this_is_a_test_'}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to include(@course.name)
       expect(response.body).to include(group.name)
       expect(response.body).to include(other.name)
@@ -49,7 +49,7 @@ describe SearchController do
       group.users << other
 
       get 'recipients', params: {:context => @course.asset_string, :per_page => '1', :type => 'user'}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to include('billy')
       expect(response.body).not_to include('bob')
     end
@@ -65,7 +65,7 @@ describe SearchController do
         :search => 'b', :type => 'user', :skip_visibility_checks => true,
         :synthetic_contexts => true, :context => "course_#{@course.id}_students"
       }
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response.body).to include('bob')
       expect(response.body).to include('billy')
     end
@@ -77,7 +77,7 @@ describe SearchController do
       @course2.enroll_student(@user).accept
       @course2.update_attribute(:name, "course2")
       term = @course2.root_account.enrollment_terms.create! :name => "Fall", :end_at => 1.day.ago
-      @course2.update_attributes! :enrollment_term => term
+      @course2.update! :enrollment_term => term
       get 'recipients', params: {search: 'course', :messageable_only => true}
       expect(response.body).to include('course1')
       expect(response.body).not_to include('course2')
@@ -85,7 +85,7 @@ describe SearchController do
 
     it "should return an empty list when searching in a non-messageable context" do
       course_with_student_logged_in(:active_all => true)
-      @enrollment.update_attributes(workflow_state: 'deleted')
+      @enrollment.update(workflow_state: 'deleted')
       get 'recipients', params: {search: 'foo', :context => @course.asset_string}
       expect(response.body).to match /\[\]\z/
     end
@@ -95,7 +95,7 @@ describe SearchController do
       group = @course.groups.create(:name => 'this_is_a_test_group')
       group.users = [@user]
       get 'recipients', params: {:search => '', :type => 'context'}
-      expect(response).to be_success
+      expect(response).to be_successful
       # This is questionable legacy behavior.
       expect(response.body).to include(group.name)
     end
@@ -104,7 +104,7 @@ describe SearchController do
       it "should return nothing if the user doesn't have rights" do
         user_session(user_factory)
         course_factory(active_all: true).course_sections.create(:name => "other section")
-        expect(response).to be_success
+        expect(response).to be_successful
 
         get 'recipients', params: {
           :type => 'section', :skip_visibility_checks => true,
@@ -122,7 +122,7 @@ describe SearchController do
           :type => 'section', :skip_visibility_checks => true,
           :synthetic_contexts => true, :context => "course_#{@course.id}_sections"
         }
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(response.body).to include('other section')
       end
 

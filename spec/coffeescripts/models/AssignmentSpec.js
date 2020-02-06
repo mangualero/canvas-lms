@@ -17,7 +17,7 @@
  */
 
 import $ from 'jquery'
-import React from 'react'
+import 'jquery.ajaxJSON'
 import Assignment from 'compiled/models/Assignment'
 import Submission from 'compiled/models/Submission'
 import DateGroup from 'compiled/models/DateGroup'
@@ -95,12 +95,150 @@ test('returns false if record is discussion topic', () => {
   equal(assignment.isDiscussionTopic(), false)
 })
 
+QUnit.module('default submission types', {
+  setup() {
+    fakeENV.setup({
+      DEFAULT_ASSIGNMENT_TOOL_NAME: 'Default Tool',
+      DEFAULT_ASSIGNMENT_TOOL_URL: 'https://www.test.com/blti'
+    })
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
+
+test('defaultToNone returns true if submission type is "none"', () => {
+  const assignment = new Assignment({name: 'foo'})
+  assignment.submissionTypes(['none'])
+  equal(assignment.defaultToNone(), true)
+})
+
+test('defaultToNone returns false if default tool configured and new assignment', () => {
+  const assignment = new Assignment()
+  equal(assignment.defaultToNone(), false)
+})
+
+test('defaultToOnline returns true if submission type is "online"', () => {
+  const assignment = new Assignment({name: 'foo'})
+  assignment.submissionTypes(['online'])
+  equal(assignment.defaultToOnline(), true)
+})
+
+test('defaultToOnline returns false if default tool configured and new assignment', () => {
+  const assignment = new Assignment()
+  equal(assignment.defaultToOnline(), false)
+})
+
+test('defaultToOnPaper returns true if submission type is "on_paper"', () => {
+  const assignment = new Assignment({name: 'foo'})
+  assignment.submissionTypes(['on_paper'])
+  equal(assignment.defaultToOnPaper(), true)
+})
+
+test('defaultToOnPaper returns false if default tool configured and new assignment', () => {
+  const assignment = new Assignment()
+  equal(assignment.defaultToOnPaper(), false)
+})
+
+QUnit.module('Assignment#isDefaultTool', {
+  setup() {
+    fakeENV.setup({
+      DEFAULT_ASSIGNMENT_TOOL_NAME: 'Default Tool',
+      DEFAULT_ASSIGNMENT_TOOL_URL: 'https://www.test.com/blti'
+    })
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
+
+test('returns true if submissionType is "external_tool" and default tool is selected', () => {
+  const assignment = new Assignment({
+    name: 'foo',
+    external_tool_tag_attributes: {
+      url: 'https://www.test.com/blti?foo'
+    }
+  })
+  assignment.submissionTypes(['external_tool'])
+  equal(assignment.isDefaultTool(), true)
+})
+
+QUnit.module('Assignment#isNonDefaultExternalTool', {
+  setup() {
+    fakeENV.setup({
+      DEFAULT_ASSIGNMENT_TOOL_NAME: 'Default Tool',
+      DEFAULT_ASSIGNMENT_TOOL_URL: 'https://www.test.com/blti'
+    })
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
+
+test('returns true if submissionType is "default_external_tool"', () => {
+  const assignment = new Assignment({name: 'foo'})
+  assignment.submissionTypes(['default_external_tool'])
+  equal(assignment.isDefaultTool(), true)
+})
+
+test('returns true when submissionType is "external_tool" and non default tool is selected', () => {
+  const assignment = new Assignment({
+    name: 'foo',
+    external_tool_tag_attributes: {
+      url: 'https://www.non-default.com/blti?foo'
+    }
+  })
+  assignment.submissionTypes(['external_tool'])
+  equal(assignment.isNonDefaultExternalTool(), true)
+})
+
+test('returns true when submissionType is "external_tool"', () => {
+  const assignment = new Assignment({name: 'foo'})
+  assignment.submissionTypes(['external_tool'])
+  equal(assignment.isNonDefaultExternalTool(), true)
+})
+
 QUnit.module('Assignment#isExternalTool')
 
 test('returns true if record is external tool', () => {
   const assignment = new Assignment({name: 'foo'})
   assignment.submissionTypes(['external_tool'])
   equal(assignment.isExternalTool(), true)
+})
+
+QUnit.module('Assignment#defaultToolName', {
+  setup() {
+    fakeENV.setup({
+      DEFAULT_ASSIGNMENT_TOOL_NAME: 'Default Tool <a href="https://www.somethingbad.com">'
+    })
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
+
+test('escapes the name retrieved from the js env', () => {
+  const assignment = new Assignment({name: 'foo'})
+  equal(
+    assignment.defaultToolName(),
+    'Default Tool %3Ca href%3D%22https%3A//www.somethingbad.com%22%3E'
+  )
+})
+
+QUnit.module('Assignment#defaultToolName', {
+  setup() {
+    fakeENV.setup({
+      DEFAULT_ASSIGNMENT_TOOL_NAME: undefined
+    })
+  },
+  teardown() {
+    fakeENV.teardown()
+  }
+})
+
+test('does not convert undefined to string', () => {
+  const assignment = new Assignment({name: 'foo'})
+  equal(assignment.defaultToolName(), undefined)
 })
 
 test('returns false if record is not external tool', () => {
@@ -168,12 +306,12 @@ QUnit.module('Assignment#moderatedGrading', () => {
   })
 
   test('returns false if the moderated_grading attribute is set to false', () => {
-    const assignment = new Assignment({ moderated_grading: false })
+    const assignment = new Assignment({moderated_grading: false})
     strictEqual(assignment.moderatedGrading(), false)
   })
 
   test('returns true if the moderated_grading attribute is set to true', () => {
-    const assignment = new Assignment({ moderated_grading: true })
+    const assignment = new Assignment({moderated_grading: true})
     strictEqual(assignment.moderatedGrading(), true)
   })
 })
@@ -737,7 +875,7 @@ QUnit.module('Assignment#singleSectionDueDate', {
   }
 })
 
-test('gets the due date for section instead of null', function() {
+test('gets the due date for section instead of null', () => {
   const dueAt = new Date('2013-11-27T11:01:00Z')
   const assignment = new Assignment({
     all_dates: [
@@ -751,7 +889,7 @@ test('gets the due date for section instead of null', function() {
       }
     ]
   })
-  this.stub(assignment, 'multipleDueDates').returns(false)
+  sandbox.stub(assignment, 'multipleDueDates').returns(false)
   equal(assignment.singleSectionDueDate(), dueAt.toISOString())
 })
 
@@ -948,7 +1086,7 @@ test('includes allDates', () => {
   equal(json.allDates.length, 2)
 })
 
-test('includes singleSectionDueDate', function() {
+test('includes singleSectionDueDate', () => {
   const dueAt = new Date('2013-11-27T11:01:00Z')
   const assignment = new Assignment({
     all_dates: [
@@ -962,7 +1100,7 @@ test('includes singleSectionDueDate', function() {
       }
     ]
   })
-  this.stub(assignment, 'multipleDueDates').returns(false)
+  sandbox.stub(assignment, 'multipleDueDates').returns(false)
   const json = assignment.toView()
   equal(json.singleSectionDueDate, dueAt.toISOString())
 })
@@ -1065,6 +1203,17 @@ test('returns the original assignment id', () => {
   equal(assignment.originalAssignmentID(), originalAssignmentID)
 })
 
+QUnit.module('Assignment#originalCourseID')
+
+test('returns the original assignment id', () => {
+  const originalCourseID = '42'
+  const assignment = new Assignment({
+    name: 'foo',
+    original_course_id: originalCourseID
+  })
+  equal(assignment.originalCourseID(), originalCourseID)
+})
+
 QUnit.module('Assignment#originalAssignmentName')
 
 test('returns the original assignment name', () => {
@@ -1113,12 +1262,12 @@ test('returns false if record is frozen', () => {
   equal(assignment.canFreeze(), false)
 })
 
-test('returns false if record uses quizzes 2', function() {
+test('returns false if record uses quizzes 2', () => {
   const assignment = new Assignment({
     name: 'foo',
     frozen_attributes: []
   })
-  this.stub(assignment, 'isQuizLTIAssignment').returns(true)
+  sandbox.stub(assignment, 'isQuizLTIAssignment').returns(true)
   equal(assignment.canFreeze(), false)
 })
 
@@ -1134,12 +1283,55 @@ test('returns true if submission_types are in frozenAttributes', () => {
   equal(assignment.submissionTypesFrozen(), true)
 })
 
+QUnit.module('Assignment#duplicate_failed')
+
+test('make ajax call with right url when duplicate_failed is called', () => {
+  const assignmentID = '200'
+  const originalAssignmentID = '42'
+  const courseID = '123'
+  const originalCourseID = '234'
+  const assignment = new Assignment({
+    name: 'foo',
+    id: assignmentID,
+    original_assignment_id: originalAssignmentID,
+    course_id: courseID,
+    original_course_id: originalCourseID
+  })
+  const spy = sandbox.spy($, 'ajaxJSON')
+  assignment.duplicate_failed()
+  ok(
+    spy.withArgs(
+      `/api/v1/courses/${originalCourseID}/assignments/${originalAssignmentID}/duplicate?target_assignment_id=${assignmentID}&target_course_id=${courseID}`
+    ).calledOnce
+  )
+})
+
+QUnit.module('Assignment#retry_migration')
+
+test('make ajax call with right url when retry_migration is called', () => {
+  const assignmentID = '200'
+  const originalQuizID = '42'
+  const courseID = '123'
+  const assignment = new Assignment({
+    name: 'foo',
+    id: assignmentID,
+    original_quiz_id: originalQuizID,
+    course_id: courseID
+  })
+  const spy = sandbox.spy($, 'ajaxJSON')
+  assignment.retry_migration()
+  ok(
+    spy.withArgs(
+      `/api/v1/courses/${courseID}/content_exports?export_type=quizzes2&quiz_id=${originalQuizID}&failed_assignment_id=${assignmentID}&include[]=migrated_assignment`
+    ).calledOnce
+  )
+})
 
 QUnit.module('Assignment#pollUntilFinishedDuplicating', {
   setup() {
     this.clock = sinon.useFakeTimers()
-    this.assignment = new Assignment({ workflow_state: 'duplicating' })
-    this.stub(this.assignment, 'fetch').returns($.Deferred().resolve())
+    this.assignment = new Assignment({workflow_state: 'duplicating'})
+    sandbox.stub(this.assignment, 'fetch').returns($.Deferred().resolve())
   },
   teardown() {
     this.clock.restore()
@@ -1154,9 +1346,9 @@ test('polls for updates', function() {
   ok(this.assignment.fetch.called)
 })
 
-test('stops polling when the assignment has finished duplicating', function () {
+test('stops polling when the assignment has finished duplicating', function() {
   this.assignment.pollUntilFinishedDuplicating()
-  this.assignment.set({ workflow_state: 'unpublished' })
+  this.assignment.set({workflow_state: 'unpublished'})
   this.clock.tick(3000)
   ok(this.assignment.fetch.calledOnce)
   this.clock.tick(3000)
@@ -1166,8 +1358,8 @@ test('stops polling when the assignment has finished duplicating', function () {
 QUnit.module('Assignment#pollUntilFinishedImporting', {
   setup() {
     this.clock = sinon.useFakeTimers()
-    this.assignment = new Assignment({ workflow_state: 'importing' })
-    this.stub(this.assignment, 'fetch').returns($.Deferred().resolve())
+    this.assignment = new Assignment({workflow_state: 'importing'})
+    sandbox.stub(this.assignment, 'fetch').returns($.Deferred().resolve())
   },
   teardown() {
     this.clock.restore()
@@ -1182,106 +1374,113 @@ test('polls for updates', function() {
   ok(this.assignment.fetch.called)
 })
 
-test('stops polling when the assignment has finished importing', function () {
+test('stops polling when the assignment has finished importing', function() {
   this.assignment.pollUntilFinishedImporting()
-  this.assignment.set({ workflow_state: 'unpublished' })
+  this.assignment.set({workflow_state: 'unpublished'})
   this.clock.tick(3000)
   ok(this.assignment.fetch.calledOnce)
   this.clock.tick(3000)
   ok(this.assignment.fetch.calledOnce)
 })
 
+QUnit.module('Assignment#pollUntilFinishedMigrating', {
+  setup() {
+    this.clock = sinon.useFakeTimers()
+    this.assignment = new Assignment({workflow_state: 'migrating'})
+    sandbox.stub(this.assignment, 'fetch').returns($.Deferred().resolve())
+  },
+  teardown() {
+    this.clock.restore()
+  }
+})
 
-QUnit.module('Assignment#renderModeratedGradingFormFieldGroup', (hooks) => {
-  const fixtures = document.getElementById('fixtures')
-  const availableModerators = [{ name: 'John Doe', id: '21' }, { name: 'Jane Doe', id: '89' }]
-  const mountPointID = 'ModeratedGradingFormFieldGroup'
+test('polls for updates', function() {
+  this.assignment.pollUntilFinishedMigrating()
+  this.clock.tick(2000)
+  notOk(this.assignment.fetch.called)
+  this.clock.tick(2000)
+  ok(this.assignment.fetch.called)
+})
+
+test('stops polling when the assignment has finished migrating', function() {
+  this.assignment.pollUntilFinishedMigrating()
+  this.assignment.set({workflow_state: 'unpublished'})
+  this.clock.tick(3000)
+  ok(this.assignment.fetch.calledOnce)
+  this.clock.tick(3000)
+  ok(this.assignment.fetch.calledOnce)
+})
+
+QUnit.module('Assignment#gradersAnonymousToGraders', hooks => {
+  let assignment
 
   hooks.beforeEach(() => {
-    fakeENV.setup({
-      ANONYMOUS_MODERATED_MARKING_ENABLED: false,
-      AVAILABLE_MODERATORS: availableModerators,
-      HAS_GRADED_SUBMISSIONS: false,
-      LOCALE: 'en',
-      MODERATED_GRADING_MAX_GRADER_COUNT: 7
-    })
-    fixtures.innerHTML = `<span data-component="${mountPointID}"></span>`
+    assignment = new Assignment()
   })
 
-  hooks.afterEach(() => {
-    fixtures.innerHTML = ''
+  test('returns graders_anonymous_to_graders on the record if no arguments are passed', () => {
+    assignment.set('graders_anonymous_to_graders', true)
+    equal(assignment.gradersAnonymousToGraders(), true)
   })
 
-  test('renders the moderated grading form field group', () => {
-    const assignment = new Assignment()
-    assignment.renderModeratedGradingFormFieldGroup()
-    strictEqual(document.getElementsByClassName('ModeratedGrading__Container').length, 1)
+  test('sets the graders_anonymous_to_graders value if an argument is passed', () => {
+    assignment.set('graders_anonymous_to_graders', true)
+    assignment.gradersAnonymousToGraders(false)
+    equal(assignment.gradersAnonymousToGraders(), false)
+  })
+})
+
+QUnit.module('Assignment#graderCommentsVisibleToGraders', hooks => {
+  let assignment
+
+  hooks.beforeEach(() => {
+    assignment = new Assignment()
   })
 
-  test('passes the final_grader_id as a prop to the component', () => {
-    const assignment = new Assignment()
-    assignment.set('final_grader_id', '293')
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.finalGraderID, '293')
-    React.createElement.restore()
+  test('returns grader_comments_visible_to_graders on the record if no arguments are passed', () => {
+    assignment.set('grader_comments_visible_to_graders', true)
+    equal(assignment.graderCommentsVisibleToGraders(), true)
   })
 
-  test('passes moderated_grading as a prop to the component', () => {
-    const assignment = new Assignment()
+  test('sets the grader_comments_visible_to_graders value if an argument is passed', () => {
+    assignment.set('grader_comments_visible_to_graders', true)
+    assignment.graderCommentsVisibleToGraders(false)
+    equal(assignment.graderCommentsVisibleToGraders(), false)
+  })
+})
+
+QUnit.module('Assignment#showGradersAnonymousToGradersCheckbox', hooks => {
+  let assignment
+
+  hooks.beforeEach(() => {
+    assignment = new Assignment()
+  })
+
+  test('returns false if grader_comments_visible_to_graders is false', () => {
+    assignment.set('grader_comments_visible_to_graders', false)
+    equal(assignment.showGradersAnonymousToGradersCheckbox(), false)
+  })
+
+  test('returns false if moderated_grading is false', () => {
+    assignment.set('moderated_grading', false)
+    equal(assignment.showGradersAnonymousToGradersCheckbox(), false)
+  })
+
+  test('returns false if grader_comments_visible_to_graders is false and moderated_grading is true', () => {
+    assignment.set('grader_comments_visible_to_graders', false)
     assignment.set('moderated_grading', true)
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.moderatedGradingEnabled, true)
-    React.createElement.restore()
+    equal(assignment.showGradersAnonymousToGradersCheckbox(), false)
   })
 
-  test('passes available moderators in the ENV as a prop to the component', () => {
-    const assignment = new Assignment()
+  test('returns false if grader_comments_visible_to_graders is true and moderated_grading is false', () => {
+    assignment.set('grader_comments_visible_to_graders', true)
+    assignment.set('moderated_grading', false)
+    equal(assignment.showGradersAnonymousToGradersCheckbox(), false)
+  })
+
+  test('returns true if grader_comments_visible_to_graders is true and moderated_grading is true', () => {
+    assignment.set('grader_comments_visible_to_graders', true)
     assignment.set('moderated_grading', true)
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.availableModerators, availableModerators)
-    React.createElement.restore()
-  })
-
-  test('passes max grader count in the ENV as a prop to the component', () => {
-    const assignment = new Assignment()
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.maxGraderCount, ENV.MODERATED_GRADING_MAX_GRADER_COUNT)
-    React.createElement.restore()
-  })
-
-  test('passes locale in the ENV as a prop to the component', () => {
-    const assignment = new Assignment()
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.locale, ENV.LOCALE)
-    React.createElement.restore()
-  })
-
-  test('passes HAS_GRADED_SUBMISSIONS in the ENV as a prop to the component', () => {
-    const assignment = new Assignment()
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.gradedSubmissionsExist, ENV.HAS_GRADED_SUBMISSIONS)
-    React.createElement.restore()
-  })
-
-  test('passes current grader count as a prop to the component', () => {
-    const assignment = new Assignment()
-    assignment.set('grader_count', 4)
-    sinon.spy(React, 'createElement')
-    assignment.renderModeratedGradingFormFieldGroup()
-    const [,props] = React.createElement.getCall(0).args
-    strictEqual(props.currentGraderCount, 4)
-    React.createElement.restore()
+    equal(assignment.showGradersAnonymousToGradersCheckbox(), true)
   })
 })

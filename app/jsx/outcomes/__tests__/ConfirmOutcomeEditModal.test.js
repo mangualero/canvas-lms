@@ -15,89 +15,122 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
+import sinon from 'sinon'
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { shallow } from 'enzyme'
-import { merge } from 'lodash'
-import ConfirmOutcomeEditModal, { showConfirmOutcomeEdit } from '../ConfirmOutcomeEditModal'
-import { ModalBody, ModalFooter } from '../../shared/components/InstuiModal'
+import {shallow} from 'enzyme'
+import {merge} from 'lodash'
+import ConfirmOutcomeEditModal, {showConfirmOutcomeEdit} from '../ConfirmOutcomeEditModal'
+import Modal from '../../shared/components/InstuiModal'
 
-const defaultProps = (props = {}) => (
-  merge({
-    changed: true,
-    assessed: true,
-    hasUpdateableRubrics: false,
-    modifiedFields: {
-      masteryPoints: false,
-      scoringMethod: false
+const defaultProps = (props = {}) =>
+  merge(
+    {
+      changed: true,
+      assessed: true,
+      hasUpdateableRubrics: false,
+      modifiedFields: {
+        masteryPoints: false,
+        scoringMethod: false
+      },
+      parent: () => {},
+      onConfirm: () => {}
     },
-    parent: () => {},
-    onConfirm: () => {},
-  }, props)
-)
+    props
+  )
 
 it('renders the ConfirmOutcomeEditModal component', () => {
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ hasUpdateableRubrics: true })} />)
+  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({hasUpdateableRubrics: true})} />)
   expect(modal.exists()).toBe(true)
 })
 
 it('renders the rubrics text if hasUpdateableRubrics', () => {
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ hasUpdateableRubrics: true })} />)
-  expect(modal.find(ModalBody).render().text()).toMatch(/update all rubrics/)
+  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({hasUpdateableRubrics: true})} />)
+  expect(
+    modal
+      .find(Modal.Body)
+      .render()
+      .text()
+  ).toMatch(/update all rubrics/)
 })
 
 it('renders the masteryPoints text if mastery points modified', () => {
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ modifiedFields: { masteryPoints: true } })} />)
-  expect(modal.find(ModalBody).render().text()).toMatch(/scoring criteria/)
+  const modal = shallow(
+    <ConfirmOutcomeEditModal {...defaultProps({modifiedFields: {masteryPoints: true}})} />
+  )
+  expect(
+    modal
+      .find(Modal.Body)
+      .render()
+      .text()
+  ).toMatch(/scoring criteria/)
 })
 
 it('renders the scoring method text if scoring method modified', () => {
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ modifiedFields: { scoringMethod: true } })} />)
-  expect(modal.find(ModalBody).render().text()).toMatch(/scoring criteria/)
+  const modal = shallow(
+    <ConfirmOutcomeEditModal {...defaultProps({modifiedFields: {scoringMethod: true}})} />
+  )
+  expect(
+    modal
+      .find(Modal.Body)
+      .render()
+      .text()
+  ).toMatch(/scoring criteria/)
 })
 
 it('does not call onConfirm when canceled', () => {
   const onConfirm = jest.fn()
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ hasUpdateableRubrics: true, onConfirm })} />)
-  modal.find(ModalFooter).shallow().find('#cancel-outcome-edit-modal').simulate('click')
+  const modal = shallow(
+    <ConfirmOutcomeEditModal {...defaultProps({hasUpdateableRubrics: true, onConfirm})} />
+  )
+  modal
+    .find(Modal.Footer)
+    .find('#cancel-outcome-edit-modal')
+    .simulate('click')
   expect(modal.state('show')).toBe(false)
-  expect(onConfirm).not.toBeCalled()
+  expect(onConfirm).not.toHaveBeenCalled()
 })
 
 it('calls onConfirm when saved', () => {
   const onConfirm = jest.fn()
-  const modal = shallow(<ConfirmOutcomeEditModal {...defaultProps({ hasUpdateableRubrics: true, onConfirm })} />)
+  const modal = shallow(
+    <ConfirmOutcomeEditModal {...defaultProps({hasUpdateableRubrics: true, onConfirm})} />
+  )
 
   jest.useFakeTimers()
-  modal.find(ModalFooter).find('#confirm-outcome-edit-modal').simulate('click')
+  modal
+    .find(Modal.Footer)
+    .find('#confirm-outcome-edit-modal')
+    .simulate('click')
   jest.runAllTimers()
 
   expect(modal.state('show')).toBe(false)
-  expect(onConfirm).toBeCalled()
+  expect(onConfirm).toHaveBeenCalled()
 })
 
 describe('showConfirmOutcomeEdit', () => {
   afterEach(() => {
     const parent = document.querySelector('.confirm-outcome-edit-modal-container')
     if (parent) {
+      const skipScroll = sinon.stub(window, 'scroll').callsFake(() => {})
       ReactDOM.unmountComponentAtNode(parent)
       parent.remove()
+      skipScroll.restore()
     }
   })
 
-  const doesNotRenderFor = (props) => {
+  const doesNotRenderFor = props => {
     const onConfirm = jest.fn()
 
     jest.useFakeTimers()
-    showConfirmOutcomeEdit({ ...props, onConfirm })
+    showConfirmOutcomeEdit({...props, onConfirm})
     jest.runAllTimers()
 
-    expect(onConfirm).toBeCalled()
+    expect(onConfirm).toHaveBeenCalled()
     expect(document.querySelector('.confirm-outcome-edit-modal-container')).toBeNull()
   }
 
-  const rendersFor = (props) => {
+  const rendersFor = props => {
     const app = document.createElement('div')
     app.setAttribute('id', 'application')
     document.body.appendChild(app)
@@ -105,10 +138,10 @@ describe('showConfirmOutcomeEdit', () => {
     const onConfirm = jest.fn()
 
     jest.useFakeTimers()
-    showConfirmOutcomeEdit({ ...props, onConfirm })
+    showConfirmOutcomeEdit({...props, onConfirm})
     jest.runAllTimers()
 
-    expect(onConfirm).not.toBeCalled()
+    expect(onConfirm).not.toHaveBeenCalled()
     expect(document.querySelector('.confirm-outcome-edit-modal-container')).not.toBeNull()
   }
 
@@ -117,22 +150,22 @@ describe('showConfirmOutcomeEdit', () => {
   })
 
   it('renders a dialog if has updateable rubrics', () => {
-    rendersFor(defaultProps({ hasUpdateableRubrics: true }))
+    rendersFor(defaultProps({hasUpdateableRubrics: true}))
   })
 
   it('does not render a dialog if not assessed', () => {
-    doesNotRenderFor(defaultProps({ assessed: false, modifiedFields: { masteryPoints: true }}))
+    doesNotRenderFor(defaultProps({assessed: false, modifiedFields: {masteryPoints: true}}))
   })
 
   it('renders a dialog if masteryPoints modified', () => {
-    rendersFor(defaultProps({ modifiedFields: { masteryPoints: true } }))
+    rendersFor(defaultProps({modifiedFields: {masteryPoints: true}}))
   })
 
   it('renders a dialog if scoringMethod modified', () => {
-    rendersFor(defaultProps({ modifiedFields: { scoringMethod: true } }))
+    rendersFor(defaultProps({modifiedFields: {scoringMethod: true}}))
   })
 
   it('does not render a dialog if unchanged', () => {
-    doesNotRenderFor(defaultProps({ changed: false }))
+    doesNotRenderFor(defaultProps({changed: false}))
   })
 })

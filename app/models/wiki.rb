@@ -22,6 +22,8 @@ class Wiki < ActiveRecord::Base
   has_many :wiki_pages, :dependent => :destroy
 
   before_save :set_has_no_front_page_default
+  after_update :set_downstream_change_for_master_courses
+
   after_save :update_contexts
 
   has_one :course
@@ -35,6 +37,26 @@ class Wiki < ActiveRecord::Base
     end
   end
   private :set_has_no_front_page_default
+
+  # some hacked up stuff similar to what's in MasterCourses::Restrictor
+  def load_tag_for_master_course_import!(child_subscription_id)
+    @child_tag_for_import = MasterCourses::ChildContentTag.all.polymorphic_where(:content => self).first ||
+      MasterCourses::ChildContentTag.create(:content => self, :child_subscription_id => child_subscription_id)
+  end
+
+  def can_update_front_page_for_master_courses?
+    !@child_tag_for_import.downstream_changes.include?("front_page_url")
+  end
+
+  def set_downstream_change_for_master_courses
+    if self.saved_change_to_front_page_url? && !@child_tag_for_import
+      child_tag = MasterCourses::ChildContentTag.all.polymorphic_where(:content => self).first
+      if child_tag
+        child_tag.downstream_changes = ["front_page_url"]
+        child_tag.save! if child_tag.changed?
+      end
+    end
+  end
 
   def update_contexts
     self.context.try(:touch)
@@ -91,6 +113,8 @@ class Wiki < ActiveRecord::Base
       self.context.save
     end
 
+    self.front_page.touch if self.front_page&.persisted?
+
     self.front_page_url = nil
     self.has_no_front_page = true
     self.save
@@ -138,21 +162,23 @@ class Wiki < ActiveRecord::Base
   end
 
   def self.wiki_for_context(context)
-    context.transaction do
-      # otherwise we lose dirty changes
-      context.save! if context.changed?
-      context.lock!
-      return context.wiki if context.wiki_id
-      # TODO i18n
-      t :default_course_wiki_name, "%{course_name} Wiki", :course_name => nil
-      t :default_group_wiki_name, "%{group_name} Wiki", :group_name => nil
+    Shackles.activate(:master) do
+      context.transaction do
+        # otherwise we lose dirty changes
+        context.save! if context.changed?
+        context.lock!
+        return context.wiki if context.wiki_id
+        # TODO i18n
+        t :default_course_wiki_name, "%{course_name} Wiki", :course_name => nil
+        t :default_group_wiki_name, "%{group_name} Wiki", :group_name => nil
 
-      self.extend TextHelper
-      name = CanvasTextHelper.truncate_text(context.name, {:max_length => 200, :ellipsis => ''})
+        self.extend TextHelper
+        name = CanvasTextHelper.truncate_text(context.name, {:max_length => 200, :ellipsis => ''})
 
-      context.wiki = wiki = Wiki.create!(:title => "#{name} Wiki")
-      context.save!
-      wiki
+        context.wiki = wiki = Wiki.create!(:title => "#{name} Wiki")
+        context.save!
+        wiki
+      end
     end
   end
 
@@ -171,14 +197,15 @@ class Wiki < ActiveRecord::Base
     end
   end
 
-  def find_page(param)
+  def find_page(param, include_deleted: false)
     # to allow linking to a WikiPage by id (to avoid needing to hit the database to pull its url)
     if (match = param.match(/\Apage_id:(\d+)\z/))
       return self.wiki_pages.where(id: match[1].to_i).first
     end
-    self.wiki_pages.not_deleted.where(url: param.to_s).first ||
-      self.wiki_pages.not_deleted.where(url: param.to_url).first ||
-      self.wiki_pages.not_deleted.where(id: param.to_i).first
+    scope = include_deleted ?
+      self.wiki_pages.order(Arel.sql("CASE WHEN workflow_state <> 'deleted' THEN 0 ELSE 1 END")) :
+      self.wiki_pages.not_deleted
+    scope.where(url: [param.to_s, param.to_url]).first || scope.where(id: param.to_i).first
   end
 
   def path

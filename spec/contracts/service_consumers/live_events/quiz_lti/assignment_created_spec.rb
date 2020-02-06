@@ -24,7 +24,7 @@ RSpec.describe 'Canvas LMS Live Events', :pact_live_events do
     let(:live_event) do
       LiveEvents::PactHelper::Event.new(
         event_name: 'assignment_created',
-        event_subscriber: PactConfig::Consumers::QUIZ_LTI
+        event_subscriber: PactConfig::LiveEventConsumers::QUIZ_LTI
       )
     end
 
@@ -39,7 +39,6 @@ RSpec.describe 'Canvas LMS Live Events', :pact_live_events do
           :privacy_level => 'public',
           :tool_id => 'Quizzes 2'
         }
-        Account.default.enable_feature!(:lor_for_account)
         Account.default.context_external_tools.create!(params)
 
         course = course_model

@@ -23,7 +23,7 @@ $border-sidebar: #c9d0d6;
 $border-dark:  #bbb;
 $default-link-color: #0088cc;
 $font-color: #555;
-$header-child-margin: 10px 8px 2px 8px;
+$header-child-margin: direction-sides(10px 8px 2px 8px);
 $header-font-color: #627382;
 $page-light: #f3f5f7;
 $page-dark: #ebeff2;
@@ -57,6 +57,9 @@ $page-dark: #ebeff2;
     border-color: $border-light;
   }
 }
+.checkbox-view {
+  max-width: 210px;
+}
 .checkbox-view .checkbox,
 .operation-view .operation {
   border-radius: 3px;
@@ -68,6 +71,12 @@ $page-dark: #ebeff2;
   min-height: 18px; /* overwrites .checkbox in g_vendor */
   padding: 0;
   width: 18px;
+}
+.checkbox-label {
+  display: block;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-wrap: break-word; /* for IE support */
 }
 
 .checkbox[aria-checked=false] {
@@ -110,7 +119,7 @@ $page-dark: #ebeff2;
 
 .outcome-gradebook-sidebar-header {
   border-bottom: 1px solid $border-sidebar;
-  margin: 0 12px 16px 12px;
+  margin: 0 12px 16px;
   padding: 8px 12px;
 }
 
@@ -119,7 +128,7 @@ $page-dark: #ebeff2;
 
   .outcome-gradebook-sidebar-header {
     padding: 8px 0;
-    margin: 0 6px 16px 6px;
+    margin: 0 6px 16px;
   }
 
   .outcome-gradebook-sidebar-content {
@@ -148,8 +157,8 @@ $page-dark: #ebeff2;
 
 .outcome-gradebook-sidebar-content {
   width: auto;
-  padding-left: 12px;
-  padding-right: 12px;
+  padding-#{direction(left)}: 12px;
+  padding-#{direction(right)}: 12px;
   .operations {
     border-top: 1px solid $border-sidebar;
     a {
@@ -315,6 +324,8 @@ $page-dark: #ebeff2;
     line-height: 21px;
     .student-section {
       color: $font-color;
+      margin-top: -5px;
+      @include fontSize(12px);
     }
   }
 
@@ -331,6 +342,15 @@ $page-dark: #ebeff2;
       z-index: 1;
     }
   }
+}
+
+.outcome-description {
+  width: 70%;
+  float: direction(left);
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .outcome-cell-wrapper {

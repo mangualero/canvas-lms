@@ -2,8 +2,11 @@
 
 exports[`renders 1`] = `
 <Alert
+  isLiveRegionAtomic={false}
+  liveRegionPoliteness="assertive"
   margin="small"
   open={true}
+  screenReaderOnly={false}
   timeout={0}
   transition="fade"
   variant="error"
@@ -14,8 +17,11 @@ exports[`renders 1`] = `
 
 exports[`renders with Error details 1`] = `
 <Alert
+  isLiveRegionAtomic={false}
+  liveRegionPoliteness="assertive"
   margin="small"
   open={true}
+  screenReaderOnly={false}
   timeout={0}
   transition="fade"
   variant="error"
@@ -35,8 +41,11 @@ exports[`renders with Error details 1`] = `
 
 exports[`renders with string details 1`] = `
 <Alert
+  isLiveRegionAtomic={false}
+  liveRegionPoliteness="assertive"
   margin="small"
   open={true}
+  screenReaderOnly={false}
   timeout={0}
   transition="fade"
   variant="error"

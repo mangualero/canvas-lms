@@ -15,17 +15,17 @@
  * You should have received a copy of the GNU Affero General Public License along
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-import { handleActions } from 'redux-actions';
-import _ from 'lodash';
+import {handleActions} from 'redux-actions'
+import {cloneDeep} from 'lodash'
 
-export default handleActions({
-  UPDATE_TODO: (state, action) => {
-    return _.cloneDeep(action.payload);
+export default handleActions(
+  {
+    UPDATE_TODO: (state, action) => {
+      return cloneDeep(action.payload)
+    },
+    CLEAR_UPDATE_TODO: (state, action) => {
+      return {}
+    }
   },
-  OPEN_EDITING_PLANNER_ITEM: (state, action) => {
-    return state.updateTodoItem ? state : {updateTodoItem: {}};
-  },
-  CLEAR_UPDATE_TODO: (state, action) => {
-    return {};
-  }
-}, {});
+  {}
+)

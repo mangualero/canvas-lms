@@ -42,7 +42,6 @@ module Canvas::Oauth
     end
 
     describe '#has_valid_key?' do
-
       it 'is true when there is a key and the key is active' do
         stub_dev_key(double(active?: true))
         expect(provider.has_valid_key?).to be_truthy
@@ -161,7 +160,6 @@ module Canvas::Oauth
     end
 
     describe '#session_hash' do
-
       before { stub_dev_key(double(:id => 123)) }
 
       it 'uses the key id for a client id' do
@@ -176,6 +174,40 @@ module Canvas::Oauth
       it 'passes the scope through' do
         provider = Provider.new('123', 'some uri', 'userinfo,full_access')
         expect(provider.session_hash[:scopes]).to eq 'userinfo,full_access'
+      end
+    end
+
+    context 'scopes' do
+      let(:developer_key) { DeveloperKey.create! scopes: [TokenScopes::USER_INFO_SCOPE[:scope]] }
+      let(:scopes) { [TokenScopes::USER_INFO_SCOPE[:scope]] }
+      let(:provider) { Provider.new(developer_key.id, 'some_uri', scopes)}
+
+      describe '#valid_scopes?' do
+        it 'returns true if scopes requested are included on key' do
+          expect(provider.valid_scopes?).to eq(true)
+        end
+
+        context 'with invalid scopes' do
+          let(:scopes) { [TokenScopes::USER_INFO_SCOPE[:scope], 'otherscope'] }
+
+          it 'returns false' do
+            expect(provider.valid_scopes?).to eq(false)
+          end
+        end
+      end
+
+      describe '#missing_scopes' do
+        it 'returns empty array if no scopes are missing' do
+          expect(provider.missing_scopes).to eq([])
+        end
+
+        context 'with missing scopes' do
+          let(:scopes) { ['second', 'third'] }
+
+          it 'lists missing scopes in array' do
+            expect(provider.missing_scopes).to eq(['second', 'third'])
+          end
+        end
       end
     end
   end

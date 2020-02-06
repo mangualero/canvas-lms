@@ -17,7 +17,6 @@
 #
 
 module AuthenticationMethods
-
   def load_pseudonym_from_policy
     if (policy_encoded = params['Policy']) &&
         (signature = params['Signature']) &&
@@ -85,19 +84,40 @@ module AuthenticationMethods
     end
   end
 
-  def validate_scopes
-    if @access_token && @domain_root_account.feature_enabled?(:api_token_scoping)
-      developer_key = @access_token.developer_key
-      request_method = request.method.casecmp('HEAD') == 0 ? 'GET' : request.method.upcase
+  ALLOWED_SCOPE_INCLUDES = %w{uuid}
 
-      if developer_key.try(:require_scopes)
-        if @access_token.url_scopes_for_method(request_method).any? { |scope| scope =~ request.path }
-          params.delete :include
-          params.delete :includes
-        else
-          raise AccessTokenScopeError
+  def filter_includes(key)
+    # no funny business
+    params.delete(key) unless params[key].class == Array
+    return unless params.key?(key)
+    params[key] &= ALLOWED_SCOPE_INCLUDES
+  end
+
+  def validate_scopes
+    return unless @access_token
+
+    developer_key = @access_token.developer_key
+    request_method = request.method.casecmp('HEAD') == 0 ? 'GET' : request.method.upcase
+
+    if developer_key.try(:require_scopes)
+      scope_patterns = @access_token.url_scopes_for_method(request_method).concat(AccessToken.always_allowed_scopes)
+      if scope_patterns.any? { |scope| scope =~ request.path }
+        unless developer_key.try(:allow_includes)
+          filter_includes(:include)
+          filter_includes(:includes)
         end
+      else
+        raise AccessTokenScopeError
       end
+    end
+  end
+
+  def self.graphql_type_authorized?(access_token, type)
+    if access_token&.developer_key&.require_scopes
+      # allowing the root query type for now, but any other type is forbidden
+      type == "Query"
+    else
+      true
     end
   end
 
@@ -123,7 +143,6 @@ module AuthenticationMethods
       unless @current_user && @current_pseudonym
         raise AccessTokenError
       end
-
       validate_scopes
       @access_token.used!
 
@@ -156,8 +175,9 @@ module AuthenticationMethods
     if !@current_pseudonym
       if @policy_pseudonym_id
         @current_pseudonym = Pseudonym.where(id: @policy_pseudonym_id).first
-      elsif @pseudonym_session = PseudonymSession.find
+      elsif (@pseudonym_session = PseudonymSession.with_scope(find_options: Pseudonym.eager_load(:user)) { PseudonymSession.find })
         @current_pseudonym = @pseudonym_session.record
+        @current_pseudonym.user.reload if @current_pseudonym.shard != @current_pseudonym.user.shard
 
         # if the session was created before the last time the user explicitly
         # logged out (of any session for any of their pseudonyms), invalidate
@@ -282,7 +302,8 @@ module AuthenticationMethods
     rescue URI::Error
       return nil
     end
-    return nil unless uri.path[0] == '/'
+    return nil unless uri.path && uri.path[0] == '/'
+    return "#{request.protocol}#{request.host_with_port}#{uri.path.sub(%r{/download$}, '')}" if uri.path =~ %r{/files/(\d+~)?\d+/download$}
     return "#{request.protocol}#{request.host_with_port}#{uri.path}#{uri.query && "?#{uri.query}"}#{uri.fragment && "##{uri.fragment}"}"
   end
 
@@ -306,37 +327,35 @@ module AuthenticationMethods
   protected :redirect_back_or_default
 
   def redirect_to_referrer_or_default(default)
-    redirect_to(:back)
-  rescue ActionController::RedirectBackError
-    redirect_to(default)
+    redirect_back(fallback_location: default)
   end
 
   def redirect_to_login
     return unless fix_ms_office_redirects
     respond_to do |format|
-      format.html {
+      format.json { render_json_unauthorized }
+      format.all do
         store_location
         flash[:warning] = I18n.t('lib.auth.errors.not_authenticated', "You must be logged in to access this page") unless request.path == '/'
         redirect_to login_url(params.permit(:canvas_login, :authentication_provider))
-      }
-      format.json { render_json_unauthorized }
+      end
     end
   end
 
   def render_json_unauthorized
     add_www_authenticate_header if api_request? && !@current_user
     if @current_user
-      render :json => {
-               :status => I18n.t('lib.auth.status_unauthorized', 'unauthorized'),
-               :errors => [{ :message => I18n.t('lib.auth.not_authorized', "user not authorized to perform that action") }]
-             },
-             :status => :unauthorized
+      render json: {
+        status: I18n.t('lib.auth.status_unauthorized', 'unauthorized'),
+        errors: [{ message: I18n.t('lib.auth.not_authorized', "user not authorized to perform that action") }]
+      },
+      status: :unauthorized
     else
-      render :json => {
-               :status => I18n.t('lib.auth.status_unauthenticated', 'unauthenticated'),
-               :errors => [{ :message => I18n.t('lib.auth.authentication_required', "user authorization required") }]
-             },
-             :status => :unauthorized
+      render json: {
+        status: I18n.t('lib.auth.status_unauthenticated', 'unauthenticated'),
+        errors: [{ :message => I18n.t('lib.auth.authentication_required', "user authorization required") }]
+      },
+      status: :unauthorized
     end
   end
 

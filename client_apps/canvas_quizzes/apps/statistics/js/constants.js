@@ -45,6 +45,7 @@ define({
     'responses',
     'answers',
     'position',
+    'user_ids',
     'user_names',
 
     // multiple-choice & true/false
@@ -97,7 +98,7 @@ define({
     'url'
   ],
 
-  DISCRIMINATION_INDEX_HELP_ARTICLE_URL: "http://guides.instructure.com/m/4152/l/41484-once-i-publish-my-quiz-what-kinds-of-quiz-statistics-are-available",
+  DISCRIMINATION_INDEX_HELP_ARTICLE_URL: "https://community.canvaslms.com/docs/DOC-13037",
 
   PROGRESS_QUEUED: 'queued',
   PROGRESS_ACTIVE: 'running',

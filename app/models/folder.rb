@@ -19,6 +19,8 @@
 require 'set'
 
 class Folder < ActiveRecord::Base
+  self.ignored_columns = %i[last_lock_at last_unlock_at]
+
   def self.name_order_by_clause(table = nil)
     col = table ? "#{table}.name" : 'name'
     best_unicode_collation_key(col)
@@ -42,7 +44,6 @@ class Folder < ActiveRecord::Base
   acts_as_list :scope => :parent_folder
 
   before_save :infer_full_name
-  before_save :default_values
   after_save :update_sub_folders
   after_destroy :clean_up_children
   after_save :touch_context
@@ -132,11 +133,6 @@ class Folder < ActiveRecord::Base
       names << folder.name if folder
     end
     names.reverse.join("/")
-  end
-
-  def default_values
-    self.last_unlock_at = self.unlock_at if self.unlock_at
-    self.last_lock_at = self.lock_at if self.lock_at
   end
 
   def infer_hidden_state
@@ -308,12 +304,28 @@ class Folder < ActiveRecord::Base
     context.shard.activate do
       Folder.unique_constraint_retry do
         root_folder = context.folders.active.where(parent_folder_id: nil, name: name).first
-        root_folder ||= context.folders.create!(:name => name, :full_name => name, :workflow_state => "visible")
+        root_folder ||= Shackles.activate(:master) {context.folders.create!(:name => name, :full_name => name, :workflow_state => "visible")}
         root_folders = [root_folder]
       end
     end
 
     root_folders
+  end
+
+  def self.unique_folder(context, unique_type, default_name_proc)
+    folder = nil
+    context.shard.activate do
+      Folder.unique_constraint_retry do
+        folder = context.folders.active.where(:unique_type => unique_type).take
+        folder ||= context.folders.create!(:unique_type => unique_type, :name => default_name_proc.call, :parent_folder_id => Folder.root_folders(context).first)
+      end
+    end
+    folder
+  end
+
+  MEDIA_TYPE = "media"
+  def self.media_folder(context)
+    unique_folder(context, MEDIA_TYPE, ->{ t("Uploaded Media") })
   end
 
   def self.is_locked?(folder_id)

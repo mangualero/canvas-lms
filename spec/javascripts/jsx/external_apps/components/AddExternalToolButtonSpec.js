@@ -22,30 +22,27 @@ import {mount} from 'enzyme'
 import AddExternalToolButton from 'jsx/external_apps/components/AddExternalToolButton'
 
 QUnit.module('AddExternalToolButton', suiteHooks => {
-  let props
   let server
   let wrapper
 
   suiteHooks.beforeEach(() => {
     server = sinon.fakeServer.create()
     sinon.spy($, 'flashError')
-    props = {}
   })
 
   suiteHooks.afterEach(() => {
     wrapper.setState({modalIsOpen: false}) // close the modal, if open
     $.flashError.restore()
     server.restore()
+    wrapper.unmount()
   })
 
-  function mountComponent() {
+  function mountComponent(props) {
     wrapper = mount(<AddExternalToolButton {...props} />)
   }
 
-  test('renders the duplicate confirmation form when "duplicateTool" is true', function() {
-    props.canAddEdit = true
-    mountComponent()
-    wrapper.setState({duplicateTool: true, modalIsOpen: true})
+  test('renders the duplicate confirmation form when "duplicateTool" is true', () => {
+    mountComponent({duplicateTool: true, modalIsOpen: true})
     strictEqual(document.querySelectorAll('#duplicate-confirmation-form').length, 1)
   })
 
@@ -83,19 +80,15 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
   })
 
   QUnit.module('when not using LTI2 registration', () => {
-    test('hides the configuration form once registration begins', function() {
-      props.canAddEdit = true
-      mountComponent()
-      wrapper.setState({isLti2: false, modalIsOpen: true})
+    test('hides the configuration form once registration begins', () => {
+      mountComponent({isLti2: false, modalIsOpen: true})
       const element = document.querySelector('#lti2-iframe-container')
       const style = window.getComputedStyle(element)
       equal(style.getPropertyValue('display'), 'none')
     })
 
-    test('submits the configuration form to the launch iframe for LTI2', function() {
-      props.canAddEdit = true
-      mountComponent()
-      wrapper.setState({isLti2: false, modalIsOpen: true})
+    test('submits the configuration form to the launch iframe for LTI2', () => {
+      mountComponent({isLti2: false, modalIsOpen: true})
       const registrationUrl = 'http://www.instructure.com/register'
       const iframeDouble = {submit: sinon.spy()}
       const launchButton = document.querySelector('#submitExternalAppBtn')
@@ -108,24 +101,19 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
 
   QUnit.module('when using LTI2 registration', () => {
     test('includes close button in footer', () => {
-      props.canAddEdit = true
-      mountComponent()
-      wrapper.setState({isLti2: true, modalIsOpen: true})
+      mountComponent({isLti2: true, modalIsOpen: true})
       strictEqual(document.querySelectorAll('#footer-close-button').length, 1)
     })
 
     test('renders a tool launch iframe for LTI2', () => {
-      props.canAddEdit = true
-      mountComponent()
-      wrapper.setState({isLti2: true, modalIsOpen: true})
+      mountComponent({isLti2: true, modalIsOpen: true})
       strictEqual(document.querySelectorAll('#lti2-iframe-container').length, 1)
     })
   })
 
   QUnit.module('#_errorHandler()', () => {
-    test('returns a message for invalid configuration url', function() {
-      mountComponent()
-      wrapper.setState({configurationType: 'url'})
+    test('returns a message for invalid configuration url', () => {
+      mountComponent({configurationType: 'url'})
       const xhr = {
         responseText: JSON.stringify({
           errors: {
@@ -156,9 +144,8 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
       equal(wrapper.instance()._errorHandler(xhr), 'Invalid Config URL')
     })
 
-    test('returns a message for invalid XML configuration', function() {
-      mountComponent()
-      wrapper.setState({configurationType: 'xml'})
+    test('returns a message for invalid XML configuration', () => {
+      mountComponent({configurationType: 'xml'})
       const xhr = {
         responseText: JSON.stringify({
           errors: {
@@ -182,7 +169,7 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
       equal(wrapper.instance()._errorHandler(xhr), 'Invalid XML Configuration')
     })
 
-    test('returns a message for url or domain not being set', function() {
+    test('returns a message for url or domain not being set', () => {
       mountComponent()
       const xhr = {
         responseText: JSON.stringify({
@@ -207,7 +194,7 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
       equal(wrapper.instance()._errorHandler(xhr), 'Either the url or domain should be set.')
     })
 
-    test('returns a default error message when handling an unspecified error', function() {
+    test('returns a default error message when handling an unspecified error', () => {
       mountComponent()
       const xhr = {
         responseText: JSON.stringify({
@@ -218,9 +205,8 @@ QUnit.module('AddExternalToolButton', suiteHooks => {
       equal(wrapper.instance()._errorHandler(xhr), 'We were unable to add the app.')
     })
 
-    test('renders the duplicate confirmation form when duplicate tool response is received', function() {
-      mountComponent()
-      wrapper.setState({modalIsOpen: true, duplicateTool: true, configurationType: 'xml'})
+    test('renders the duplicate confirmation form when duplicate tool response is received', () => {
+      mountComponent({modalIsOpen: true, duplicateTool: true, configurationType: 'xml'})
       const xhr = {
         responseText: JSON.stringify({
           errors: {

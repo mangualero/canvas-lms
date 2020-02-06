@@ -57,11 +57,26 @@ module SIS
       end
 
       def valid_status?
-        status =~ /\Aactive|\Adeleted|\Acompleted|\Ainactive/i
+        status =~ /\Aactive|\Adeleted|\Acompleted|\Ainactive|\Adeleted_last_completed/i
       end
 
       def to_a
         [course_id.to_s, section_id.to_s, user_id.to_s, role, role_id, status, start_date, end_date, associated_user_id, root_account_id]
+      end
+
+      def row_info
+        [course_id: course_id,
+         section_id: section_id,
+         user_id: user_id,
+         user_integration_id: user_integration_id,
+         role: role,
+         status: status,
+         associated_user_id: associated_user_id,
+         root_account_id: root_account_id,
+         role_id: role_id,
+         limit_section_privileges: limit_section_privileges,
+         start_date: start_date,
+         end_date: end_date].to_s
       end
     end
   end

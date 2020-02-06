@@ -19,9 +19,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import I18n from 'i18nObj'
-import $ from 'jquery'
-import 'jqueryui/accordion'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import {Text} from '@instructure/ui-elements'
 import ThemeEditorColorRow from './ThemeEditorColorRow'
 import ThemeEditorImageRow from './ThemeEditorImageRow'
 import ThemeEditorVariableGroup from './ThemeEditorVariableGroup'
@@ -107,7 +105,7 @@ export default class ThemeEditorAccordion extends React.Component {
           <ThemeEditorVariableGroup
             key={variableGroup.group_name}
             summary={
-              <Text as="h3" weight="bold">
+              <Text as="h2" weight="bold">
                 {variableGroup.group_name}
               </Text>
             }

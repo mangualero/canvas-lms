@@ -181,7 +181,7 @@ describe "context modules" do
       expect(f('#add_context_module_form .assignment_requirement_picker option[value=must_contribute]')).to be_disabled
       click_option('#add_context_module_form .assignment_picker', @assignment.title, :text)
       click_option('#add_context_module_form .assignment_requirement_picker', 'must_submit', :value)
-
+      expect(f('.criteria_list .delete_criterion_link').attribute('aria-label')).to eq 'Delete requirement assignment 1 (submit the assignment)'
       submit_form(edit_form)
       expect(edit_form).not_to be_displayed
       # should show relock warning since we're adding a completion requirement to an active module
@@ -326,10 +326,10 @@ describe "context modules" do
       expect(page.reload).to be_published
     end
 
-    it "publishes a newly created item" do
+    it "publishes a newly created item", :xbrowser do
       @course.context_modules.create!(name: "Content Page")
       get "/courses/#{@course.id}/modules"
-      add_new_module_item('#wiki_pages_select', 'Content Page', '[ New Page ]', 'New Page Title')
+      add_new_module_item('#wiki_pages_select', 'Page', '[ New Page ]', 'New Page Title')
 
       tag = ContentTag.last
       item = f("#context_module_item_#{tag.id}")
@@ -468,6 +468,23 @@ describe "context modules" do
       prereq_select = f('.criterion select')
       option = first_selected_option(prereq_select)
       expect(option.text).to eq @module1.name.to_s
+      expect(ff('.prerequisites_list .criteria_list .delete_criterion_link').map{|link|link.attribute('aria-label')}).
+          to eq(['Delete prerequisite First module', 'Delete prerequisite Second module'])
+    end
+
+    it "updates the name of edited prerequisite modules" do
+      add_modules_and_set_prerequisites
+      get "/courses/#{@course.id}/modules"
+      get "/courses/#{@course.id}/modules"
+      move_to_click("#context_module_#{@module1.id}")
+      f("#context_module_#{@module1.id} .ig-header-admin .al-trigger").click
+      f("#context_module_#{@module1.id} .edit_module_link").click
+      add_form = f('#add_context_module_form')
+      expect(add_form).to be_displayed
+      replace_content(f('#context_module_name'), 'FRIST!!')
+      f('#add_context_module_form .submit_button').click
+      wait_for_ajaximations
+      expect(f("#context_module_#{@module3.id} .prerequisites_message").text).to include 'FRIST!!, Second module'
     end
 
     it "does not have a prerequisites section when creating the first module" do
@@ -808,10 +825,6 @@ describe "context modules" do
         f('html').send_keys("j")
       end
 
-      def send_keys(*keys)
-        driver.switch_to.active_element.send_keys(*keys)
-      end
-
       let(:context_modules) { ff('.context_module .collapse_module_link') }
       let(:context_module_items) { ff('.context_module_item a.title') }
 
@@ -1002,7 +1015,7 @@ describe "context modules" do
 
       get "/courses/#{@course.id}/modules"
       expect(f(selector)).to include_text "Multiple Due Dates"
-      driver.mouse.move_to f("#{selector} a")
+      driver.action.move_to(f("#{selector} a")).perform
       wait_for_ajaximations
 
       tooltip = fj('.vdd_tooltip_content:visible')
@@ -1021,6 +1034,7 @@ describe "context modules" do
       f(".permissions-dialog-form [type='submit']").click
       wait_for_ajaximations
       expect(@file.reload).to be_published
+      expect(f("[data-id='#{@file.id}'] > button.published-status")[:title]).to eq("Published")
     end
 
     it "should show the file publish button on course home" do
@@ -1145,7 +1159,7 @@ describe "context modules" do
         wait_for_ajax_requests
         expect(tag.reload).to be_published
         refresh_page
-        driver.mouse.move_to f('i.icon-unpublish')
+        driver.action.move_to(f('i.icon-unpublish')).perform
         expect(f('span.publish-icon.published.publish-icon-published')).to be_displayed
         expect(tag).to be_published
       end
@@ -1223,7 +1237,7 @@ describe "context modules" do
 
     it "should add an external tool item to a module from apps", priority: "1", test_id: 126706 do
       get "/courses/#{@course.id}/settings"
-      make_full_screen
+
       f("#tab-tools-link").click
       f(".add_tool_link.lm").click
       f("#configuration_type_selector").click

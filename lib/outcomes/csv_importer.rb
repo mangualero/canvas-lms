@@ -28,13 +28,13 @@ module Outcomes
       title
       vendor_guid
       object_type
-      parent_guids
     ].freeze
 
     OPTIONAL_FIELDS = %i[
       canvas_id
       description
       display_name
+      parent_guids
       calculation_method
       calculation_int
       mastery_points
@@ -61,6 +61,8 @@ module Outcomes
         raise DataFormatError, I18n.t("Invalid CSV File")
       rescue ParseError => e
         raise DataFormatError, e.message
+      rescue ActiveRecord::StatementInvalid => e
+        raise DataFormatError, I18n.t("Database error (%{err})", err: e.message)
       end
       status = {
         errors: file_errors,

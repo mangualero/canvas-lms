@@ -25,9 +25,7 @@ module Factories
       if opts[:active_all]
         u = User.create!
         u.register!
-        if u.feature_enabled?(:new_user_tutorial_on_off) && !opts[:new_user]
-          u.disable_feature!(:new_user_tutorial_on_off)
-        end
+        u.enable_feature!(:new_user_tutorial_on_off) if opts[:new_user]
         e = @course.enroll_teacher(u)
         e.workflow_state = 'active'
         e.save!
@@ -126,7 +124,7 @@ module Factories
     submission_count.times do |s|
       assignment = @course.assignments.create!(:title => "test #{s} assignment")
       submission = assignment.submissions.find_by!(user: @student)
-      submission.update_attributes!(score: '5') if opts[:submission_points]
+      submission.update!(score: '5') if opts[:submission_points]
     end
   end
 

@@ -17,7 +17,7 @@
 #
 
 require 'pact/messages'
-require_relative '../../pact_config'
+require_relative '../pact_config'
 require_relative '../../../spec_helper'
 
 Pact::Messages.pact_broker_url = PactConfig.broker_uri
@@ -33,7 +33,7 @@ module LiveEvents
         @event_name = event_name
         @event_settings = event_settings || LiveEvents::PactHelper::FakeSettings.new
         @event_subscriber = event_subscriber
-        @stream_client = stream_client || LiveEvents::PactHelper::FakeStreamClient.new
+        @stream_client = stream_client || LiveEvents::PactHelper::FakeStreamClient.new(@event_settings.kinesis_stream_name)
         initialize_live_events_settings
       end
 
@@ -41,7 +41,9 @@ module LiveEvents
         LiveEvents.clear_context!
         yield block
         run_jobs
-        @event_message = stream_client.data
+        puts stream_client
+        puts stream_client.data.first[:data]
+        @event_message = JSON.parse(stream_client.data.first[:data])
       end
 
       def has_kept_the_contract?
@@ -65,8 +67,10 @@ module LiveEvents
 
       def contract_message
         case event_subscriber
-        when PactConfig::Consumers::QUIZ_LTI
+        when PactConfig::LiveEventConsumers::QUIZ_LTI
           LiveEvents::PactHelper.quiz_lti_contract_for(event_name)
+        when PactConfig::LiveEventConsumers::OUTCOMES
+          LiveEvents::PactHelper.outcomes_contract_for(event_name)
         else
           raise ArgumentError, "Invalid event_subscriber: #{event_subscriber}"
         end
@@ -78,10 +82,14 @@ module LiveEvents
     end
 
     class FakeStreamClient
-      attr_accessor :data
+      attr_accessor :data, :stream_name
 
-      def put_record(stream_name:, data:, partition_key:) # rubocop:disable Lint/UnusedMethodArgument
-        @data = JSON.parse(data)
+      def initialize(stream_name)
+        @stream_name = stream_name
+      end
+
+      def put_records(records:, stream_name:) # rubocop:disable Lint/UnusedMethodArgument
+        @data = records
       end
     end
 
@@ -103,7 +111,11 @@ module LiveEvents
 
     class << self
       def quiz_lti_contract_for(event)
-        message_contract_for(PactConfig::Consumers::QUIZ_LTI, event)
+        message_contract_for(PactConfig::LiveEventConsumers::QUIZ_LTI, event)
+      end
+
+      def outcomes_contract_for(event)
+        message_contract_for(PactConfig::LiveEventConsumers::OUTCOMES, event)
       end
 
       private

@@ -16,38 +16,39 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import htmlEscape from "escape-html";
-import formatMessage from "../../../format-message";
-import clickCallback from "./clickCallback";
+import htmlEscape from 'escape-html'
+import formatMessage from '../../../format-message'
+import clickCallback from './clickCallback'
+import {IconEquationLine} from '@instructure/ui-icons/es/svg'
 
-tinymce.create("tinymce.plugins.InstructureEquation", {
+tinymce.create('tinymce.plugins.InstructureEquation', {
   init(ed) {
-    ed.addCommand(
-      "instructureEquation",
-      clickCallback.bind(this, ed, document)
-    );
+    ed.ui.registry.addIcon('equation', IconEquationLine.src)
 
-    ed.addButton("instructure_equation", {
-      title: htmlEscape(
+    ed.addCommand('instructureEquation', clickCallback.bind(this, ed, document))
+
+    ed.ui.registry.addToggleButton('instructure_equation', {
+      tooltip: htmlEscape(
         formatMessage({
-          default: "Insert Math Equation",
-          description: "Title for RCE button to insert a math equation"
+          default: 'Insert Math Equation',
+          description: 'Title for RCE button to insert a math equation'
         })
       ),
-      cmd: "instructureEquation",
-      icon: "equation icon-equation",
-      onPostRender: function() {
-        var btn = this;
-        ed.on("NodeChange", e => {
-          btn.active(e.nodeName == "IMG" && e.className == "equation_image");
-        });
+      onAction: () => ed.execCommand('instructureEquation'),
+      icon: 'equation',
+      onSetup(buttonApi) {
+        const toggleActive = eventApi => {
+          buttonApi.setActive(
+            eventApi.element.nodeName.toLowerCase() === 'IMG' &&
+              eventApi.element.className === 'equation_image'
+          )
+        }
+        ed.on('NodeChange', toggleActive)
+        return () => ed.off('NodeChange', toggleActive)
       }
-    });
+    })
   }
-});
+})
 
 // Register plugin
-tinymce.PluginManager.add(
-  "instructure_equation",
-  tinymce.plugins.InstructureEquation
-);
+tinymce.PluginManager.add('instructure_equation', tinymce.plugins.InstructureEquation)

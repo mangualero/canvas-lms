@@ -69,19 +69,11 @@ describe "context modules" do
       expect(f('span.publish-icon.published.publish-icon-published')).to be_displayed
     end
 
-    it 'edits available/until dates on a quiz in a module', priority: "2", test_id: 126722 do
-      available_from = 2.days.from_now
-      available_until = 4.days.from_now
-      @pub_quiz = Quizzes::Quiz.create!(context: @course, title: 'Published Quiz')
+    it 'shows due date on a quiz in a module', priority: "2" do
+      @pub_quiz = Quizzes::Quiz.create!(context: @course, title: 'Published Quiz', due_at: 2.days.from_now)
       @mod.add_item(type: 'quiz', id: @pub_quiz.id)
       go_to_modules
-      fln('Published Quiz').click
-      f('.quiz-edit-button').click
-      f(".date_field[data-date-type='unlock_at']").send_keys(format_date_for_view(available_from))
-      f(".date_field[data-date-type='lock_at']").send_keys(format_date_for_view(available_until))
-      expect_new_page_load { f('.form-actions button[type=submit]').click }
-      go_to_modules
-      expect(f('.due_date_display').text).to eq date_string(available_until, :no_words)
+      expect(f('.due_date_display').text).to eq date_string(@pub_quiz.due_at, :no_words)
     end
 
     it 'should add an unpublished assignment to a module', priority: "1", test_id: 126724 do
@@ -166,6 +158,15 @@ describe "context modules" do
       expect(f('.due_date_display').text).to eq date_string(due_at, :no_words)
     end
 
+    it 'shows the todo date on an ungraded discussion in a module ', priority: "1" do
+      todo_date = 1.day.from_now
+      @pub_ungraded_discussion = @course.discussion_topics.create!(title: 'Non-graded Published Discussion', todo_date: todo_date)
+      @mod.add_item(type: 'discussion_topic', id: @pub_ungraded_discussion.id)
+      go_to_modules
+      verify_module_title('Non-graded Published Discussion')
+      expect(f('.due_date_display').text).to eq date_string(todo_date, :no_words)
+    end
+
     it 'edits available/until dates on a ungraded discussion in a module', priority: "2", test_id: 126718 do
       available_from = 2.days.from_now
       available_until = 4.days.from_now
@@ -179,6 +180,21 @@ describe "context modules" do
       expect_new_page_load { f('.form-actions button[type=submit]').click }
       go_to_modules
       expect(f('.context_module_item')).not_to include_text(available_from.to_s)
+    end
+
+    it 'should publish assignment on publish module', priority: "2", test_id: 126719 do
+      @unpub_assignment = Assignment.create!(context: @course, title: 'some assignment in a module')
+      @unpub_assignment.workflow_state = 'unpublished'
+      @unpub_assignment.save!
+      @mod.add_item(type: 'assignment', id: @unpub_assignment.id)
+      @mod.workflow_state = 'unpublished'
+      @mod.save!
+      go_to_modules
+      verify_module_title('some assignment in a module')
+      expect(ff('span.publish-icon.unpublished.publish-icon-publish > i.icon-unpublish').length).to eq(2)
+      ff('.icon-unpublish')[0].click
+      wait_for_ajax_requests
+      expect(ff('span.publish-icon.unpublished.publish-icon-published > i.icon-publish').length).to eq(2)
     end
   end
 
@@ -270,7 +286,8 @@ describe "context modules" do
 
     before(:once) do
       course_factory(active_course: true)
-      Account.default.enable_feature!(:usage_rights_required)
+      @course.usage_rights_required = true
+      @course.save!
       #adding file to course
       @file = @course.attachments.create!(:display_name => FILE_NAME, :uploaded_data => default_uploaded_data)
       @file.context = @course
@@ -302,7 +319,6 @@ describe "context modules" do
 
     it "should set usage rights on a file in a module", priority: "1", test_id: 369251 do
       get "/courses/#{@course.id}/modules"
-      make_full_screen
       add_existing_module_item('#attachments_select', 'File', FILE_NAME)
       ff('.icon-publish')[0].click
       wait_for_ajaximations

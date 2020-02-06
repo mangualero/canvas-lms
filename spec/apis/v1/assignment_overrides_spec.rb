@@ -754,6 +754,12 @@ describe AssignmentOverridesController, type: :request do
         expect(@override.title).to eq @title
       end
 
+      it "should not requeue processing if nothing changes" do
+        @override.update_attribute(:all_day, false)
+        expect_any_instantiation_of(@assignment).to_not receive(:run_if_overrides_changed_later!)
+        api_update_override(@course, @assignment, @override, :assignment_override => { :title => @override.title, :student_ids => [@student.id] })
+      end
+
       it "should relock modules when changing overrides" do
         # but only for the students they affect
         @assignment.only_visible_to_overrides = true
@@ -787,7 +793,7 @@ describe AssignmentOverridesController, type: :request do
       end
 
       it "recomputes grades when changing overrides" do
-        @assignment.update_attributes! only_visible_to_overrides: true, points_possible: 10
+        @assignment.update! only_visible_to_overrides: true, points_possible: 10
         other_assignment = @course.assignments.create! points_possible: 10, context: @course
 
         student1 = @student

@@ -49,7 +49,7 @@ module Canvas::Redis
   COMPACT_LINE = "Redis (%{request_time_ms}ms) %{command} %{key} [%{host}]".freeze
   def self.log_style
     # supported: 'off', 'compact', 'json'
-    Setting.get('redis_log_style', 'compact')
+    @log_style ||= ConfigFile.load('redis')&.[]('log_style') || 'compact'
   end
 
   def self.redis_failure?(redis_name)
@@ -67,11 +67,18 @@ module Canvas::Redis
   end
 
   def self.handle_redis_failure(failure_retval, redis_name)
-    return failure_retval if redis_failure?(redis_name)
+    Setting.skip_cache do
+      return failure_retval if redis_failure?(redis_name)
+    end
     reply = yield
     raise reply if reply.is_a?(Exception)
     reply
   rescue ::Redis::BaseConnectionError, SystemCallError, ::Redis::CommandError => e
+    # spring calls its after_fork hooks _after_ establishing a new db connection
+    # after forking. so we don't get a chance to close the connection. just ignore
+    # the error
+    return failure_retval if e.is_a?(::Redis::InheritedError) && defined?(Spring)
+
     # We want to rescue errors such as "max number of clients reached", but not
     # actual logic errors such as trying to evalsha a script that doesn't
     # exist.
@@ -81,16 +88,20 @@ module Canvas::Redis
       raise
     end
 
-    CanvasStatsd::Statsd.increment("redis.errors.all")
-    CanvasStatsd::Statsd.increment("redis.errors.#{CanvasStatsd::Statsd.escape(redis_name)}")
+    InstStatsd::Statsd.increment("redis.errors.all")
+    InstStatsd::Statsd.increment("redis.errors.#{InstStatsd::Statsd.escape(redis_name)}",
+                                 short_stat: 'redis.errors',
+                                 tags: {redis_name: InstStatsd::Statsd.escape(redis_name)})
     Rails.logger.error "Failure handling redis command on #{redis_name}: #{e.inspect}"
 
-    if self.ignore_redis_failures?
-      Canvas::Errors.capture(e, type: :redis)
-      last_redis_failure[redis_name] = Time.now
-      failure_retval
-    else
-      raise
+    Setting.skip_cache do
+      if self.ignore_redis_failures?
+        Canvas::Errors.capture(e, type: :redis)
+        last_redis_failure[redis_name] = Time.now
+        failure_retval
+      else
+        raise
+      end
     end
   end
 
@@ -129,10 +140,12 @@ module Canvas::Redis
       failure_val = case last_command
                     when 'keys', 'hmget'
                       []
+                    when 'scan'
+                      ["0", []]
                     when 'del'
                       0
                     end
-      if (last_command == 'set' && (last_command_args.include?('XX') || last_command_args.include?('NX')))
+      if last_command == 'set' && (last_command_args.include?('XX') || last_command_args.include?('NX'))
         failure_val = :failure
       end
 
@@ -275,20 +288,19 @@ module Canvas::Redis
     ].freeze
   end
 
-  module DistributedStore
+  module Distributed
     def initialize(addresses, options = { })
-      _extend_namespace options
-      @ring = options[:ring] || Canvas::HashRing.new([], options[:replicas], options[:digest])
-
-      addresses.each do |address|
-        @ring.add_node(::Redis::Store.new _merge_options(address, options))
-      end
+      options[:ring] ||= Canvas::HashRing.new([], options[:replicas], options[:digest])
+      super
     end
   end
 
   def self.patch
+    Bundler.require 'redis'
+    require 'redis/distributed'
+
     Redis::Client.prepend(Client)
-    Redis::DistributedStore.prepend(DistributedStore)
+    Redis::Distributed.prepend(Distributed)
     Redis.send(:remove_const, :BoolifySet)
     Redis.const_set(:BoolifySet, BoolifySet)
   end

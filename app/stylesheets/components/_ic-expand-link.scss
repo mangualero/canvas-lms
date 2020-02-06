@@ -163,11 +163,6 @@ $ic-Expand-link-size: $ic-sp*4;
     text-transform: uppercase;
     overflow: hidden;
 
-    // HACK because IE10 can't get the transforms right. Once we stop supporting IE10, we can remove this
-    @media screen and (-ms-high-contrast: active), (-ms-high-contrast: none) {
-      transform: translateX(0);
-    }
-
     &:hover, &:focus {
       @include ic-Expand-link-active-state;
       text-decoration: none;
@@ -179,7 +174,7 @@ $ic-Expand-link-size: $ic-sp*4;
   .ic-Expand-link__layout {
     position: relative;
     display: flex;
-    padding: 0 $ic-Expand-link-size 0 0;
+    padding: direction-sides(0 $ic-Expand-link-size 0 0);
     min-height: $ic-Expand-link-size;
   }
 
@@ -216,17 +211,12 @@ $ic-Expand-link-size: $ic-sp*4;
     .ic-Expand-link__trigger {
       transform: translateX(100%) translateX( -($ic-Expand-link-size) );
 
-      // HACK because IE10 can't get the transforms right. Once we stop supporting IE10, we can remove this
-      @media screen and (-ms-high-contrast: active), (-ms-high-contrast: none) {
-        transform: translateX(0);
-      }
-
       &:hover, &:focus {
         @include ic-Expand-link-active-state;
       }
     }
 
-    .ic-Expand-link__layout { padding: 0 0 0 $ic-Expand-link-size; }
+    .ic-Expand-link__layout { padding: direction-sides(0 0 0 $ic-Expand-link-size); }
     .ic-Expand-link__icon { #{direction(right)}: auto; #{direction(left)}: 0; }
 
     &.ic-Expand-link--active {

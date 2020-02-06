@@ -55,6 +55,7 @@ class DiscussionTopicsApiController < ApplicationController
   #         -H 'Authorization: Bearer <token>'
   def show
     include_params = Array(params[:include])
+    log_asset_access(@topic, 'topics', 'topics')
     render(json: discussion_topics_api_json([@topic], @context,
                                             @current_user, session,
                                             include_all_dates: include_params.include?('all_dates'),
@@ -121,6 +122,7 @@ class DiscussionTopicsApiController < ApplicationController
   #   }
   def view
     return unless authorized_action(@topic, @current_user, :read_replies)
+    log_asset_access(@topic, 'topics', 'topics')
 
     mobile_brand_config = !in_app? && @context.account.effective_brand_config
     opts = {
@@ -249,6 +251,11 @@ class DiscussionTopicsApiController < ApplicationController
     new_topic = @topic.duplicate({ :user => @current_user })
     if @topic.pinned
       new_topic.position = @topic.context.discussion_topics.maximum(:position) + 1
+    end
+    # People that can't moderate don't have power to publish separately, so
+    # just publish their topics straightaway.
+    if !@context.grants_right?(@current_user, session, :moderate_forum)
+      new_topic.publish
     end
     if new_topic.save!
       result = discussion_topic_api_json(new_topic, @context, @current_user, session,
@@ -670,7 +677,7 @@ class DiscussionTopicsApiController < ApplicationController
   end
 
   def build_entry(association)
-    params[:message] = process_incoming_html_content(params[:message])
+    params[:message] = process_incoming_html_content(params[:message]) if params.key?(:message)
     @topic.save! if @topic.new_record?
     association.build(:message => params[:message], :user => @current_user, :discussion_topic => @topic)
   end
@@ -683,6 +690,11 @@ class DiscussionTopicsApiController < ApplicationController
     if @entry.save
       @entry.update_topic
       log_asset_access(@topic, 'topics', 'topics', 'participate')
+
+      assignment_id = @topic.assignment_id
+      submission_id = assignment_id && @topic.assignment.submission_for_student_id(@entry.user_id)&.id
+      Canvas::LiveEvents.discussion_entry_submitted(@entry, assignment_id, submission_id)
+
       if has_attachment
         @attachment = create_attachment
         @attachment.handle_duplicates(:rename)

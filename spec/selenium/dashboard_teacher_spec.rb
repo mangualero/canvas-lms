@@ -33,7 +33,7 @@ describe "dashboard" do
       term.save!
       c1 = @course
       c1.name = 'a_soft_concluded_course'
-      c1.update_attributes!(:enrollment_term => term)
+      c1.update!(:enrollment_term => term)
       c1.reload
 
       get "/courses"
@@ -120,6 +120,8 @@ describe "dashboard" do
         wait_for_ajaximations
 
         get "/"
+        f('#DashboardOptionsMenu_Container button').click
+        fj('span[role="menuitemradio"]:contains("Recent Activity")').click
         expect(f('.no_recent_messages')).to be_truthy
       end
     end
@@ -128,7 +130,13 @@ describe "dashboard" do
       before do
         @teacher = @user
         @student = student_in_course(:course => @course, :active_all => true).user
-        @assignment = @course.assignments.create!(:title => "some assignment", :submission_types => ['online_text_entry'], :moderated_grading => true)
+        @assignment = @course.assignments.create!(
+          title: "some assignment",
+          submission_types: ['online_text_entry'],
+          moderated_grading: true,
+          grader_count: 2,
+          final_grader: @teacher
+        )
         @assignment.submit_homework(@student, :body => "submission")
       end
 
@@ -151,7 +159,7 @@ describe "dashboard" do
 
           Timecop.freeze(3.minutes.from_now) do
             @assignment.update_attribute(:grades_published_at, Time.now.utc)
-            @teacher.touch # would be done by the publishing endpoint
+            @teacher.clear_cache_key(:todo_list) # would be done by the publishing endpoint
 
             get "/"
             expect(f('.to-do-list')).to_not include_text("Moderate #{@assignment.title}")
@@ -265,7 +273,7 @@ describe "dashboard" do
         get "/"
 
         f('#global_nav_courses_link').click
-        expect(fj('[aria-label="Global navigation tray"] a:contains("All Courses")')).to be_present
+        expect(fj('[aria-label="Courses tray"] a:contains("All Courses")')).to be_present
       end
     end
   end

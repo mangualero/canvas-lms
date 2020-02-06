@@ -163,6 +163,16 @@ describe TabsController, type: :request do
       ]
     end
 
+    it 'includes tabs for institution-visible courses' do
+      course_factory(:active_all => true)
+      @course.update_attribute(:is_public_to_auth_users, true)
+      user_with_pseudonym
+      json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs",
+                      {:controller => 'tabs', :action => 'index', :course_id => @course.to_param, :format => 'json'},
+                      {}, {}, {:expected_status => 200})
+      expect(json.map { |tab| tab['id'] }).to include 'home'
+    end
+
     it 'should include external tools' do
       course_with_teacher(:active_all => true)
       @tool = @course.context_external_tools.new({
@@ -190,8 +200,25 @@ describe TabsController, type: :request do
         uri = URI(tab['url'])
         expect(uri.path).to eq "/api/v1/courses/#{@course.id}/external_tools/sessionless_launch"
         expect(uri.query).to include('id=')
+        expect(uri.query).to include('launch_type=course_navigation')
       end
     end
+
+    it 'launches account navigation external tools with launch_type=account_navigation' do
+      account_admin_user(:active_all => true)
+      @account = @user.account
+      @tool = @account.context_external_tools.new(name: "Ex", url: "http://example.com", consumer_key: "k", shared_secret: "s")
+      @tool.settings.merge!(account_navigation: { enabled: 'true', url: 'http://example.com' })
+      @tool.save!
+      json = api_call(:get, "/api/v1/accounts/#{@account.id}/tabs",
+                      controller: 'tabs', action: 'index', account_id: @account.to_param, format: 'json')
+      external_tabs = json.select {|tab| tab['type'] == 'external'}
+      expect(external_tabs.length).to eq 1
+      expect(external_tabs.first['url']).to match(
+        %r{/api/v1/accounts/#{@account.id}/external_tools/sessionless_launch\?.*launch_type=account_navigation}
+      )
+    end
+
 
     it "includes collaboration tab if configured" do
       course_with_teacher :active_all => true
@@ -273,10 +300,178 @@ describe TabsController, type: :request do
       ]
     end
 
+    it 'should list navigation tabs for an account' do
+      account_admin_user(:active_all => true)
+      @account = @user.account
+      json = api_call(:get, "/api/v1/accounts/#{@account.id}/tabs",
+                      { :controller => 'tabs', :action => 'index', :account_id => @account.to_param, :format => 'json'})
+      expect(json).to eq [
+        {
+          "id" => "courses",
+          "html_url" => "/accounts/#{@account.id}",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}",
+          "type" => "internal",
+          "label" => "Courses",
+          "position"=>1,
+          "visibility"=>"public"
+        },
+        {
+          "id" => "users",
+          "label" => "People",
+          "html_url" => "/accounts/#{@account.id}/users",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/users",
+          "position"=>2,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "statistics",
+          "html_url" => "/accounts/#{@account.id}/statistics",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/statistics",
+          "label" => "Statistics",
+          "position"=>3,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "permissions",
+          "html_url" => "/accounts/#{@account.id}/permissions",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/permissions",
+          "label" => "Permissions",
+          "position"=>4,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "outcomes",
+          "html_url" => "/accounts/#{@account.id}/outcomes",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/outcomes",
+          "label" => "Outcomes",
+          "position"=>5,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "rubrics",
+          "html_url" => "/accounts/#{@account.id}/rubrics",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/rubrics",
+          "label" => "Rubrics",
+          "position"=>6,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "grading_standards",
+          "html_url" => "/accounts/#{@account.id}/grading_standards",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/grading_standards",
+          "label" => "Grading",
+          "position"=>7,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "question_banks",
+          "html_url" => "/accounts/#{@account.id}/question_banks",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/question_banks",
+          "label" => "Question Banks",
+          "position"=>8,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "sub_accounts",
+          "html_url" => "/accounts/#{@account.id}/sub_accounts",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/sub_accounts",
+          "label" => "Sub-Accounts",
+          "position"=>9,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "terms",
+          "html_url" => "/accounts/#{@account.id}/terms",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/terms",
+          "label" => "Terms",
+          "position"=>10,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "authentication",
+          "html_url" => "/accounts/#{@account.id}/authentication_providers",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/authentication_providers",
+          "label" => "Authentication",
+          "position"=>11,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "sis_import",
+          "html_url" => "/accounts/#{@account.id}/sis_import",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/sis_import",
+          "label" => "SIS Import",
+          "position"=>12,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "brand_configs",
+          "html_url" => "/accounts/#{@account.id}/brand_configs",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/brand_configs",
+          "label" => "Themes",
+          "position"=>13,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "developer_keys",
+          "html_url" => "/accounts/#{@account.id}/developer_keys",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/developer_keys",
+          "label" => "Developer Keys",
+          "position"=>14,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "admin_tools",
+          "html_url" => "/accounts/#{@account.id}/admin_tools",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/admin_tools",
+          "label" => "Admin Tools",
+          "position"=>15,
+          "visibility"=>"public",
+          "type" => "internal"
+        },
+        {
+          "id" => "settings",
+          "html_url" => "/accounts/#{@account.id}/settings",
+          "full_url" => "#{HostUrl.protocol}://#{HostUrl.context_host(@account)}/accounts/#{@account.id}/settings",
+          "label" => "Settings",
+          "position"=>16,
+          "visibility"=>"admins",
+          "type" => "internal"
+        }
+      ]
+    end
+
     it "doesn't include hidden tabs for student" do
       course_with_student(active_all: true)
-      tab_ids = [0, 1, 3, 8, 5, 6, 14, 2, 11, 15, 4, 10, 13]
-      hidden_tabs = [3, 8, 5]
+      tab_ids = [
+        Course::TAB_HOME,
+        Course::TAB_SYLLABUS,
+        Course::TAB_ASSIGNMENTS,
+        Course::TAB_DISCUSSIONS,
+        Course::TAB_GRADES,
+        Course::TAB_PEOPLE,
+        Course::TAB_ANNOUNCEMENTS,
+        Course::TAB_PAGES,
+        Course::TAB_FILES,
+        Course::TAB_OUTCOMES,
+        Course::TAB_QUIZZES,
+        Course::TAB_MODULES,
+        Course::TAB_OUTCOMES
+      ]
+      hidden_tabs = [Course::TAB_ASSIGNMENTS, Course::TAB_DISCUSSIONS, Course::TAB_GRADES]
+
       @course.tab_configuration = tab_ids.map do |n|
         hash = {'id' => n}
         hash['hidden'] = true if hidden_tabs.include?(n)
@@ -285,8 +480,11 @@ describe TabsController, type: :request do
       @course.save
       json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs", { :controller => 'tabs', :action => 'index',
                                                                     :course_id => @course.to_param, :format => 'json'})
-      expect(json.count).to eq 3
-      json.each {|t| expect(%w{home syllabus people}).to include(t['id'])}
+      expect(json).to match_array([
+        a_hash_including({"id" => "home"}),
+        a_hash_including({"id" => "syllabus"}),
+        a_hash_including({"id" => "people"}),
+      ])
     end
 
     describe "teacher in a course" do
@@ -375,6 +573,70 @@ describe TabsController, type: :request do
         json.each_with_index { |t, i| expect(t['position']).to eq i+1 }
       end
 
+    end
+
+    describe "user profile" do
+      before(:each) { user_model }
+
+      let(:tool) {
+        Account.default.context_external_tools.new({
+          :name => 'Example',
+          :url => 'http://www.example.com',
+          :consumer_key => 'key',
+          :shared_secret => 'secret',
+        })
+      }
+
+      it 'should include external tools' do
+        tool.settings[:user_navigation] = {
+          :enabled => 'true',
+          :url => 'http://www.example.com',
+        }
+        tool.save!
+
+        json = api_call(:get, "/api/v1/users/#{@user.id}/tabs",
+                        { :controller => 'tabs', :action => 'index', :user_id => @user.to_param, :format => 'json'})
+
+        expect(json).to include(include('type' => 'external', 'label' => 'Example'))
+      end
+
+      it "handles external tools with windowTarget: _blank" do
+        tool.settings[:user_navigation] = {
+          enable: true,
+          url: 'http://www.example.com/foo',
+          windowTarget: '_blank'
+        }
+        tool.save!
+
+        json = api_call(:get, "/api/v1/users/#{@user.id}/tabs",
+                        { :controller => 'tabs', :action => 'index', :user_id => @user.to_param, :format => 'json'})
+
+        tab = json.find{|j| j['type'] == 'external'}
+        expect(tab['html_url']).to match(%r{^/users/[0-9]+/external_tools/[0-9]+\?display=borderless$})
+        expect(tab['full_url']).to match(%r{^http.*users/[0-9]+/external_tools/[0-9]+\?display=borderless$})
+      end
+
+      it "handles LTI 2 tools" do
+        course_model
+
+        expect(Lti::MessageHandler).to receive(:lti_apps_tabs).and_return([
+          {
+            :id => "dontcare",
+            :label => "dontcare",
+            :css_class => "dontcare",
+            :href => :course_basic_lti_launch_request_path,
+            :visibility => nil,
+            :external => true,
+            :hidden => false,
+            :args => {message_handler_id: 123, resource_link_fragment: "nav", course_id: @course.id}
+          }
+        ])
+        json = api_call(:get, "/api/v1/courses/#{@course.id}/tabs",
+                        { :controller => 'tabs', :action => 'index', :course_id => @course.id, :format => 'json'})
+        expect(json.to_json).not_to include('internal_server_error')
+        tab = json.find{|j| j['id'] == 'dontcare'}
+        expect(tab['html_url']).to eql("/courses/#{@course.id}/lti/basic_lti_launch_request/123?resource_link_fragment=nav")
+      end
     end
 
   end

@@ -46,9 +46,10 @@ test('selecting a model/view sets the selected attribute on the model', () => {
   fixture.remove()
 })
 
-test('prevPage fetches previous page from collection', function() {
+test('prevPage fetches previous page from collection', () => {
   const collection = new WikiPageRevisionsCollection()
-  this.mock(collection)
+  sandbox
+    .mock(collection)
     .expects('fetch')
     .atLeast(1)
     .withArgs({
@@ -60,9 +61,10 @@ test('prevPage fetches previous page from collection', function() {
   view.prevPage()
 })
 
-test('nextPage fetches next page from collection', function() {
+test('nextPage fetches next page from collection', () => {
   const collection = new WikiPageRevisionsCollection()
-  this.mock(collection)
+  sandbox
+    .mock(collection)
     .expects('fetch')
     .atLeast(1)
     .withArgs({
@@ -74,17 +76,17 @@ test('nextPage fetches next page from collection', function() {
   view.nextPage()
 })
 
-test('toJSON - CAN.FETCH_PREV', function() {
+test('toJSON - CAN.FETCH_PREV', () => {
   const collection = new WikiPageRevisionsCollection()
   const view = new WikiPageRevisionsView({collection})
-  this.stub(collection, 'canFetch').callsFake(arg => arg === 'prev')
+  sandbox.stub(collection, 'canFetch').callsFake(arg => arg === 'prev')
 
   strictEqual(get(view.toJSON(), 'CAN.FETCH_PREV'), true, 'can fetch previous')
 })
 
-test('toJSON - CAN.FETCH_NEXT', function() {
+test('toJSON - CAN.FETCH_NEXT', () => {
   const collection = new WikiPageRevisionsCollection()
   const view = new WikiPageRevisionsView({collection})
-  this.stub(collection, 'canFetch').callsFake(arg => arg === 'next')
+  sandbox.stub(collection, 'canFetch').callsFake(arg => arg === 'next')
   strictEqual(get(view.toJSON(), 'CAN.FETCH_NEXT'), true, 'can fetch next')
 })

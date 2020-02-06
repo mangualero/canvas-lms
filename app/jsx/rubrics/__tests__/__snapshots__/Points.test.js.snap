@@ -1,33 +1,68 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`The Points component renders an error when points is a string 1`] = `
-"<div className=\\"container graded-points\\">
-  <TextInput inline={true} label={{...}} messages={{...}} onChange={[Function]} value=\\"stringy\\" width=\\"4rem\\" type=\\"text\\" size=\\"medium\\" textAlign=\\"start\\" disabled={false} readOnly={false} inputRef={[Function]} layout=\\"stacked\\" />
-   
-  / 2.0 pts
-</div>"
-`;
-
-exports[`The Points component renders as expected with fractional points 1`] = `
-"<div className=\\"container graded-points\\">
-  1.1
-   
-  / 2.0 pts
-</div>"
-`;
-
-exports[`The Points component renders blank when points are undefined 1`] = `
-"<div className=\\"container graded-points\\">
-  <TextInput inline={true} label={{...}} messages={{...}} onChange={[Function]} value=\\"\\" width=\\"4rem\\" type=\\"text\\" size=\\"medium\\" textAlign=\\"start\\" disabled={false} readOnly={false} inputRef={[Function]} layout=\\"stacked\\" />
-   
-  / 2.0 pts
-</div>"
+exports[`The Points component renders the component when assessing with the expected layout 1`] = `
+<div
+  className="react-rubric-cell graded-points"
+>
+  <Flex
+    alignItems="end"
+    as="span"
+    direction="row"
+    elementRef={[Function]}
+    inline={false}
+    justifyItems="start"
+    visualDebug={false}
+    wrapItems={true}
+  >
+    <FlexItem
+      as="span"
+      elementRef={[Function]}
+      grow={false}
+      margin="none small none none"
+      shrink={false}
+      size="4rem"
+    >
+      <TextInput
+        display="inline-block"
+        inputContainerRef={[Function]}
+        inputRef={[Function]}
+        interaction="enabled"
+        isRequired={false}
+        messages={Array []}
+        onBlur={[Function]}
+        onChange={[Function]}
+        onFocus={[Function]}
+        renderLabel={
+          <ScreenReaderContent
+            as="span"
+          >
+            Points
+          </ScreenReaderContent>
+        }
+        size="medium"
+        textAlign="start"
+        type="text"
+        value="1"
+        width="4rem"
+      />
+    </FlexItem>
+    <FlexItem
+      as="span"
+      elementRef={[Function]}
+      grow={false}
+      margin="small none none none"
+      shrink={false}
+    >
+      / 2 pts
+    </FlexItem>
+  </Flex>
+</div>
 `;
 
 exports[`The Points component renders the root component as expected 1`] = `
-"<div className=\\"container graded-points\\">
-  1
-   
-  / 2.0 pts
-</div>"
+<div
+  className="react-rubric-cell graded-points"
+>
+  1 / 2 pts
+</div>
 `;

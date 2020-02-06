@@ -30,7 +30,7 @@ describe "assignment groups" do
 
     before(:each) do
       allow(ConditionalRelease::Service).to receive(:active_rules).and_return([])
-      make_full_screen
+
       course_with_teacher_logged_in
     end
 
@@ -108,8 +108,7 @@ describe "assignment groups" do
         send_keys(format_date_for_view(other_section_due, :medium))
 
       # `return_to` is not set, so no redirect happens
-      submit_form('#edit_assignment_form')
-      wait_for_ajax_requests
+      wait_for_new_page_load{ submit_form('#edit_assignment_form') }
 
       overrides = assign.reload.assignment_overrides
       expect(overrides.count).to eq 3
@@ -162,8 +161,7 @@ describe "assignment groups" do
       first_lock_at_element.clear
       last_due_at_element.
         send_keys(format_date_for_view(due_date, :medium))
-      submit_form('#edit_assignment_form')
-      wait_for_ajaximations
+      wait_for_new_page_load{ submit_form('#edit_assignment_form') }
       overrides = assign.reload.assignment_overrides
       section_override = overrides.detect{ |o| o.set_id == section1.id }
       expect(section_override.due_at.to_date)
@@ -196,7 +194,7 @@ describe "assignment groups" do
 
       get "/courses/#{@course.id}/assignments"
       expect(f('.assignment .assignment-date-due')).to include_text "Multiple Dates"
-      driver.mouse.move_to f(".assignment .assignment-date-due a")
+      driver.action.move_to(f(".assignment .assignment-date-due a")).perform
       wait_for_ajaximations
 
       tooltip = fj('.vdd_tooltip_content:visible')
@@ -211,7 +209,7 @@ describe "assignment groups" do
     let(:lock_at) { Time.zone.now + 4.days }
 
     before(:each) do
-      make_full_screen
+
       course_with_student_logged_in(:active_all => true)
     end
 

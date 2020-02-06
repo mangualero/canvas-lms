@@ -132,6 +132,10 @@
       delay_for: <%= 60*60 %>
     - name: Submission Grade Changed
       delay_for: <%= 5*60 %>
+    - name: Submission Posted
+      delay_for: 0
+    - name: Submissions Posted
+      delay_for: 0
     - name: Quiz Regrade Finished
       delay_for: 0
 
@@ -166,8 +170,6 @@
 
 - category: Membership Update
   notifications:
-    - name: Enrollment Accepted
-      delay_for: 0
     - name: New Context Group Membership
       delay_for: 0
     - name: Group Membership Accepted
@@ -202,6 +204,8 @@
       delay_for: 0
     - name: New Student Organized Group
       delay_for: 0
+    - name: Enrollment Accepted
+      delay_for: 0
 
 - category: Registration
   notifications:
@@ -228,6 +232,8 @@
     - name: Enrollment Registration
       delay_for: 0
     - name: Enrollment Notification
+      delay_for: 0
+    - name: Manually Created Access Token Created
       delay_for: 0
 
 - category: Student Appointment Signups
@@ -260,3 +266,11 @@
       delay_for: 0
     - name: Blueprint Sync Complete
       delay_for: 0
+
+- category: Content Link Error
+  notifications:
+    - name: Content Link Error
+
+- category: Account Notification
+  notifications:
+    - name: Account Notification

@@ -305,10 +305,6 @@ class ConversationsController < ApplicationController
     end
   end
 
-  def toggle_new_conversations
-    redirect_to action: 'index'
-  end
-
   # @API Create a conversation
   # Create a new conversation with one or more recipients. If there is already
   # an existing private conversation with the given recipients, it will be
@@ -317,7 +313,9 @@ class ConversationsController < ApplicationController
   # @argument recipients[] [Required, String]
   #   An array of recipient ids. These may be user ids or course/group ids
   #   prefixed with "course_" or "group_" respectively, e.g.
-  #   recipients[]=1&recipients[]=2&recipients[]=course_3
+  #   recipients[]=1&recipients[]=2&recipients[]=course_3. If the course/group
+  #   has over 100 enrollments, 'bulk_message' and 'group_conversation' must be
+  #   set to true.
   #
   # @argument subject [String]
   #   The subject of the conversation. This is ignored when reusing a
@@ -326,11 +324,14 @@ class ConversationsController < ApplicationController
   # @argument body [Required, String]
   #   The message to be sent
   #
+  # @argument force_new [Boolean]
+  #   Forces a new message to be created, even if there is an existing private conversation.
+  #
   # @argument group_conversation [Boolean]
-  #   Defaults to false. If true, this will be a group conversation (i.e. all
-  #   recipients may see all messages and replies). If false, individual private
-  #   conversations will be started with each recipient. Must be set false if the
-  #   number of recipients is over the set maximum (default is 100).
+  #   Defaults to false.  When false, individual private conversations will be
+  #   created with each recipient. If true, this will be a group conversation
+  #   (i.e. all recipients may see all messages and replies). Must be set true if
+  #   the number of recipients is over the set maximum (default is 100).
   #
   # @argument attachment_ids[] [String]
   #   An array of attachments ids. These must be files that have been previously
@@ -374,12 +375,25 @@ class ConversationsController < ApplicationController
     return render_error('body', 'blank') if params[:body].blank?
     context_type = nil
     context_id = nil
+    shard = Shard.current
     if params[:context_code].present?
       context = Context.find_by_asset_string(params[:context_code])
-      return render_error('context_code', 'invalid') unless valid_context?(context)
 
+      recipients_are_instructors = all_recipients_are_instructors?(context, @recipients)
+
+      if context.is_a?(Course) && !recipients_are_instructors && !context.grants_right?(@current_user, session, :send_messages)
+        return render_error("Unable to send messages to users in #{context.name}", '')
+      elsif !valid_context?(context)
+        return render_error('context_code', 'invalid')
+      end
+
+      shard = context.shard
       context_type = context.class.name
       context_id = context.id
+    end
+
+    if context.is_a?(Course) && context.workflow_state != 'available'
+      return render_error('Course concluded', 'Unable to send messages')
     end
 
     params[:recipients].each do |recipient|
@@ -391,34 +405,37 @@ class ConversationsController < ApplicationController
 
     group_conversation     = value_to_boolean(params[:group_conversation])
     batch_private_messages = !group_conversation && @recipients.size > 1
-    batch_group_messages   = group_conversation && value_to_boolean(params[:bulk_message])
+    batch_group_messages   = (group_conversation && value_to_boolean(params[:bulk_message])) || value_to_boolean(params[:force_new])
     message                = build_message
 
     if !batch_group_messages && @recipients.size > Conversation.max_group_conversation_size
       return render_error('recipients', 'too many for group conversation')
     end
 
-    if batch_private_messages || batch_group_messages
-      mode = params[:mode] == 'async' ? :async : :sync
-      batch = ConversationBatch.generate(message, @recipients, mode,
-        subject: params[:subject], context_type: context_type,
-        context_id: context_id, tags: @tags, group: batch_group_messages)
+    shard.activate do
+      if batch_private_messages || batch_group_messages
+        mode = params[:mode] == 'async' ? :async : :sync
+        message.shard = shard
+        batch = ConversationBatch.generate(message, @recipients, mode,
+          subject: params[:subject], context_type: context_type,
+          context_id: context_id, tags: @tags, group: batch_group_messages)
 
-      if mode == :async
-        headers['X-Conversation-Batch-Id'] = batch.id.to_s
-        return render :json => [], :status => :accepted
+        if mode == :async
+          headers['X-Conversation-Batch-Id'] = batch.id.to_s
+          return render :json => [], :status => :accepted
+        end
+
+        # reload and preload stuff
+        conversations = ConversationParticipant.where(:id => batch.conversations).preload(:conversation).order("visible_last_authored_at DESC, last_message_at DESC, id DESC")
+        Conversation.preload_participants(conversations.map(&:conversation))
+        ConversationParticipant.preload_latest_messages(conversations, @current_user)
+        visibility_map = infer_visibility(conversations)
+        render :json => conversations.map{ |c| conversation_json(c, @current_user, session, :include_participant_avatars => false, :include_participant_contexts => false, :visible => visibility_map[c.conversation_id]) }, :status => :created
+      else
+        @conversation = @current_user.initiate_conversation(@recipients, !group_conversation, :subject => params[:subject], :context_type => context_type, :context_id => context_id)
+        @conversation.add_message(message, :tags => @tags, :update_for_sender => false, :cc_author => true)
+        render :json => [conversation_json(@conversation.reload, @current_user, session, :include_indirect_participants => true, :messages => [message])], :status => :created
       end
-
-      # reload and preload stuff
-      conversations = ConversationParticipant.where(:id => batch.conversations).preload(:conversation).order("visible_last_authored_at DESC, last_message_at DESC, id DESC")
-      Conversation.preload_participants(conversations.map(&:conversation))
-      ConversationParticipant.preload_latest_messages(conversations, @current_user)
-      visibility_map = infer_visibility(conversations)
-      render :json => conversations.map{ |c| conversation_json(c, @current_user, session, :include_participant_avatars => false, :include_participant_contexts => false, :visible => visibility_map[c.conversation_id]) }, :status => :created
-    else
-      @conversation = @current_user.initiate_conversation(@recipients, !group_conversation, :subject => params[:subject], :context_type => context_type, :context_id => context_id)
-      @conversation.add_message(message, :tags => @tags, :update_for_sender => false, :cc_author => true)
-      render :json => [conversation_json(@conversation.reload, @current_user, session, :include_indirect_participants => true, :messages => [message])], :status => :created
     end
   rescue ActiveRecord::RecordInvalid => err
     render :json => err.record.errors, :status => :bad_request
@@ -629,7 +646,7 @@ class ConversationsController < ApplicationController
   #     "participants": [{"id": 1, "name": "Joe", "full_name": "Joe TA"}]
   #   }
   def update
-    if @conversation.update_attributes(params.require(:conversation).permit(*API_ALLOWED_FIELDS))
+    if @conversation.update(params.require(:conversation).permit(*API_ALLOWED_FIELDS))
       render :json => conversation_json(@conversation, @current_user, session)
     else
       render :json => @conversation.errors, :status => :bad_request
@@ -1053,14 +1070,6 @@ class ConversationsController < ApplicationController
     content
   end
 
-  def watched_intro
-    unless @current_user.watched_conversations_intro?
-      @current_user.watched_conversations_intro
-      @current_user.save
-    end
-    render :json => {}
-  end
-
   private
 
   def render_error(attribute, message)
@@ -1090,7 +1099,7 @@ class ConversationsController < ApplicationController
     end
 
     filters = param_array(:filter)
-    @conversations_scope = @conversations_scope.for_masquerading_user(@real_current_user) if @real_current_user
+    @conversations_scope = @conversations_scope.for_masquerading_user(@real_current_user, @current_user) if @real_current_user
     @conversations_scope = @conversations_scope.tagged(*filters, :mode => filter_mode) if filters.present?
     @set_visibility = true
   end
@@ -1130,7 +1139,7 @@ class ConversationsController < ApplicationController
     known = @current_user.address_book.known_users(users, context: context, conversation_id: params[:from_conversation_id])
     contexts.each{ |context| known.concat(@current_user.address_book.known_in_context(context)) }
     @recipients = known.uniq(&:id)
-    @recipients.reject!{|u| u.id == @current_user.id} unless @recipients == [@current_user]
+    @recipients.reject!{|u| u.id == @current_user.id} unless @recipients == [@current_user] && params[:recipients].count == 1
   end
 
   def infer_tags
@@ -1224,4 +1233,15 @@ class ConversationsController < ApplicationController
     false
   end
 
+  def all_recipients_are_instructors?(context, recipients)
+    if context.is_a?(Course)
+      all_recipients_are_instructors = true
+      recipients.each do |recipient|
+        all_recipients_are_instructors = false unless context.user_is_instructor?(recipient)
+      end
+      return all_recipients_are_instructors
+    end
+
+    false
+  end
 end

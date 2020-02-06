@@ -18,13 +18,12 @@
 
 import React, {Component} from 'react'
 import {bool, func, instanceOf, number, oneOf, shape, string} from 'prop-types'
-import ApplyTheme from '@instructure/ui-core/lib/components/ApplyTheme'
-import Button from '@instructure/ui-core/lib/components/Button'
-import Text from '@instructure/ui-core/lib/components/Text'
-import IconCheckMark from '@instructure/ui-icons/lib/Solid/IconCheckMark'
-import IconExpandLeftLine from 'instructure-icons/lib/Line/IconExpandLeftLine'
-import IconEnd from '@instructure/ui-icons/lib/Solid/IconEnd'
-import I18n from 'i18n!gradebook'
+import {ApplyTheme} from '@instructure/ui-themeable'
+import {Button} from '@instructure/ui-buttons'
+import {Text} from '@instructure/ui-elements'
+import {IconCheckMarkSolid, IconExpandStartLine, IconEndSolid} from '@instructure/ui-icons'
+
+import I18n from 'i18n!gradezilla'
 import GradeFormatHelper from '../../../../../gradebook/shared/helpers/GradeFormatHelper'
 
 const themeOverrides = {
@@ -59,13 +58,13 @@ function renderCompleteIncompleteGrade(grade) {
   if (grade === 'complete') {
     content = (
       <Text color="success" size="medium">
-        <IconCheckMark title={I18n.t('Complete')} />
+        <IconCheckMarkSolid title={I18n.t('Complete')} />
       </Text>
     )
   } else {
     content = (
       <Text size="medium">
-        <IconEnd title={I18n.t('Incomplete')} />
+        <IconEndSolid title={I18n.t('Incomplete')} />
       </Text>
     )
   }
@@ -152,20 +151,20 @@ export default class ReadOnlyCell extends Component {
 
     return (
       <ApplyTheme theme={themeOverrides}>
-        <div className="Grid__AssignmentRowCell Grid__ReadOnlyCell">
-          <div className="Grid__AssignmentRowCell__StartContainer" />
+        <div className="Grid__GradeCell Grid__ReadOnlyCell">
+          <div className="Grid__GradeCell__StartContainer" />
 
-          <div className="Grid__AssignmentRowCell__Content">{gradeIsVisible && content}</div>
+          <div className="Grid__GradeCell__Content">{gradeIsVisible && content}</div>
 
-          <div className="Grid__AssignmentRowCell__EndContainer">
-            <div className="Grid__AssignmentRowCell__Options">
+          <div className="Grid__GradeCell__EndContainer">
+            <div className="Grid__GradeCell__Options">
               <Button
                 buttonRef={this.bindToggleTrayButtonRef}
                 onClick={this.handleToggleTrayButtonClick}
                 size="small"
                 variant="icon"
               >
-                <IconExpandLeftLine title={I18n.t('Open submission tray')} />
+                <IconExpandStartLine title={I18n.t('Open submission tray')} />
               </Button>
             </div>
           </div>

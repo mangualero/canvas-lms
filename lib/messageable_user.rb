@@ -17,7 +17,7 @@
 #
 
 class MessageableUser < User
-  COLUMNS = ['id', 'updated_at', 'short_name', 'name', 'avatar_image_url', 'avatar_image_source'].map{ |col| "users.#{col}" }
+  COLUMNS = ['id', 'updated_at', 'pronouns', 'short_name', 'name', 'avatar_image_url', 'avatar_image_source'].map{ |col| "users.#{col}" }
   SELECT = COLUMNS.join(", ")
   AVAILABLE_CONDITIONS = "users.workflow_state IN ('registered', 'pre_registered')"
 
@@ -33,11 +33,10 @@ class MessageableUser < User
     common_course_sql =
       if options[:common_role_column]
         raise ArgumentError unless options[:common_course_column]
-        connection.func(:group_concat, connection.adapter_name =~ /postgres/i ?
-          :"#{options[:common_course_column]}::text || ':' || #{options[:common_role_column]}::text" :
-          :"#{options[:common_course_column]} || ':' || #{options[:common_role_column]}")
+        connection.func(:group_concat,
+          :"#{options[:common_course_column]}::text || ':' || #{options[:common_role_column]}::text")
       else
-        'NULL'
+        'NULL::text'
       end
 
     common_group_sql =
@@ -46,7 +45,7 @@ class MessageableUser < User
       elsif options[:common_group_column]
         options[:common_group_column].to_s
       else
-        'NULL'
+        'NULL::text'
       end
 
     "#{SELECT}, #{bookmark_sql} AS bookmark, #{common_course_sql} AS common_courses, #{common_group_sql} AS common_groups"
@@ -74,7 +73,7 @@ class MessageableUser < User
     scope = self.
       select(MessageableUser.build_select(options)).
       group(MessageableUser.connection.group_by(*columns)).
-      order(User.sortable_name_order_by_clause + Arel.sql(", users.id"))
+      order(User.sortable_name_order_by_clause).order(Arel.sql("users.id"))
 
     if options[:strict_checks]
       scope.where(AVAILABLE_CONDITIONS)

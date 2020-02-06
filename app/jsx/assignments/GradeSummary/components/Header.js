@@ -16,25 +16,138 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React from 'react'
-import {shape, string} from 'prop-types'
-import Heading from '@instructure/ui-elements/lib/components/Heading'
+import React, {Component} from 'react'
+import {connect} from 'react-redux'
+import {arrayOf, func, oneOf, shape, string} from 'prop-types'
+import {Alert} from '@instructure/ui-alerts'
+import {Flex} from '@instructure/ui-layout'
+import {Heading, Text} from '@instructure/ui-elements'
+
 import I18n from 'i18n!assignment_grade_summary'
 
-export default function Header(props) {
-  return (
-    <header>
-      <Heading level="h1">{I18n.t('Grade Summary')}</Heading>
+import * as AssignmentActions from '../assignment/AssignmentActions'
+import GradersTable from './GradersTable'
+import PostToStudentsButton from './PostToStudentsButton'
+import ReleaseButton from './ReleaseButton'
 
-      <Heading level="h2" margin="small 0 0 0">
-        {props.assignment.title}
-      </Heading>
-    </header>
-  )
+/* eslint-disable no-alert */
+
+function enumeratedStatuses(actions) {
+  return [actions.FAILURE, actions.STARTED, actions.SUCCESS]
 }
 
-Header.propTypes = {
-  assignment: shape({
-    title: string.isRequired
-  }).isRequired
+class Header extends Component {
+  static propTypes = {
+    assignment: shape({
+      title: string.isRequired
+    }).isRequired,
+    graders: arrayOf(
+      shape({
+        graderName: string,
+        graderId: string.isRequired
+      })
+    ).isRequired,
+    releaseGrades: func.isRequired,
+    releaseGradesStatus: oneOf(enumeratedStatuses(AssignmentActions)),
+    unmuteAssignment: func.isRequired,
+    unmuteAssignmentStatus: oneOf(enumeratedStatuses(AssignmentActions))
+  }
+
+  static defaultProps = {
+    releaseGradesStatus: null,
+    unmuteAssignmentStatus: null
+  }
+
+  handleReleaseClick = () => {
+    const message = I18n.t(
+      'Are you sure you want to do this? It cannot be undone and will override existing grades in the gradebook.'
+    )
+    if (window.confirm(message)) {
+      this.props.releaseGrades()
+    }
+  }
+
+  handleUnmuteClick = () => {
+    const message = I18n.t('Are you sure you want to post grades for this assignment to students?')
+    if (window.confirm(message)) {
+      this.props.unmuteAssignment()
+    }
+  }
+
+  render() {
+    return (
+      <header>
+        {this.props.assignment.gradesPublished && (
+          <Alert margin="0 0 medium 0" variant="info">
+            <Text weight="bold">{I18n.t('Attention!')}</Text>{' '}
+            {I18n.t('Grades cannot be modified from this page as they have already been released.')}
+          </Alert>
+        )}
+
+        <Heading level="h1" margin="0 0 x-small 0">
+          {I18n.t('Grade Summary')}
+        </Heading>
+
+        <Text size="x-large">{this.props.assignment.title}</Text>
+
+        <Flex as="div" margin="large 0 0 0">
+          {this.props.graders.length > 0 && (
+            <Flex.Item as="div" flex="1" grow>
+              <GradersTable />
+            </Flex.Item>
+          )}
+
+          <Flex.Item align="end" as="div" flex="2" grow>
+            <Flex as="div" justifyItems="end">
+              <Flex.Item>
+                <ReleaseButton
+                  gradesReleased={this.props.assignment.gradesPublished}
+                  margin="0 x-small 0 0"
+                  onClick={this.handleReleaseClick}
+                  releaseGradesStatus={this.props.releaseGradesStatus}
+                />
+              </Flex.Item>
+
+              <Flex.Item>
+                <PostToStudentsButton
+                  assignment={this.props.assignment}
+                  onClick={this.handleUnmuteClick}
+                  unmuteAssignmentStatus={this.props.unmuteAssignmentStatus}
+                />
+              </Flex.Item>
+            </Flex>
+          </Flex.Item>
+        </Flex>
+      </header>
+    )
+  }
 }
+
+function mapStateToProps(state) {
+  const {assignment, releaseGradesStatus, unmuteAssignmentStatus} = state.assignment
+
+  return {
+    assignment,
+    graders: state.context.graders,
+    releaseGradesStatus,
+    unmuteAssignmentStatus
+  }
+}
+
+function mapDispatchToProps(dispatch) {
+  return {
+    releaseGrades() {
+      dispatch(AssignmentActions.releaseGrades())
+    },
+
+    unmuteAssignment() {
+      dispatch(AssignmentActions.unmuteAssignment())
+    }
+  }
+}
+
+export default connect(
+  mapStateToProps,
+  mapDispatchToProps
+)(Header)
+/* eslint-enable no-alert */

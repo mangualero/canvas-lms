@@ -18,6 +18,8 @@
 
 import $ from 'jquery'
 import MediaUtils from 'compiled/jquery/mediaComment'
+import 'jqueryui/dialog'
+import 'jquery.disableWhileLoading'
 
 QUnit.module('mediaComment', {
   setup() {
@@ -37,11 +39,34 @@ const mockServerResponse = (server, id, type = 'video') => {
     media_sources: [
       {
         content_type: 'flv',
-        url: 'http://some_flash_url.com'
+        url: 'http://some_flash_url.com',
+        bitrate: '200'
       },
       {
         content_type: 'mp4',
-        url: 'http://some_mp4_url.com'
+        url: 'http://some_mp4_url.com',
+        bitrate: '100'
+      }
+    ]
+  }
+  return server.respond('GET', `/media_objects/${id}/info`, [
+    200,
+    {'Content-Type': 'application/json'},
+    JSON.stringify(resp)
+  ])
+}
+const mockXssServerResponse = (server, id) => {
+  const resp = {
+    media_sources: [
+      {
+        content_type: 'flv',
+        url: 'javascript:alert(document.cookie);//',
+        bitrate: '200'
+      },
+      {
+        content_type: 'mp4',
+        url: 'javascript:alert(document.cookie);//',
+        bitrate: '100'
       }
     ]
   }
@@ -81,6 +106,44 @@ test('video player includes url sources provided by the server', function() {
     'http://some_mp4_url.com',
     'Video contains the mp4 source'
   )
+})
+
+test('video player sorts sources asc by bitrate', function() {
+  const id = 10
+  this.$holder.mediaComment('show_inline', id)
+  mockServerResponse(this.server, id)
+  const $sources = this.$holder.find('source')
+  equal($sources[0].getAttribute('type'), 'mp4')
+  equal($sources[1].getAttribute('type'), 'flv')
+})
+
+test('blocks xss javascript included in url', function() {
+  const id = 10
+  this.$holder.mediaComment('show_inline', id)
+  mockXssServerResponse(this.server, id)
+  equal(
+    this.$holder.find('source[type=flv]').attr('src'),
+    'about:blank',
+    'Blocks javascript url injection through url for flv url'
+  )
+  equal(
+    this.$holder.find('source[type=mp4]').attr('src'),
+    'about:blank',
+    'Blocks javascript url injection through url for mp4 url'
+  )
+})
+
+test('dialog returns focus to opening element when closed', function() {
+  $('<span id="opening-element"></span>').appendTo('#fixtures')
+  const openingElement = document.getElementById('opening-element')
+  sinon.spy(openingElement, 'focus')
+
+  this.$holder.mediaComment('show', 0, 'video', openingElement)
+  $('.ui-dialog-titlebar-close').click()
+
+  equal(openingElement.focus.callCount, 1)
+  openingElement.remove()
+  $('.ui-dialog').remove()
 })
 
 QUnit.module('MediaCommentUtils functions', {

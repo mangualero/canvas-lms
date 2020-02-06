@@ -25,15 +25,18 @@ module Api::V1::Role
       :id => role.id,
       :role => role.name,
       :label => role.label,
+      :last_updated_at => role.updated_at,
       :base_role_type => (role.built_in? && role.account_role?) ? Role::DEFAULT_ACCOUNT_TYPE : role.base_role_type,
       :workflow_state => role.workflow_state,
+      :created_at => role.created_at.iso8601,
       :permissions => {}
     }
 
-    json[:account] = account_json(role.account, current_user, session, []) if role.account
+    json[:account] = account_json(role.account, current_user, session, []) if role.account_id
 
     RoleOverride.manageable_permissions(account).keys.each do |permission|
       perm = RoleOverride.permission_for(account, permission, role, account)
+      next if permission == :manage_developer_keys && !account.root_account?
       json[:permissions][permission] = permission_json(perm, current_user, session) if perm[:account_allows]
     end
 
@@ -54,4 +57,3 @@ module Api::V1::Role
                      :applies_to_descendants, :applies_to_self)
   end
 end
-

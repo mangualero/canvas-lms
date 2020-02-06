@@ -30,7 +30,8 @@ QUnit.module('Entry', {
       PERMISSIONS: {
         CAN_ATTACH: true,
         CAN_MANAGE_OWN: true
-      }
+      },
+      SPEEDGRADER_URL_TEMPLATE: 'speed_grader?assignment_id=1&student_id=%3Astudent_id'
     }
     this.entry = new Entry({
       id: 1,
@@ -54,11 +55,34 @@ test('should persist replies locally, and call provided onComplete callback', fu
     })
   ]
   this.entry.set('replies', replies)
-  this.setSpy = this.spy(this.entry, 'set')
-  const onCompleteCallback = this.spy()
+  this.setSpy = sandbox.spy(this.entry, 'set')
+  const onCompleteCallback = sinon.spy()
   this.entry.sync('update', this.entry, {complete: onCompleteCallback})
   this.server.respond()
   ok(this.setSpy.calledWith('replies', []))
   ok(this.setSpy.calledWith('replies', replies))
   ok(onCompleteCallback.called)
+})
+
+test('speedgraderUrl replaces :student_id in SPEEDGRADER_URL_TEMPLATE with the user ID', () => {
+  const studentEntry = new Entry({
+    id: 2,
+    message: 'a reply',
+    parent_id: 1,
+    user_id: 100
+  })
+
+  strictEqual(studentEntry.speedgraderUrl(), 'speed_grader?assignment_id=1&student_id=100')
+})
+
+test('recognizes current user as its original author', function() {
+  const nonAuthorEntry = new Entry({
+    id: 2,
+    message: 'a reply',
+    parent_id: 1,
+    user_id: 100
+  })
+
+  ok(!nonAuthorEntry.isAuthorsEntry())
+  ok(this.entry.isAuthorsEntry())
 })

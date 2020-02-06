@@ -22,15 +22,11 @@ import {bool, func} from 'prop-types'
 import $ from 'jquery'
 import 'jquery.instructure_date_and_time'
 
-import View from '@instructure/ui-layout/lib/components/View'
-import Text from '@instructure/ui-elements/lib/components/Text'
-import ScreenReaderContent from '@instructure/ui-a11y/lib/components/ScreenReaderContent'
-import {MenuItem} from '@instructure/ui-core/lib/components/Menu'
-import IconTimer from '@instructure/ui-icons/lib/Line/IconTimer'
-import IconReply from '@instructure/ui-icons/lib/Line/IconReply'
-import IconLock from '@instructure/ui-icons/lib/Line/IconLock'
-import IconUnlock from '@instructure/ui-icons/lib/Line/IconUnlock'
-import IconTrash from '@instructure/ui-icons/lib/Line/IconTrash'
+import {View} from '@instructure/ui-layout'
+import {Text} from '@instructure/ui-elements'
+import {ScreenReaderContent} from '@instructure/ui-a11y'
+import {Menu} from '@instructure/ui-menu'
+import {IconReplyLine, IconLockLine, IconUnlockLine, IconTrashLine} from '@instructure/ui-icons'
 
 import AnnouncementModel from 'compiled/models/Announcement'
 import SectionsTooltip from '../SectionsTooltip'
@@ -38,7 +34,7 @@ import CourseItemRow from './CourseItemRow'
 import UnreadBadge from './UnreadBadge'
 import announcementShape from '../proptypes/announcement'
 import masterCourseDataShape from '../proptypes/masterCourseData'
-import { makeTimestamp } from '../date-utils'
+import {makeTimestamp} from '../date-utils'
 
 export default function AnnouncementRow({
   announcement,
@@ -68,48 +64,51 @@ export default function AnnouncementRow({
   const replyButton = announcement.locked ? null : (
     <View display="block" margin="x-small 0 0">
       <Text color="brand">
-        <IconReply /> {I18n.t('Reply')}
+        <IconReplyLine /> {I18n.t('Reply')}
       </Text>
     </View>
   )
 
   const renderMenuList = () => {
     const menuList = [
-      <MenuItem
+      <Menu.Item
         key="delete"
         value={{action: 'delete', id: announcement.id}}
         id="delete-announcement-menu-option"
       >
         <span aria-hidden="true">
-          <IconTrash />&nbsp;&nbsp;{I18n.t('Delete')}
+          <IconTrashLine />
+          &nbsp;&nbsp;{I18n.t('Delete')}
         </span>
         <ScreenReaderContent>
           {I18n.t('Delete announcement %{title}', {title: announcement.title})}
         </ScreenReaderContent>
-      </MenuItem>
+      </Menu.Item>
     ]
     if (!announcementsLocked) {
       menuList.push(
-        <MenuItem
+        <Menu.Item
           key="lock"
           value={{action: 'lock', id: announcement.id, lock: !announcement.locked}}
           id="lock-announcement-menu-option"
         >
           {announcement.locked ? (
             <span aria-hidden="true">
-              <IconUnlock />&nbsp;&nbsp;{I18n.t('Allow Comments')}
+              <IconUnlockLine />
+              &nbsp;&nbsp;{I18n.t('Allow Comments')}
             </span>
           ) : (
             <span aria-hidden="true">
-              <IconLock />&nbsp;&nbsp;{I18n.t('Disallow Comments')}
+              <IconLockLine />
+              &nbsp;&nbsp;{I18n.t('Disallow Comments')}
             </span>
           )}
           <ScreenReaderContent>
             {announcement.locked
-              ? I18n.t('Allow replies for %{title}', {title: announcement.title})
-              : I18n.t('Disallow replies for %{title}', {title: announcement.title})}
+              ? I18n.t('Allow comments for %{title}', {title: announcement.title})
+              : I18n.t('Disallow comments for %{title}', {title: announcement.title})}
           </ScreenReaderContent>
-        </MenuItem>
+        </Menu.Item>
       )
     }
     return menuList

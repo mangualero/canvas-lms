@@ -461,8 +461,8 @@ describe LearningOutcome do
         'n_mastery'
       ]
       invalid_values = {
-        decaying_average: [0, 100, 1000, nil],
-        n_mastery: [0, 10, nil]
+        decaying_average: [0, 100, 1000],
+        n_mastery: [0, 10]
       }.with_indifferent_access
 
       calc_method.each do |method|
@@ -489,9 +489,9 @@ describe LearningOutcome do
 
     context "should set calculation_int to default if the calculation_method is changed and calculation_int isn't set" do
       method_to_int = {
-        # "decaying_average" => { default: 75, testval: 4, altmeth: 'n_mastery' },
-        # "n_mastery" => { default: 5, testval: nil, altmeth: 'highest' },
-        "highest" => { default: nil, testval: nil, altmeth: 'latest' },
+        "decaying_average" => { default: 65, testval: nil, altmeth: 'latest' },
+        "n_mastery" => { default: 5, testval: nil, altmeth: 'highest' },
+        "highest" => { default: nil, testval: 4, altmeth: 'n_mastery' },
         "latest" => { default: nil, testval: 72, altmeth: 'decaying_average' },
       }
 
@@ -524,6 +524,11 @@ describe LearningOutcome do
       }.to change {
         @outcome.alignments.count
       }.from(1).to(0)
+    end
+
+    it "returns points possible value set through rubric_criterion assessor" do
+      @outcome.rubric_criterion[:points_possible] = 10
+      expect(@outcome.rubric_criterion[:points_possible]).to eq 10
     end
 
     it "returns #data[:rubric_criterion] when #rubric_criterion is called" do
@@ -806,9 +811,20 @@ describe LearningOutcome do
     end
 
     context "default values" do
-      it "should default calculation_method to highest" do
+      it 'should default mastery points to 3' do
         @outcome = LearningOutcome.create!(:title => 'outcome')
-        expect(@outcome.calculation_method).to eql('highest')
+        expect(@outcome.mastery_points).to be 3
+      end
+
+      it 'should default points possible to 5' do
+        @outcome = LearningOutcome.create!(:title => 'outcome')
+        expect(@outcome.points_possible).to be 5
+      end
+
+      it "should default calculation_method to decaying_average" do
+        @outcome = LearningOutcome.create!(:title => 'outcome')
+        expect(@outcome.calculation_method).to eql('decaying_average')
+        expect(@outcome.calculation_int).to be 65
       end
 
       it "should default calculation_int to nil for highest" do
@@ -831,7 +847,7 @@ describe LearningOutcome do
 
       # This is to prevent changing behavior of existing outcomes made before we added the
       # ability to set a calculation_method
-      it "should set calculation_method to highest if the record is pre-existing and nil" do
+      it "should set calculation_method to decaying_average if the record is pre-existing and nil" do
         @outcome = LearningOutcome.create!(:title => 'outcome')
         @outcome.update_column(:calculation_method, nil)
         @outcome.reload
@@ -840,7 +856,7 @@ describe LearningOutcome do
         @outcome.save!
         @outcome.reload
         expect(@outcome.description).to eq("foo bar baz qux")
-        expect(@outcome.calculation_method).to eq('highest')
+        expect(@outcome.calculation_method).to eq('decaying_average')
       end
     end
   end
@@ -958,11 +974,41 @@ describe LearningOutcome do
         [c1, c2].each { |c| outcome.align(nil, c, :mastery_type => "points") }
         assess_with.call(outcome, c1)
 
-        expect(outcome.alignments.length).to eq(3)
         expect(outcome).to be_assessed
         expect(outcome).to be_assessed(c1)
         expect(outcome).not_to be_assessed(c2)
       end
+    end
+
+    describe '#ensure_presence_in_context' do
+      it 'adds active outcomes to a context if they are not present' do
+        account = Account.default
+        course_factory
+        3.times do |i|
+          LearningOutcome.create!(
+            context: account,
+            title: "outcome_#{i}",
+            calculation_method: 'highest',
+            workflow_state: i == 0 ? 'deleted' : 'active'
+          )
+        end
+        outcome_ids = account.created_learning_outcomes.pluck(:id)
+        LearningOutcome.ensure_presence_in_context(outcome_ids, @course)
+        expect(@course.linked_learning_outcomes.count).to eq(2)
+      end
+    end
+
+    it 'should de-dup outcomes linked multiple times' do
+      account = Account.default
+      course_factory
+      lo = LearningOutcome.create!(context: @course, title: "outcome",
+        calculation_method: 'highest', workflow_state: 'active')
+      3.times do |i|
+        group = @course.learning_outcome_groups.create!(:title => "groupage_#{i}")
+        group.add_outcome(lo)
+      end
+      expect(@course.learning_outcome_links.count).to eq(3)
+      expect(@course.linked_learning_outcomes.count).to eq(1) # not 3
     end
 
     describe '#align' do

@@ -169,7 +169,7 @@ class GradeSummaryPresenter
     when :module
       sorted_by_modules(assignments)
     when :assignment_group
-      assignments.sort_by { |a| [a.assignment_group.position, a.position] }
+      assignments.sort_by { |a| [a.assignment_group.position, a.position].map{|p| p || CanvasSort::Last} }
     end
   end
 
@@ -195,9 +195,6 @@ class GradeSummaryPresenter
         ActiveRecord::Associations::Preloader.new.preload(ss, :originality_reports)
       end
 
-      visible_assignment_ids = AssignmentStudentVisibility.visible_assignment_ids_for_user(student_id, @context.id)
-      ss.select!{ |submission| visible_assignment_ids.include?(submission.assignment_id) }
-
       assignments_index = assignments.index_by(&:id)
 
       # preload submission comment stuff
@@ -216,10 +213,12 @@ class GradeSummaryPresenter
     end
   end
 
-  # Called by external classes that want to make sure we clear out
-  # cached data. Most likely this is only the GradeCalculator
-  def self.invalidate_cache(context)
-    Rails.cache.delete(cache_key(context, 'assignment_stats'))
+  def rubric_assessments
+    assignment_presenters.flat_map(&:rubric_assessments)
+  end
+
+  def rubrics
+    rubric_assessments.map(&:rubric).uniq
   end
 
   def assignment_stats
@@ -233,8 +232,15 @@ class GradeSummaryPresenter
     end
   end
 
-  def has_muted_assignments?
-    assignments.any?(&:muted?)
+  def hidden_submissions?
+    if @context.post_policies_enabled?
+      submissions.any? do |sub|
+        return !sub.posted? if sub.assignment.post_manually?
+        sub.graded? && !sub.posted?
+      end
+    else
+      assignments.any?(&:muted?)
+    end
   end
 
   def courses_with_grades

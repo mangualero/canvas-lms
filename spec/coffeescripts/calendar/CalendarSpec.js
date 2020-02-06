@@ -24,16 +24,23 @@ import tz from 'timezone'
 import denver from 'timezone/America/Denver'
 import fixtures from 'helpers/fixtures'
 import $ from 'jquery'
+import {subscribe} from 'vendor/jquery.ba-tinypubsub'
 
 QUnit.module('Calendar', {
   setup() {
     this.snapshot = tz.snapshot()
     tz.changeZone(denver, 'America/Denver')
-    return fixtures.setup()
+    fixtures.setup()
+    sinon.stub($, 'getJSON')
   },
   teardown() {
     tz.restore(this.snapshot)
+    const calendar = $('#fixtures .calendar').data('fullCalendar')
+    if (calendar) {
+      calendar.destroy()
+    }
     fixtures.teardown()
+    $.getJSON.restore()
   }
 })
 const makeMockDataSource = () => ({
@@ -65,14 +72,14 @@ test('creates a fullcalendar instance', () => {
   ok($('.fc')[0])
 })
 
-test('returns correct format for 24 hour times', function() {
+test('returns correct format for 24 hour times', () => {
   const cal = makeCal()
   const stub = sinon.stub(I18n, 'lookup').returns('%k:%M')
-  strictEqual(cal.eventTimeFormat(), "HH:mm")
+  strictEqual(cal.eventTimeFormat(), 'HH:mm')
   stub.restore()
 })
 
-test('return correct format for non 24 hour times', function() {
+test('return correct format for non 24 hour times', () => {
   const cal = makeCal()
   const stub = sinon.stub(I18n, 'lookup').returns('whatever')
   strictEqual(cal.eventTimeFormat(), null)
@@ -97,7 +104,7 @@ test('animates loading', () => {
 
 test('publishes event when date is changed', () => {
   const eventSpy = sinon.spy()
-  $.subscribe('Calendar/currentDate', eventSpy)
+  subscribe('Calendar/currentDate', eventSpy)
   const cal = makeCal()
   cal.navigateDate(Date.now())
   ok(eventSpy.called)

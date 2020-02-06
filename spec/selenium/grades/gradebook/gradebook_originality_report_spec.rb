@@ -25,11 +25,11 @@ describe "gradebook - originality reports" do
   before(:each) { user_session(@teacher) }
 
   it "should show originality data" do
-    s1 = @first_assignment.submit_homework(@student_1, :submission_type => 'online_text_entry', :body => 'asdf')
+    s1 = @first_assignment.submit_homework(@student_1, submission_type: 'online_text_entry', body: 'asdf')
     s1.originality_reports.create!(originality_score: 0.0)
 
-    a = attachment_model(:context => @student_2, :content_type => 'text/plain')
-    s2 = @first_assignment.submit_homework(@student_2, :submission_type => 'online_upload', :attachments => [a])
+    a = attachment_model(context: @student_2, content_type: 'text/plain')
+    s2 = @first_assignment.submit_homework(@student_2, submission_type: 'online_upload', attachments: [a])
     s2.originality_reports.create!(originality_score: 1.0, attachment: a)
 
     get "/courses/#{@course.id}/gradebook"
@@ -58,56 +58,5 @@ describe "gradebook - originality reports" do
     cell.find_element(:css, "a").click
 
     fj('button.ui-dialog-titlebar-close:visible').click
-  end
-
-  context 'group assignment' do
-    let(:course) { @first_assignment.course }
-    let!(:group) do
-      group = course.groups.create!(name: 'group one')
-      group.add_user(@student_1)
-      group.add_user(@student_2)
-      submission_one.update!(group: group)
-      submission_two.update!(group: group)
-      group
-    end
-    let(:submission_one) do
-      @first_assignment.submit_homework(@student_1, :submission_type => 'online_text_entry', :body => 'asdf')
-    end
-    let(:submission_two) do
-      @first_assignment.submit_homework(@student_2, :submission_type => 'online_text_entry', :body => 'asdf')
-    end
-    let(:originality_report) { submission_one.originality_reports.create!(originality_score: 1.0) }
-
-    before { originality_report.copy_to_group_submissions! }
-
-    it 'should show originality data for all submissions in a group' do
-      get "/courses/#{@course.id}/gradebook"
-      icons = ff('.gradebook-cell-turnitin')
-      expect(icons).to have_size 2
-    end
-
-    it 'shows the correct originality score for the first student' do
-      get "/courses/#{@course.id}/gradebook"
-      icons = ff('.gradebook-cell-turnitin')
-
-      cell = icons.first.find_element(:xpath, '..')
-      driver.action.move_to(f('#gradebook_settings')).move_to(cell).perform
-      expect(cell.find_element(:css, "a")).to be_displayed
-      cell.find_element(:css, "a").click
-      score = f('.turnitin_similarity_score')
-      expect(score.text).to eq "#{originality_report.originality_score.to_i}%"
-    end
-
-    it 'shows the correct originality score for the last student' do
-      get "/courses/#{@course.id}/gradebook"
-
-      icons = ff('.gradebook-cell-turnitin')
-      cell = icons.second.find_element(:xpath, '..')
-      driver.action.move_to(f('#gradebook_settings')).move_to(cell).perform
-      expect(cell.find_element(:css, "a")).to be_displayed
-      cell.find_element(:css, "a").click
-      score = f('.turnitin_similarity_score')
-      expect(score.text).to eq "#{originality_report.originality_score.to_i}%"
-    end
   end
 end

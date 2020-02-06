@@ -17,7 +17,13 @@
  */
 
 import $ from 'jquery'
+import I18n from 'i18n!gradebook'
+import {Alert} from '@instructure/ui-alerts'
 import Backbone from 'Backbone'
+import {Link, Text} from '@instructure/ui-elements'
+import React from 'react'
+import ReactDOM from 'react-dom'
+import Paginator from '../shared/components/Paginator'
 import userSettings from 'compiled/userSettings'
 import Gradebook from 'compiled/gradebook/Gradebook'
 import NavigationPillView from 'compiled/views/gradebook/NavigationPillView'
@@ -29,20 +35,24 @@ const GradebookRouter = Backbone.Router.extend({
     'tab-:viewName': 'tab'
   },
 
-  initialize () {
+  initialize() {
     this.isLoaded = false
     this.views = {}
     this.views.assignment = new Gradebook(ENV.GRADEBOOK_OPTIONS)
 
+    this.renderOldGradebookReplacementNotice()
+
     if (ENV.GRADEBOOK_OPTIONS.outcome_gradebook_enabled) {
       this.views.outcome = this.initOutcomes()
+      this.renderPagination(0, 0)
     }
   },
 
-  initOutcomes () {
+  initOutcomes() {
     const book = new OutcomeGradebookView({
       el: $('.outcome-gradebook-container'),
-      gradebook: this.views.assignment
+      gradebook: this.views.assignment,
+      router: this
     })
     book.render()
     this.navigation = new NavigationPillView({el: $('.gradebook-navigation')})
@@ -50,17 +60,50 @@ const GradebookRouter = Backbone.Router.extend({
     return book
   },
 
-  handlePillChange (viewname) {
+  renderPagination(page, pageCount) {
+    ReactDOM.render(
+      <Paginator
+        page={page}
+        pageCount={pageCount}
+        loadPage={p => this.views.outcome.loadPage(p)}
+      />,
+      document.getElementById('outcome-gradebook-paginator')
+    )
+  },
+
+  renderOldGradebookReplacementNotice() {
+    const newGradebookInfoURL = 'https://s.tiled.co/2bcKFN5/2019-canvas-gradebook-release'
+    ReactDOM.render(
+      <Alert variant="warning">
+        <Text>
+          {I18n.t(
+            'This version of Gradebook is being replaced by an updated Gradebook on or before January 18, 2020.'
+          )}
+          <Link href={newGradebookInfoURL} margin="0 xx-small">
+            {I18n.t('Learn More')}
+          </Link>
+        </Text>
+      </Alert>,
+      document.getElementById('replacement_notice_mount_point')
+    )
+  },
+
+  handlePillChange(viewname) {
     if (viewname) this.navigate(`tab-${viewname}`, {trigger: true})
   },
 
-  tab (viewName) {
+  tab(viewName) {
     if (!viewName) viewName = userSettings.contextGet('gradebook_tab')
     window.tab = viewName
-    if ((viewName !== 'outcome') || !this.views.outcome) { viewName = 'assignment' }
-    if (this.navigation) { this.navigation.setActiveView(viewName) }
+    if (viewName !== 'outcome' || !this.views.outcome) {
+      viewName = 'assignment'
+    }
+    if (this.navigation) {
+      this.navigation.setActiveView(viewName)
+    }
     $('.assignment-gradebook-container, .outcome-gradebook-container').addClass('hidden')
     $(`.${viewName}-gradebook-container`).removeClass('hidden')
+    $('#outcome-gradebook-paginator').toggleClass('hidden', viewName !== 'outcome')
     this.views[viewName].onShow()
     userSettings.contextSet('gradebook_tab', viewName)
   }

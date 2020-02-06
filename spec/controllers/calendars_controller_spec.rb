@@ -36,11 +36,19 @@ describe CalendarsController do
     it "should assign variables" do
       course_event
       get 'show', params: {:user_id => @user.id}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:contexts]).not_to be_nil
       expect(assigns[:contexts]).not_to be_empty
       expect(assigns[:contexts][0]).to eql(@user)
       expect(assigns[:contexts][1]).to eql(@course)
+    end
+
+    it "only enrolled students can make reservations" do
+      course_event
+      get 'show', params: {:user_id => @user.id}
+      expect(response).to be_successful
+      expect(assigns[:contexts_json][0][:can_make_reservation]).to eql(false)
+      expect(assigns[:contexts_json][1][:can_make_reservation]).to eql(true)
     end
 
     it "js_env DUE_DATE_REQUIRED_FOR_ACCOUNT is true when AssignmentUtil.due_date_required_for_account? == true" do
@@ -101,7 +109,7 @@ describe CalendarsController do
         student_in_course(:active_all => true, :user => @user)
       end
       get 'show', params: {:user_id => @user.id}
-      expect(response).to be_success
+      expect(response).to be_successful
     end
   end
 
@@ -123,7 +131,7 @@ describe CalendarEventsApiController do
 
     it "should assign variables" do
       get 'public_feed', params: {:feed_code => "course_#{@course.uuid}"}, :format => 'ics'
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:events]).to be_present
       expect(assigns[:events][0]).to eql(@event)
     end
@@ -134,7 +142,7 @@ describe CalendarEventsApiController do
       c1 = factory_with_protected_attributes(@event.child_events, :description => @event.description, :title => @event.title, :context => @course.default_section, :start_at => 2.hours.ago, :end_at => 1.hour.ago)
       c2 = factory_with_protected_attributes(@event.child_events, :description => @event.description, :title => @event.title, :context => s2, :start_at => 3.hours.ago, :end_at => 2.hours.ago)
       get 'public_feed', :feed_code => "course_#{@course.uuid}", :format => 'ics'
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:events]).to be_present
       expect(assigns[:events]).to eq [c1]
     end
@@ -145,7 +153,7 @@ describe CalendarEventsApiController do
         c1 = factory_with_protected_attributes(@event.child_events, :description => @event.description, :title => @event.title, :context => @course.default_section, :start_at => 2.hours.ago, :end_at => 1.hour.ago)
         c2 = factory_with_protected_attributes(@event.child_events, :description => @event.description, :title => @event.title, :context => s2, :start_at => 3.hours.ago, :end_at => 2.hours.ago)
         get 'public_feed', params: {:feed_code => "user_#{@user.uuid}"}, :format => 'ics'
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(assigns[:events]).to be_present
         expect(assigns[:events]).to eq [c1]
       end

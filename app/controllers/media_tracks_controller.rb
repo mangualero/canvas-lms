@@ -33,7 +33,7 @@ class MediaTracksController < ApplicationController
   #   Language code of the track being uploaded, examples: ["en", "es", "ru"]
   #
   # @argument content [String]
-  #   The contets of the track, in SRT or WebVTT format
+  #   The contents of the track, in SRT or WebVTT format
   #
   # @example_request
   #     curl https://<canvas>/media_objects/<media_object_id>/media_tracks \
@@ -47,7 +47,7 @@ class MediaTracksController < ApplicationController
     @media_object = MediaObject.active.by_media_id(params[:media_object_id]).first
     if authorized_action(@media_object, @current_user, :add_captions)
       track = @media_object.media_tracks.where(user_id: @current_user.id, locale: params[:locale]).first_or_initialize
-      track.update_attributes! params.permit(*TRACK_SETTABLE_ATTRIBUTES)
+      track.update! params.permit(*TRACK_SETTABLE_ATTRIBUTES)
       render :json => media_object_api_json(@media_object, @current_user, session)
     end
   end
@@ -62,8 +62,9 @@ class MediaTracksController < ApplicationController
   #
   def show
     @media_track = MediaTrack.find params[:id]
+    @media_track.validate! # in case this somehow got saved to the database in the xss-vulnerable TTML format
     if stale? :etag => @media_track, :last_modified => @media_track.updated_at.utc
-      render :plain => @media_track.content
+      render :plain => @media_track.webvtt_content
     end
   end
 

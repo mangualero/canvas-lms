@@ -3,7 +3,7 @@
 <li id="enrollment_{{id}}" class="user user_{{user_id}} {{typeClass}}" title="{{user.name}}: {{user.login_id}}">
   <span class="links">
     {{#if can_be_removed}}
-    <a href="/courses/{{course_id}}/unenroll/{{id}}" class="unenroll_user_link no-hover" title="{{#t "links.unenroll_user"}}Remove User from Course{{/t}}">
+    <a href="/courses/{{course_id}}/unenroll/{{id}}" class="unenroll_user_link no-hover" title="{{#t}}Remove User from Section{{/t}}">
       <img alt="delete_enrollment" src="/images/delete_circle.png" />
     </a>
     {{/if}}
@@ -15,7 +15,7 @@
      data-student_id={{user_id}}
      {{/ifEqual}}
      class="name {{#ifEqual type "StudentEnrollment"}}student_context_card_trigger{{/ifEqual}}"
-     >{{user.sortable_name}}</a>
+     >{{user.sortable_name}}{{#if user.pronouns}}<i> ({{user.pronouns}})</i>{{/if}}</a>
   <div class="short_name">{{user.short_name}}</div>
   <div class="enrollment_type">{{typeLabel}}</div>
   <div class="email">{{user.login_id}}</div>

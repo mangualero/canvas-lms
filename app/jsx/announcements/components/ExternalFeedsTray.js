@@ -17,17 +17,16 @@
  */
 
 import I18n from 'i18n!announcements_v2'
-import React, { Component } from 'react'
-import { string } from 'prop-types'
+import React, {Component} from 'react'
+import {string} from 'prop-types'
 
-import Tray from '@instructure/ui-overlays/lib/components/Tray'
-import Link from '@instructure/ui-elements/lib/components/Link'
-import Heading from '@instructure/ui-elements/lib/components/Heading'
-import View from '@instructure/ui-layout/lib/components/View'
-import IconRssLine from '@instructure/ui-icons/lib/Line/IconRss'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import {Tray} from '@instructure/ui-overlays'
+import {Button, CloseButton} from '@instructure/ui-buttons'
+import {Heading, Text} from '@instructure/ui-elements'
+import {View} from '@instructure/ui-layout'
+import {IconRssLine} from '@instructure/ui-icons'
 
-import { ConnectedAddExternalFeed } from './AddExternalFeed'
+import {ConnectedAddExternalFeed} from './AddExternalFeed'
 import propTypes from '../propTypes'
 
 export default class ExternalFeedsTray extends Component {
@@ -37,11 +36,11 @@ export default class ExternalFeedsTray extends Component {
   }
 
   static defaultProps = {
-    atomFeedUrl: null,
+    atomFeedUrl: null
   }
 
   state = {
-    open: false,
+    open: false
   }
 
   renderTrayContent() {
@@ -56,12 +55,10 @@ export default class ExternalFeedsTray extends Component {
 
   renderHeader() {
     return (
-      <View
-        margin="0 0 0 large"
-        as="div"
-        textAlign="start"
-      >
-        <Heading margin="small 0 0 small" level="h3" as="h2">{I18n.t('External feeds')}</Heading>
+      <View margin="0 0 0 medium" as="div" textAlign="start">
+        <Heading margin="small 0 0 0" level="h3" as="h3">
+          {I18n.t('External Feeds')}
+        </Heading>
       </View>
     )
   }
@@ -69,18 +66,19 @@ export default class ExternalFeedsTray extends Component {
   renderRssFeedLink() {
     if (this.props.atomFeedUrl) {
       return (
-        <View
-          margin="medium"
-          as="div"
-          textAlign="start"
-        >
-          <Link
+        <View margin="medium" as="div" textAlign="start">
+          <Button
+            variant="link"
             id="rss-feed-link"
-            linkRef={(link) => {this.rssFeedLink = link}}
-            href={this.props.atomFeedUrl}>
-            <IconRssLine />
-            <View margin="0 0 0 x-small">{I18n.t('RSS Feed')}</View>
-          </Link>
+            linkRef={link => {
+              this.rssFeedLink = link
+            }}
+            href={this.props.atomFeedUrl}
+            icon={IconRssLine}
+            theme={{mediumPadding: '0', mediumHeight: '1.5rem'}}
+          >
+            {I18n.t('RSS Feed')}
+          </Button>
         </View>
       )
     }
@@ -96,38 +94,40 @@ export default class ExternalFeedsTray extends Component {
         textAlign="start"
         className="announcements-tray__add-rss-root"
       >
-        <Text size="medium" as="h2" weight="bold">{I18n.t("Feeds")}</Text>
+        <Text size="medium" as="h3" weight="bold">
+          {I18n.t('Feeds')}
+        </Text>
         <div className="announcements-tray-row">
-          <View
-            margin="small 0 0"
-            display="block"
-            textAlign="start"
-          >
-            <ConnectedAddExternalFeed defaultOpen={false}/>
+          <View margin="small 0 0" display="block" textAlign="start">
+            <ConnectedAddExternalFeed defaultOpen={false} />
           </View>
         </div>
       </View>
     )
   }
 
-  render () {
+  render() {
     return (
       <View display="block" textAlign="end">
-        <Link
+        <Button
           id="external_feed"
-          linkRef={(link) => {this.externalFeedRef = link}}
-          onClick={() => { this.setState({ open: !this.state.open }) }}>
-          {I18n.t('External feeds')}
-        </Link>
+          aria-haspopup="dialog"
+          buttonRef={link => (this.externalFeedRef = link)}
+          onClick={() => this.setState({open: !this.state.open})}
+          variant="link"
+        >
+          {I18n.t('External Feeds')}
+        </Button>
         <Tray
-          label={I18n.t('External feeds')}
-          closeButtonLabel={I18n.t('Close')}
+          label={I18n.t('External Feeds')}
           open={this.state.open}
-          onExit={() => this.externalFeedRef.focus()}
           size="small"
-          onDismiss={() => { this.setState({ open: false }) }}
+          onDismiss={() => this.setState({open: false})}
           placement="end"
         >
+          <CloseButton placement="end" onClick={() => this.setState({open: false})}>
+            {I18n.t('Close')}
+          </CloseButton>
           {this.renderTrayContent()}
         </Tray>
       </View>

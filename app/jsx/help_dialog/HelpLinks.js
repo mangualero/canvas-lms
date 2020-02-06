@@ -18,62 +18,75 @@
 
 import React from 'react'
 import {bool, arrayOf, shape, string, func} from 'prop-types'
-import I18n from 'i18n!help_dialog'
-import Link from '@instructure/ui-elements/lib/components/Link'
-import List, {ListItem} from '@instructure/ui-elements/lib/components/List'
-import Spinner from '@instructure/ui-elements/lib/components/Spinner'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import I18n from 'i18n!HelpLinks'
+import {Link} from '@instructure/ui-link'
+import {List, Spinner, Text} from '@instructure/ui-elements'
 
 export default function HelpLinks({links, hasLoaded, onClick}) {
   return (
     <List variant="unstyled" margin="small 0" itemSpacing="small">
       {hasLoaded ? (
-        links.map((link, index) => (
-          <ListItem key={`link-${index}`}>
-            <Link
-              href={link.url}
-              target="_blank"
-              rel="noopener"
-              onClick={event => {
-                if (link.url === '#create_ticket' || link.url === '#teacher_feedback') {
-                  event.preventDefault()
-                  onClick(link.url)
-                }
-              }}
-            >
-              {link.text}
-            </Link>
-            {link.subtext && (
-              <Text as="div" size="small" weight="light">{link.subtext}</Text>
-            )}
-          </ListItem>
-        )).concat(
-          // if the current user is an admin, show the settings link to
-          // customize this menu
-          window.ENV.current_user_roles && window.ENV.current_user_roles.includes('root_admin') && ([
-            <ListItem key="hr"><hr role="presentation"/></ListItem>,
-            <ListItem key="customize">
-              <Link href="/accounts/self/settings#custom_help_link_settings" >
-                {I18n.t('Customize this menu')}
+        links
+          .map((link, index) => (
+            <List.Item key={`link-${index}`}>
+              <Link
+                isWithinText={false}
+                href={link.url}
+                target="_blank"
+                rel="noopener"
+                onClick={event => {
+                  if (link.url === '#create_ticket' || link.url === '#teacher_feedback') {
+                    event.preventDefault()
+                    onClick(link.url)
+                  }
+                }}
+                theme={{mediumPadding: '0', mediumHeight: '1.5rem'}}
+              >
+                {link.text}
               </Link>
-            </ListItem>
-          ])
-        ).filter(Boolean)
+              {link.subtext && (
+                <Text as="div" size="small">
+                  {link.subtext}
+                </Text>
+              )}
+            </List.Item>
+          ))
+          .concat(
+            // if the current user is an admin, show the settings link to
+            // customize this menu
+            window.ENV.current_user_roles &&
+              window.ENV.current_user_roles.includes('root_admin') && [
+                <List.Item key="hr">
+                  <hr role="presentation" />
+                </List.Item>,
+                <List.Item key="customize">
+                  <Link
+                    isWithinText={false}
+                    href="/accounts/self/settings#custom_help_link_settings"
+                  >
+                    {I18n.t('Customize this menu')}
+                  </Link>
+                </List.Item>
+              ]
+          )
+          .filter(Boolean)
       ) : (
-        <ListItem>
-          <Spinner size="small" title={I18n.t('Loading')} />
-        </ListItem>
+        <List.Item>
+          <Spinner size="small" renderTitle={I18n.t('Loading')} />
+        </List.Item>
       )}
     </List>
   )
 }
 
 HelpLinks.propTypes = {
-  links: arrayOf(shape({
-    url: string.isRequired,
-    text: string.isRequired,
-    subtext: string
-  })).isRequired,
+  links: arrayOf(
+    shape({
+      url: string.isRequired,
+      text: string.isRequired,
+      subtext: string
+    })
+  ).isRequired,
   hasLoaded: bool,
   onClick: func
 }

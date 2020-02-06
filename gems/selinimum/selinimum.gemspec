@@ -14,8 +14,13 @@ Gem::Specification.new do |spec|
   spec.test_files = spec.files.grep(%r{^spec/})
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "aws-sdk-s3"
+  # pin to exactly what canvas pins to, to avoid dependency issues when invoked
+  # directly from bin/selinimize
+  spec.add_dependency "aws-sdk-s3", "1.48.0"
   spec.add_dependency "activesupport", ">= 3.2"
   spec.add_dependency "activerecord", ">= 3.2"
   spec.add_dependency "globby", ">= 0.1.2"
+
+  spec.add_development_dependency "rspec"
+  spec.add_development_dependency "byebug"
 end

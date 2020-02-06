@@ -25,7 +25,7 @@ module SIS
       end
 
       def self.identifying_fields
-        %w[observer_id].freeze
+        %w[observer_id student_id].freeze
       end
 
       # possible columns:
@@ -33,7 +33,6 @@ module SIS
       def process(csv, index=nil, count=nil)
         count = SIS::UserObserverImporter.new(@root_account, importer_opts).process do |i|
           csv_rows(csv, index, count) do |row|
-            update_progress
             begin
               i.process_user_observer(row['observer_id'], row['student_id'], row['status'])
             rescue ImportError => e

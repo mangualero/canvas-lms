@@ -23,6 +23,8 @@ module InstFS
     end
 
     def login_pixel(user, session, oauth_host)
+      return if session[:oauth2] # don't stomp an existing oauth flow in progress
+      return if session[:pending_otp]
       if !session[:shown_instfs_pixel] && user && enabled?
         session[:shown_instfs_pixel] = true
         pixel_url = login_pixel_url(token: session_jwt(user, oauth_host))
@@ -38,7 +40,8 @@ module InstFS
     end
 
     def authenticated_url(attachment, options={})
-      query_params = { token: access_jwt(access_path(attachment, attachment.filename), options) }
+
+      query_params = { token: access_jwt(access_path(attachment), options) }
       query_params[:download] = 1 if options[:download]
       access_url(attachment, query_params)
     end
@@ -63,14 +66,28 @@ module InstFS
       setting("app-host")
     end
 
-    def jwt_secret
+    def jwt_secrets
       secret = setting("secret")
-      if secret
-        Base64.decode64(secret)
-      end
+      return [] unless secret
+      secret.split(/\s+/).map{ |key| Base64.decode64(key) }
     end
 
-    def upload_preflight_json(context:, root_account:, user:, acting_as:, access_token:, folder:, filename:, content_type:, quota_exempt:, on_duplicate:, capture_url:, target_url: nil, progress_json: nil, include_param: nil)
+    def jwt_secret
+      # if there are multiple keys (to allow for validating during key
+      # rotation), the foremost is used for signing
+      jwt_secrets.first
+    end
+
+    def validate_capture_jwt(token)
+      Canvas::Security.decode_jwt(token, jwt_secrets)
+      true
+    rescue
+      false
+    end
+
+    def upload_preflight_json(context:, root_account:, user:, acting_as:, access_token:, folder:, filename:,
+                              content_type:, quota_exempt:, on_duplicate:, capture_url:, target_url: nil,
+                              progress_json: nil, include_param: nil, additional_capture_params: {})
       raise ArgumentError unless !!target_url == !!progress_json # these params must both be present or both absent
 
       token = upload_jwt(
@@ -79,7 +96,7 @@ module InstFS
         access_token: access_token,
         root_account: root_account,
         capture_url: capture_url,
-        capture_params: {
+        capture_params: additional_capture_params.merge(
           context_type: context.class.to_s,
           context_id: context.global_id.to_s,
           user_id: acting_as.global_id.to_s,
@@ -89,7 +106,7 @@ module InstFS
           on_duplicate: on_duplicate,
           progress_id: progress_json && progress_json[:id],
           include: include_param
-        }
+        )
       )
 
       upload_params = {
@@ -111,7 +128,6 @@ module InstFS
     def direct_upload(file_name:, file_object:)
       # example of a call to direct_upload:
       # > res = InstFS.direct_upload(
-      # >   host: "canvas.docker",
       # >   file_name: "a.png",
       # >   file_object: File.open("public/images/a.png")
       # > )
@@ -122,14 +138,40 @@ module InstFS
       data = {}
       data[file_name] = file_object
 
-      response = CanvasHttp.post(url, form_data: data, multipart:true)
+      response = CanvasHttp.post(url, form_data: data, multipart: true, streaming: true)
       if response.class == Net::HTTPCreated
         json_response = JSON.parse(response.body)
-        return json_response["uuid"] if json_response.key?("uuid")
+        return json_response["instfs_uuid"] if json_response.key?("instfs_uuid")
 
-        raise InstFS::DirectUploadError, "upload succeeded, but response did not containe a \"uuid\" key"
+        raise InstFS::DirectUploadError, "upload succeeded, but response did not contain an \"instfs_uuid\" key"
       end
-      raise InstFS::DirectUploadError, "received code \"#{response.code}\" from service"
+
+      raise InstFS::DirectUploadError, "received code \"#{response.code}\" from service, with message \"#{response.body}\""
+    end
+
+    def duplicate_file(instfs_uuid)
+      token = duplicate_file_jwt(instfs_uuid)
+      url = "#{app_host}/files/#{instfs_uuid}/duplicate?token=#{token}"
+
+      response = CanvasHttp.post(url)
+      if response.class == Net::HTTPCreated
+        json_response = JSON.parse(response.body)
+        return json_response["id"] if json_response.key?("id")
+
+        raise InstFS::DuplicationError, "duplication succeeded, but response did not contain an \"id\" key"
+      end
+      raise InstFS::DuplicationError, "received code \"#{response.code}\" from service, with message \"#{response.body}\""
+    end
+
+    def delete_file(instfs_uuid)
+      token = delete_file_jwt(instfs_uuid)
+      url = "#{app_host}/files/#{instfs_uuid}?token=#{token}"
+
+      response = CanvasHttp.delete(url)
+      unless response.class == Net::HTTPOK
+        raise InstFS::DeletionError, "received code \"#{response.code}\" from service, with message \"#{response.body}\""
+      end
+      true
     end
 
     private
@@ -151,7 +193,7 @@ module InstFS
     end
 
     def access_url(attachment, query_params)
-      service_url(access_path(attachment, attachment.filename), query_params)
+      service_url(access_path(attachment), query_params)
     end
 
     def thumbnail_url(attachment, query_params)
@@ -163,10 +205,13 @@ module InstFS
       service_url("/files", query_string)
     end
 
-    def access_path(attachment, custom_name)
+    def access_path(attachment)
       res = "/files/#{attachment.instfs_uuid}"
-      if custom_name
-        res += "/#{custom_name}"
+      display_name = attachment.display_name || attachment.filename
+      if display_name
+        unencoded_characters = Addressable::URI::CharacterClasses::UNRESERVED
+        encoded_display_name = Addressable::URI.encode_component(display_name, unencoded_characters)
+        res += "/#{encoded_display_name}"
       end
       res
     end
@@ -175,15 +220,56 @@ module InstFS
       "/thumbnails/#{attachment.instfs_uuid}"
     end
 
-    def service_jwt(claims, expires_in)
-      Canvas::Security.create_jwt(claims, expires_in.from_now, self.jwt_secret, :HS512)
+    # `expires_at` can be either a Time or an ActiveSupport::Duration
+    def service_jwt(claims, expires_at)
+      expires_at = expires_at.from_now if expires_at.respond_to?(:from_now)
+      Canvas::Security.create_jwt(claims, expires_at, self.jwt_secret, :HS512)
+    end
+
+    # floor_to rounds `number` down to a multiple of the chosen step.
+    def floor_to(number, step)
+      whole, remainder = number.divmod(step)
+      whole * step
+    end
+
+    # If we just say every token was created at Time.now, since that token
+    # is included in the url, every time we make a url it will be a new url and no browser
+    # will never be able to get it from their cache. Which means, for example: every time you
+    # load your dash cards you will download all new thumbnails instead of using one from
+    # your browser cache. That's not what we want to do.
+    #
+    # But we also don't want to just have them all expire at the same time because then we'd
+    # get a thundering herd at the end of that cache window.
+    #
+    # So what we do is have all tokens for a certain resource say they were signed at same
+    # time within a 12 hour window. that way you're browser will be able to cache it for at
+    # least 12 hours and up to 24. And instead of picking something like the beginning of
+    # the day or hour, we use a random offset that is evenly distributed throughout the
+    # cache window. (this example uses 24 and 12 hours because the default expiration time is
+    # 24 hours, but the logic is the same if you say expires_in is 2 hours or 24 hours, it
+    # just makes sure that there is at least half of the availibilty time left before it expires)
+    def consistent_iat(resource, expires_in)
+      now = Time.now.utc.to_i
+      window = expires_in.to_i / 2
+      beginning_of_cache_window = floor_to(now, window)
+      this_resources_random_offset = resource.hash % window
+      if (beginning_of_cache_window + this_resources_random_offset) > now
+        # step back a window if adding the random offset would put us into the future
+        beginning_of_cache_window -= window
+      end
+      beginning_of_cache_window + this_resources_random_offset
     end
 
     def access_jwt(resource, options={})
-      expires_in = Setting.get('instfs.access_jwt.expiration_hours', '24').to_i.hours
-      expires_in = options[:expires_in] || expires_in
+      expires_in = options[:expires_in] || Setting.get('instfs.access_jwt.expiration_hours', '24').to_i.hours
+      if (expires_in >= 1.hour.to_i) && Setting.get('instfs.access_jwt.use_consistent_iat', 'true') == "true"
+        iat = consistent_iat(resource, expires_in)
+      else
+        iat = Time.now.utc.to_i
+      end
+
       claims = {
-        iat: Time.now.utc.to_i,
+        iat: iat,
         user_id: options[:user]&.global_id&.to_s,
         resource: resource,
         host: options[:oauth_host]
@@ -192,7 +278,7 @@ module InstFS
         claims[:acting_as_user_id] = options[:acting_as].global_id.to_s
       end
       amend_claims_for_access_token(claims, options[:access_token], options[:root_account])
-      service_jwt(claims, expires_in)
+      service_jwt(claims, Time.zone.at(iat) + expires_in)
     end
 
     def upload_jwt(user:, acting_as:, access_token:, root_account:, capture_url:, capture_params:)
@@ -248,6 +334,22 @@ module InstFS
       }, expires_in)
     end
 
+    def duplicate_file_jwt(instfs_uuid)
+      expires_in = Setting.get('instfs.duplicate_file_jwt.expiration_minutes', '5').to_i.minutes
+      service_jwt({
+        iat: Time.now.utc.to_i,
+        resource: "/files/#{instfs_uuid}/duplicate"
+      }, expires_in)
+    end
+
+    def delete_file_jwt(instfs_uuid)
+      expires_in = Setting.get('instfs.delete_file_jwt.expiration_minutes', '5').to_i.minutes
+      service_jwt({
+        iat: Time.now.utc.to_i,
+        resource: "/files/#{instfs_uuid}"
+      }, expires_in)
+    end
+
     def amend_claims_for_access_token(claims, access_token, root_account)
       return unless access_token
       if whitelisted_access_token?(access_token)
@@ -273,4 +375,6 @@ module InstFS
   end
 
   class DirectUploadError < StandardError; end
+  class DuplicationError < StandardError; end
+  class DeletionError < StandardError; end
 end

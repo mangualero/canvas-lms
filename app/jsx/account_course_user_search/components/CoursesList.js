@@ -21,8 +21,8 @@ import {string, shape, arrayOf, func} from 'prop-types'
 import I18n from 'i18n!account_course_user_search'
 import CoursesListRow from './CoursesListRow'
 import CoursesListHeader from './CoursesListHeader'
-import Table from '@instructure/ui-elements/lib/components/Table'
-import ScreenReaderContent from '@instructure/ui-a11y/lib/components/ScreenReaderContent'
+import {Table} from '@instructure/ui-elements'
+import {ScreenReaderContent} from '@instructure/ui-a11y'
 
 export default function CoursesList(props) {
   // The 'sis_course_id' field is only included in the api response if the user has
@@ -30,11 +30,14 @@ export default function CoursesList(props) {
   const showSISIds = !props.courses || props.courses.some(c => 'sis_course_id' in c)
 
   return (
-    <Table margin="small 0" caption={<ScreenReaderContent>{I18n.t('Courses')}</ScreenReaderContent>}>
+    <Table
+      margin="small 0"
+      caption={<ScreenReaderContent>{I18n.t('Courses')}</ScreenReaderContent>}
+    >
       <thead>
         <tr>
           <th width="1" scope="col">
-            <ScreenReaderContent>{I18n.t('Published')}</ScreenReaderContent>
+            {I18n.t('Published')}
           </th>
           <th>
             <CoursesListHeader

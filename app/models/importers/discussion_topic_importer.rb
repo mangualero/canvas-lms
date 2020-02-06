@@ -93,12 +93,13 @@ module Importers
       return unless options.importable?
       [:migration_id, :title, :discussion_type, :position, :pinned,
        :require_initial_post, :allow_rating, :only_graders_can_rate,
-       :sort_by_rating, :locked].each do |attr|
+       :sort_by_rating].each do |attr|
         next if options[attr].nil? && item.class.columns_hash[attr.to_s].type == :boolean
         item.send("#{attr}=", options[attr])
       end
 
       type = item.is_a?(Announcement) ? :announcement : :discussion_topic
+      item.locked = options[:locked] if !options[:locked].nil? && type == :announcement
       if options.message
         item.message = migration.convert_html(options.message, type, options[:migration_id], :message)
       else
@@ -139,6 +140,18 @@ module Importers
       if options[:has_group_category]
         item.group_category ||= context.group_categories.active.where(:name => options[:group_category]).first
         item.group_category ||= context.group_categories.active.where(:name => I18n.t("Project Groups")).first_or_create
+      elsif migration.for_master_course_import? && !item.is_announcement
+        if item.for_group_discussion? && !item.can_group?
+          # when this is false you can't actually unset the category in the UI so we'll keep it consistent here
+          # this is just some silliness so the attempted change gets ignored and also logged as a sync exception
+          tag = migration.master_course_subscription.content_tag_for(item)
+          unless tag.downstream_changes.include?("group_category_id")
+            tag.downstream_changes << "group_category_id"
+            tag.save
+          end
+        end
+
+        item.group_category = nil
       end
 
       item.save_without_broadcasting!

@@ -36,23 +36,16 @@ a {
   position: relative;
 }
 
-#terms_of_service_link {
-  button {
-    margin-top: -3px !important;
-    color: #999 !important;
-  }
-}
-
 #registration_header {
   background: #fff;
   height: 122px;
   padding-top: 12px;
   h1, .h1 {
-    padding: 50px 0 0 0px;
+    padding: direction-sides(50px 0 0 0px);
     a {
       display: block;
       width: 175px;
-      height: 41px;
+      height: 44px;
       background: transparent url(/images/registration/logo.png) 0 0 no-repeat;
       text-indent: -9999em;
     }
@@ -62,7 +55,7 @@ a {
     position: absolute;
     #{direction(right)}: 73px;
     top: 55px;
-    padding: 0 22px 0 0;
+    padding: direction-sides(0 22px 0 0);
     border: 5px solid transparent;
     font-size: 1.1em;
     background: transparent url(/images/registration/down-arrow.png) right center no-repeat;
@@ -136,7 +129,18 @@ a {
   float: direction(right);
 }
 
+#terms_link {
+  @include ic-focus-base;
+  &:focus {
+    @include ic-focus-variant;
+  }
+}
+
 #signup_teacher, #signup_student {
+  @include ic-focus-base;
+  &:focus {
+    @include ic-focus-variant;
+  }
   position: absolute;
   background-image: url(/images/registration/landing_buttons.png);
   background-repeat: no-repeat;
@@ -189,7 +193,7 @@ a {
     background: linear-gradient(to bottom, #0abcfe 0%, #0090d7 100%);
     border-width: 1px;
     border-style: solid;
-    border-color: #0abcfe #238fe4 #1974c9 #238fe4;
+    border-color: #0abcfe #238fe4 #1974c9;
     border-radius: 3px;
     color: #fff;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);

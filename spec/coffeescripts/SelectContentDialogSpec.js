@@ -39,6 +39,7 @@ QUnit.module('SelectContentDialog', {
       preventDefault() {}
     }
     $l.data('tool', {placements: {resource_selection: {}}})
+    sandbox.stub(window, 'confirm').returns(true)
   },
   teardown() {
     ENV.LTI_LAUNCH_FRAME_ALLOWANCES = undefined
@@ -51,28 +52,30 @@ QUnit.module('SelectContentDialog', {
   }
 })
 
-test('it creates a confirm alert before closing the modal', function() {
+test('it creates a confirm alert before closing the modal', () => {
   const l = document.getElementById('test-tool')
-  this.stub(window, 'confirm').returns(true)
   SelectContentDialog.Events.onContextExternalToolSelect.bind(l)(clickEvent)
   const $dialog = $('#resource_selection_dialog')
   $dialog.dialog('close')
-  ok(window.confirm.called)
+  strictEqual(window.confirm.callCount, 1)
 })
 
 test('sets the iframe allowances', function() {
   const l = document.getElementById('test-tool')
-  this.stub(window, 'confirm').returns(true)
   SelectContentDialog.Events.onContextExternalToolSelect.bind(l)(clickEvent)
   const $dialog = $('#resource_selection_dialog')
   equal($dialog.find('#resource_selection_iframe').attr('allow'), this.allowances.join('; '))
 })
 
-test('it removes the confirm alert if a selection is passed back', function() {
+test('sets the iframe "data-lti-launch" attribute', function() {
   const l = document.getElementById('test-tool')
-  this.mock(window)
-    .expects('confirm')
-    .never()
+  SelectContentDialog.Events.onContextExternalToolSelect.bind(l)(clickEvent)
+  const $dialog = $('#resource_selection_dialog')
+  equal($dialog.find('#resource_selection_iframe').attr('data-lti-launch'), 'true')
+})
+
+test('it removes the confirm alert if a selection is passed back', () => {
+  const l = document.getElementById('test-tool')
   SelectContentDialog.Events.onContextExternalToolSelect.bind(l)(clickEvent)
   const $dialog = $('#resource_selection_dialog')
   const selectionEvent = $.Event('selection', {
@@ -85,4 +88,5 @@ test('it removes the confirm alert if a selection is passed back', function() {
     ]
   })
   $dialog.trigger(selectionEvent)
+  strictEqual(window.confirm.callCount, 0)
 })

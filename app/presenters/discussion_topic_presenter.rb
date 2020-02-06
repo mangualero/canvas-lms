@@ -47,6 +47,10 @@ class DiscussionTopicPresenter
       assignment.context.grants_right?(user, :manage_assignments))
   end
 
+  def can_direct_share?
+    topic.context.grants_right?(@user, :manage_content) && topic.context.root_account.feature_enabled?(:direct_share)
+  end
+
   # Public: Determine if the given user has permissions to view peer reviews.
   #
   # user - The user whose permissions we're testing.
@@ -61,12 +65,13 @@ class DiscussionTopicPresenter
     end
   end
 
-  def has_peer_reviews?(user)
-    peer_reviews_for(user).present?
-  end
-
   def peer_reviews_for(user)
-    user.assigned_submission_assessments.for_assignment(assignment.id)
+    reviews = user.assigned_submission_assessments.for_assignment(assignment.id).to_a
+    if reviews.any?
+      valid_student_ids = assignment.context.participating_students.where(:id => reviews.map(&:user_id)).pluck(:id).to_set
+      reviews = reviews.select{|r| valid_student_ids.include?(r.user_id)}
+    end
+    reviews
   end
 
   # Public: Determine if this discussion's assignment has an attached rubric.

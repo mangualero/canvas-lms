@@ -407,11 +407,26 @@ module Lti
       end
     end
 
-    describe '#delete_subscriptions' do
+    describe '#recreate_missing_subscriptions' do
+      before do
+        message_handler.update!(
+          capabilities: [Lti::ResourcePlacement::SIMILARITY_DETECTION_LTI2]
+        )
+        message_handler.dup.update!(message_type: 'content-item')
+      end
+
+      it 'recreats subscriptions for each message handler' do
+        expect(AssignmentConfigurationToolLookup).to receive(:send_later_enqueue_args).twice
+
+        ToolProxyService.recreate_missing_subscriptions(tool_proxy)
+      end
+    end
+
+    describe '#delete_subscriptions_for' do
       let(:assignment) { course.assignments.create!(name: 'banana') }
       let(:assignment_two) do
         assignment_two = assignment.dup
-        assignment_two.update_attributes(lti_context_id: SecureRandom.uuid)
+        assignment_two.update(lti_context_id: SecureRandom.uuid)
         assignment_two
       end
       let(:subscription_id) { SecureRandom.uuid }
@@ -437,6 +452,31 @@ module Lti
         expect(sub_service_double).to receive(:destroy_tool_proxy_subscription).twice.with(tool_proxy, subscription_id)
         tool_proxy_service.delete_subscriptions_for(tool_proxy)
         run_jobs
+      end
+
+      it 'deletes subscriptions for the tool based on matching product family and context type' do
+        tool_proxy2 = create_tool_proxy(account)
+        expect(sub_service_double).to receive(:destroy_tool_proxy_subscription).twice
+        tool_proxy_service.delete_subscriptions_for(tool_proxy2)
+        run_jobs
+      end
+
+      context 'when the tool was installed to an account but the subscriptions are from a course-level tool' do
+        it 'does not delete subscriptions' do
+          tool_proxy2 = create_tool_proxy(course)
+          expect(sub_service_double).to_not receive(:destroy_tool_proxy_subscription)
+          tool_proxy_service.delete_subscriptions_for(tool_proxy2)
+          run_jobs
+        end
+      end
+
+      context 'when the tool was installed to an course but the subscriptions are from a account-level tool' do
+        it 'does not delete subscriptions' do
+          tool_proxy.update!(context: course)
+          expect(sub_service_double).to_not receive(:destroy_tool_proxy_subscription)
+          tool_proxy_service.delete_subscriptions_for(tool_proxy)
+          run_jobs
+        end
       end
     end
   end

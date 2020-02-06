@@ -18,7 +18,7 @@
 
 import React from 'react'
 import ReactDOM from 'react-dom'
-import {Simulate} from 'react-addons-test-utils'
+import {Simulate} from 'react-dom/test-utils'
 import _ from 'underscore'
 import GradingPeriod from 'jsx/grading/gradingPeriodTemplate'
 
@@ -218,7 +218,7 @@ QUnit.module('custom prop validation for editable periods', {
     return ReactDOM.render(GradingPeriodElement, wrapper)
   },
   setup() {
-    this.consoleError = this.stub(console, 'error')
+    this.consoleError = sandbox.stub(console, 'error')
   },
   teardown() {
     ReactDOM.unmountComponentAtNode(wrapper)

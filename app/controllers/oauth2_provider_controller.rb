@@ -34,11 +34,18 @@ class Oauth2ProviderController < ApplicationController
     scopes = (params[:scope] || params[:scopes] || '').split(' ')
 
     provider = Canvas::Oauth::Provider.new(params[:client_id], params[:redirect_uri], scopes, params[:purpose])
+    unless provider.has_valid_key?
+      @should_not_redirect = true
+      raise Canvas::Oauth::RequestError, :invalid_client_id
+    end
 
-    raise Canvas::Oauth::RequestError, :invalid_client_id unless provider.has_valid_key?
-    raise Canvas::Oauth::RequestError, :invalid_redirect unless provider.has_valid_redirect?
-    if api_token_scoping_enabled? provider
-      raise Canvas::Oauth::RequestError, :invalid_scope unless scopes.present? && scopes.all? { |scope| provider.key.scopes.include?(scope) }
+    unless provider.has_valid_redirect?
+      @should_not_redirect = true
+      raise Canvas::Oauth::RequestError, :invalid_redirect
+    end
+
+    if provider.key.require_scopes?
+      raise Canvas::Oauth::InvalidScopeError, provider.missing_scopes unless provider.valid_scopes?
     end
 
     session[:oauth2] = provider.session_hash
@@ -70,7 +77,6 @@ class Oauth2ProviderController < ApplicationController
       @provider = Canvas::Oauth::Provider.new(session[:oauth2][:client_id], session[:oauth2][:redirect_uri], session[:oauth2][:scopes], session[:oauth2][:purpose])
 
       if mobile_device?
-        js_env :GOOGLE_ANALYTICS_KEY => Setting.get('google_analytics_key', nil)
         render :layout => 'mobile_auth', :action => 'confirm_mobile'
       end
     else
@@ -85,52 +91,65 @@ class Oauth2ProviderController < ApplicationController
   end
 
   def deny
-    redirect_to Canvas::Oauth::Provider.final_redirect(self, :error => "access_denied")
+    params = { error: "access_denied" }
+    params[:state] = session[:oauth2][:state] if session[:oauth2].key? :state
+    redirect_to Canvas::Oauth::Provider.final_redirect(self, params)
   end
 
   def token
     basic_user, basic_pass = ActionController::HttpAuthentication::Basic.user_name_and_password(request) if request.authorization
     client_id = params[:client_id].presence || basic_user
     secret = params[:client_secret].presence || basic_pass
-    provider = Canvas::Oauth::Provider.new(client_id)
-    raise Canvas::Oauth::RequestError, :invalid_client_id unless provider.has_valid_key?
-    raise Canvas::Oauth::RequestError, :invalid_client_secret unless provider.is_authorized_by?(secret)
 
-    if grant_type == "authorization_code"
-      raise Canvas::Oauth::RequestError, :authorization_code_not_supplied unless params[:code]
-
-      token = provider.token_for(params[:code])
-      raise Canvas::Oauth::RequestError, :invalid_authorization_code  unless token.is_for_valid_code?
-      raise Canvas::Oauth::RequestError, :incorrect_client unless token.key.id == token.client_id
-
-      token.create_access_token_if_needed(value_to_boolean(params[:replace_tokens]))
-      Canvas::Oauth::Token.expire_code(params[:code])
-    elsif params[:grant_type] == "refresh_token"
-      raise Canvas::Oauth::RequestError, :refresh_token_not_supplied unless params[:refresh_token]
-
-      token = provider.token_for_refresh_token(params[:refresh_token])
-      # token = AccessToken.authenticate_refresh_token(params[:refresh_token])
-      raise Canvas::Oauth::RequestError, :invalid_refresh_token unless token
-      raise Canvas::Oauth::RequestError, :incorrect_client unless token.access_token.developer_key_id == token.key.id
-      token.access_token.regenerate_access_token
+    granter = if grant_type == "authorization_code"
+      Canvas::Oauth::GrantTypes::AuthorizationCode.new(client_id, secret, params)
+    elsif grant_type == "refresh_token"
+      Canvas::Oauth::GrantTypes::RefreshToken.new(client_id, secret, params)
+    elsif grant_type == 'client_credentials'
+      Canvas::Oauth::GrantTypes::ClientCredentials.new(params, request.host, request.protocol)
     else
-      raise Canvas::Oauth::RequestError, :unsupported_grant_type
+      Canvas::Oauth::GrantTypes::BaseType.new(client_id, secret, params)
     end
+
+    raise Canvas::Oauth::RequestError, :unsupported_grant_type unless granter.supported_type?
+
+    token = granter.token
+    # make sure locales are set up
+    if token.is_a?(Canvas::Oauth::Token)
+      @current_user = token.user
+      assign_localizer
+      I18n.set_locale_with_localizer
+    end
+
+    increment_request_cost(Setting.get("oauth_token_additional_request_cost", "200").to_i)
 
     render :json => token
   end
 
   def destroy
-    logout_current_user if params[:expire_sessions]
+    if params[:expire_sessions]
+      if session[:login_aac]
+        # The AAC could have been deleted since the user logged in
+        aac = AuthenticationProvider.where(id: session[:login_aac]).first
+        redirect = aac.try(:user_logout_redirect, self, @current_user)
+      end
+      logout_current_user
+    end
     return render :json => { :message => "can't delete OAuth access token when not using an OAuth access token" }, :status => 400 unless @access_token
     @access_token.destroy
-    render :json => {}
+    response = {}
+    response[:forward_url] = redirect if redirect
+    render json: response
   end
 
   private
   def oauth_error(exception)
-    response['WWW-Authenticate'] = 'Canvas OAuth 2.0' if exception.http_status == 401
-    return render(exception.to_render_data)
+    if @should_not_redirect || params[:redirect_uri] == Canvas::Oauth::Provider::OAUTH2_OOB_URI || params[:redirect_uri].blank?
+      response['WWW-Authenticate'] = 'Canvas OAuth 2.0' if exception.http_status == 401
+      return render(exception.to_render_data)
+    else
+      redirect_to exception.redirect_uri(params[:redirect_uri])
+    end
   end
 
   def grant_type
@@ -139,16 +158,5 @@ class Oauth2ProviderController < ApplicationController
         !params[:grant_type] && params[:code] ? "authorization_code" : "__UNSUPPORTED_PLACEHOLDER__"
       )
     )
-  end
-
-  def api_token_scoping_enabled?(provider)
-    (
-      (
-        @domain_root_account.site_admin? &&
-        Setting.get(Setting::SITE_ADMIN_ACCESS_TO_NEW_DEV_KEY_FEATURES, nil).present?
-      ) ||
-      @domain_root_account.feature_enabled?(:api_token_scoping)
-    ) &&
-    provider.key.require_scopes?
   end
 end

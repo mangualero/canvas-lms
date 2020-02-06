@@ -3,14 +3,18 @@
 <% end %>
 
 <% define_content :subject do %>
-  <%= t :subject, "Updated Wiki Page: %{title}, %{user}", :title => asset.title.titleize, :user => asset.context.name %>
+  <%= t :subject, "Updated Page: %{title}, %{user}", :title => asset.title.titleize, :user => asset.context.name %>
 <% end %>
 
-<%= t :body, "A page has been updated on the wiki for %{title} that may make your life easier.", :title => asset.context.name %>
+<%= t :body, "The page %{title} has been updated.", :title => asset.context.name %>
 
 <%= asset.title.titleize %>
 
-<%= html_to_text(asset.body, :base_url => dashboard_url) %>
-
+<% available_for = asset.available_for?(user) %>
+<% if available_for %>
+  <%= html_to_text(asset.body, :base_url => dashboard_url) %>
+<% else %>
+  <%= t("Wiki page content is locked or not yet available") %>
+<% end %>
 
 <%= t :link_message, "You can review it here: %{link}", :link => content(:link) %>

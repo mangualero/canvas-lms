@@ -18,20 +18,20 @@
 
 import I18n from 'i18n!discussions_v2'
 import React from 'react'
-import { string } from 'prop-types'
+import {string} from 'prop-types'
 
-import View from '@instructure/ui-layout/lib/components/View'
-import Link from '@instructure/ui-elements/lib/components/Link'
-import Text from '@instructure/ui-elements/lib/components/Text'
+import {View} from '@instructure/ui-layout'
+import {Button} from '@instructure/ui-buttons'
+import {Text} from '@instructure/ui-elements'
 
 import propTypes from '../propTypes'
 
-import pinnedUrl from '../../../../public/images/discussions/pinned.svg' // eslint-disable-line
-import unpinnedUrl from '../../../../public/images/discussions/unpinned.svg' // eslint-disable-line
-import closedForCommentsUrl from '../../../../public/images/discussions/closed-comments.svg' // eslint-disable-line
+import pinnedUrl from '../../../../public/images/discussions/pinned.svg'
+import unpinnedUrl from '../../../../public/images/discussions/unpinned.svg'
+import closedForCommentsUrl from '../../../../public/images/discussions/closed-comments.svg'
 
 const BackgroundSVG = props => (
-  <View margin="small auto" size="x-small" display="block">
+  <View margin="small auto" maxWidth="16rem" display="block">
     <img alt="" src={props.url} />
   </View>
 )
@@ -40,17 +40,19 @@ BackgroundSVG.propTypes = {
   url: string.isRequired
 }
 
-export const pinnedDiscussionBackground = (props) => (
+export const pinnedDiscussionBackground = props => (
   <View margin="large" textAlign="center" display="block">
     <BackgroundSVG url={pinnedUrl} />
     <Text as="div" margin="x-small auto" weight="bold">
       {I18n.t('You currently have no pinned discussions')}
     </Text>
-    {props.permissions.manage_content && <Text as="div" margin="x-small auto">
-      {I18n.t(
-        'To pin a discussion to the top of the page, drag a discussion here, or select Pin from the discussion settings menu.'
-      )}
-    </Text>}
+    {props.permissions.manage_content && (
+      <Text as="div" margin="x-small auto">
+        {I18n.t(
+          'To pin a discussion to the top of the page, drag a discussion here, or select Pin from the discussion settings menu.'
+        )}
+      </Text>
+    )}
   </View>
 )
 
@@ -58,15 +60,20 @@ pinnedDiscussionBackground.propTypes = {
   permissions: propTypes.permissions.isRequired
 }
 
-export const unpinnedDiscussionsBackground = (props) => (
+export const unpinnedDiscussionsBackground = props => (
   <View margin="large" textAlign="center" display="block">
     <BackgroundSVG url={unpinnedUrl} />
     <Text as="div" margin="x-small auto" weight="bold">
       {I18n.t('There are no discussions to show in this section')}
     </Text>
-  {props.permissions.create && <Link href={`/${props.contextType}s/${props.contextID}/discussion_topics/new`}>
-      {I18n.t('Click here to add a discussion')}
-    </Link>}
+    {props.permissions.create && (
+      <Button
+        variant="link"
+        href={`/${props.contextType}s/${props.contextID}/discussion_topics/new`}
+      >
+        {I18n.t('Click here to add a discussion')}
+      </Button>
+    )}
   </View>
 )
 
@@ -76,17 +83,19 @@ unpinnedDiscussionsBackground.propTypes = {
   permissions: propTypes.permissions.isRequired
 }
 
-export const closedDiscussionBackground = (props) => (
+export const closedDiscussionBackground = props => (
   <View margin="large" textAlign="center" display="block">
     <BackgroundSVG url={closedForCommentsUrl} />
     <Text as="div" margin="x-small auto" weight="bold">
       {I18n.t('You currently have no discussions with closed comments')}
     </Text>
-    {props.permissions.manage_content && <Text as="div" margin="x-small auto">
-      {I18n.t(
-        'To close comments on a discussion, drag a discussion here, or select Close for Comments from the discussion settings menu.'
-      )}
-    </Text>}
+    {props.permissions.manage_content && (
+      <Text as="div" margin="x-small auto">
+        {I18n.t(
+          'To close comments on a discussion, drag a discussion here, or select Close for Comments from the discussion settings menu.'
+        )}
+      </Text>
+    )}
   </View>
 )
 

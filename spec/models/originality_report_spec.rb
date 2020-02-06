@@ -55,7 +55,7 @@ describe OriginalityReport do
   end
 
   it 'allows the "pending" workflow state' do
-    subject.update_attributes(originality_score: nil)
+    subject.update(originality_score: nil)
     expect(subject.workflow_state).to eq 'pending'
   end
 
@@ -77,11 +77,34 @@ describe OriginalityReport do
     expect(subject.errors[:submission]).to eq ["can't be blank"]
   end
 
+  it 'sets the submission time' do
+    expect(subject.submission_time).to eq submission.submitted_at
+  end
+
   it 'can have an originality report attachment' do
     originality_attachemnt = attachment_model
     subject.originality_report_attachment = originality_attachemnt
     subject.save!
     expect(subject.originality_report_attachment).to eq originality_attachemnt
+  end
+  it 'can create multiple originality reports with the same originality_report_attachment_id' do
+    report = OriginalityReport.create!(
+      attachment: attachment,
+      originality_score: '1',
+      submission: submission,
+      workflow_state: 'pending'
+    )
+    report2 = OriginalityReport.create!(
+      attachment: attachment,
+      originality_score: '1',
+      submission: submission,
+      workflow_state: 'pending'
+    )
+    report.originality_report_attachment_id = 123
+    report2.originality_report_attachment_id = 123
+    report.save!
+    report2.save!
+    expect(report.originality_report_attachment_id).to eq report2.originality_report_attachment_id
   end
 
   it 'returns the state of the originality report' do
@@ -116,7 +139,7 @@ describe OriginalityReport do
         workflow_state: 'pending',
         lti_link_attributes: lti_link_attributes
       )
-      report.update_attributes(lti_link_attributes: { id: report.lti_link.id, resource_url: 'http://example.com' })
+      report.update(lti_link_attributes: { id: report.lti_link.id, resource_url: 'http://example.com' })
       expect(report.lti_link.resource_url).to eq 'http://example.com'
     end
 
@@ -129,7 +152,7 @@ describe OriginalityReport do
         lti_link_attributes: lti_link_attributes
       )
       link_id = report.lti_link.id
-      report.update_attributes!(lti_link_attributes: { id: link_id, _destroy: true })
+      report.update!(lti_link_attributes: { id: link_id, _destroy: true })
       expect(Lti::Link.find_by(id: link_id)).to be_nil
     end
   end
@@ -139,7 +162,7 @@ describe OriginalityReport do
     let(:report_with_score){ OriginalityReport.new(attachment: attachment, submission: submission, originality_score: 23.2) }
 
     it "updates state to 'scored' if originality_score is set on existing record" do
-      report_no_score.update_attributes(originality_score: 23.0)
+      report_no_score.update(originality_score: 23.0)
       expect(report_no_score.workflow_state).to eq 'scored'
     end
 
@@ -150,7 +173,7 @@ describe OriginalityReport do
 
     it "updates state to 'pending' if originality_score is set to nil on existing record" do
       report_with_score.save
-      report_with_score.update_attributes(originality_score: nil)
+      report_with_score.update(originality_score: nil)
       expect(report_with_score.workflow_state).to eq 'pending'
     end
 
@@ -161,8 +184,14 @@ describe OriginalityReport do
 
     it "does not change workflow_state if it is set to 'error'" do
       report_with_score.save
-      report_with_score.update_attributes(workflow_state: 'error')
-      report_with_score.update_attributes(originality_score: 23.2)
+      report_with_score.update(workflow_state: 'error')
+      report_with_score.update(originality_score: 23.2)
+      expect(report_with_score.workflow_state).to eq 'error'
+    end
+
+    it "updates state to 'error' if an error message is present" do
+      report_with_score.save
+      report_with_score.update(error_message: 'An error occured.')
       expect(report_with_score.workflow_state).to eq 'error'
     end
   end
@@ -170,6 +199,20 @@ describe OriginalityReport do
   describe '#asset_key' do
     let(:attachment) { attachment_model }
     let(:submission) { submission_model }
+
+    context 'when "submission_time" is blank' do
+      let(:originality_report) do
+        o = OriginalityReport.create!(
+          submission: submission,
+          originality_score: 23
+        )
+        o.update_attribute(:submission_time, nil)
+        o
+      end
+      let(:subject) { originality_report.asset_key }
+
+      it { is_expected.to eq submission.asset_string }
+    end
 
     it 'returns the attachment asset string if attachment is present' do
       report = OriginalityReport.create!(
@@ -185,7 +228,7 @@ describe OriginalityReport do
         submission: submission,
         originality_score: 23
       )
-      expect(report.asset_key).to eq submission.asset_string
+      expect(report.asset_key).to eq "#{submission.asset_string}_#{submission.submitted_at.utc.iso8601}"
     end
   end
 
@@ -201,7 +244,7 @@ describe OriginalityReport do
     let(:report) { subject }
 
     it 'creates an LTI launch URL if a lti_link is present' do
-      report.update_attributes(lti_link: lti_link)
+      report.update(lti_link: lti_link)
       expected_url = "/courses/"\
                      "#{submission.assignment.course.id}/assignments/"\
                      "#{submission.assignment.id}/lti/resource/#{lti_link.resource_link_id}?display=borderless"
@@ -210,20 +253,20 @@ describe OriginalityReport do
 
     it 'uses the originality_report_url when the link id is present' do
       non_lti_url = 'http://www.test.com/report'
-      report.update_attributes(originality_report_url: non_lti_url)
+      report.update(originality_report_url: non_lti_url)
       expect(report.report_launch_path).to eq non_lti_url
     end
   end
 
   describe '#state' do
-    let(:report) { OriginalityReport.new(workflow_state: 'pending') }
+    let(:report) { OriginalityReport.new(workflow_state: 'pending', submission: submission_model) }
 
     it "returns the workflow state unless it is 'scored'" do
       expect(report.state).to eq 'pending'
     end
 
     it "returns the state from similarity score if workflow state is 'scored'" do
-      report.update_attributes(originality_score: '25')
+      report.update(originality_score: '25')
       expect(report.state).to eq 'warning'
     end
   end
@@ -288,8 +331,8 @@ describe OriginalityReport do
     context 'with sharding' do
       specs_require_sharding
 
-      let(:new_shard) { Shard.create! }
-      let(:new_shard_attachment) { new_shard.activate { attachment_model } }
+      let(:new_shard) { @shard1 }
+      let(:new_shard_attachment) { new_shard.activate { attachment_model(context: user_model) } }
       let(:submission) { submission_model }
 
       it 'allows cross-shard attachment associations' do
@@ -352,3 +395,4 @@ describe OriginalityReport do
     end
   end
 end
+

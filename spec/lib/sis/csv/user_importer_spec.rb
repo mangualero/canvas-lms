@@ -182,6 +182,28 @@ describe SIS::CSV::UserImporter do
     expect(cc.path).to eql("user2@example.com")
   end
 
+  it "should preserve sortable name if provided when changing regular name" do
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,sortable_name,email,status",
+      "user_1,user1,User,One,\"One, User\",user@example.com,active"
+    )
+    user = CommunicationChannel.by_path('user@example.com').first.user
+    expect(user.name).to eq ("User One")
+    expect(user.sortable_name).to eql("One, User")
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,sortable_name,email,status",
+      "user_1,user1,User,Uno,\"One, User\",user@example.com,active"
+    )
+    expect(user.reload.name).to eq ("User Uno")
+    expect(user.sortable_name).to eql("One, User")
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,status",
+      "user_1,user1,Usero,Uno,active"
+    )
+    expect(user.reload.name).to eq ("Usero Uno")
+    expect(user.sortable_name).to eql("Uno, Usero")
+  end
+
   it "should preserve first name/last name split" do
     process_csv_data_cleanly(
       "user_id,login_id,password,first_name,last_name,email,status,ssha_password",
@@ -885,6 +907,15 @@ describe SIS::CSV::UserImporter do
     expect(importer.errors[0][1]).to eq "The email address associated with user 'user_1' is invalid (email: 'None')"
   end
 
+  it "should have the row on the error object" do
+    importer = process_csv_data(
+      "user_id,login_id,first_name,last_name,email,status",
+      "user_1,user1,User,Uno,None,active"
+    )
+    expect(importer.errors.length).to eq 1
+    expect(importer.batch.sis_batch_errors.first.row_info).to eq "user_1,user1,User,Uno,None,active,2\n"
+  end
+
   it "should not present an error for the same login_id with different case for same user" do
     process_csv_data_cleanly(
         "user_id,login_id,first_name,last_name,email,status",
@@ -1194,6 +1225,36 @@ describe SIS::CSV::UserImporter do
     expect(@account.courses.where(sis_source_id: "test_2").first.students.map(&:name).include?("User Uno")).to be_falsey
   end
 
+  it 'should remove linked observer enrollments when a user is deleted' do
+    process_csv_data_cleanly(
+      "course_id,short_name,long_name,account_id,term_id,status",
+      "test_1,TC 101,Test Course 101,,,active",
+    )
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,email,status",
+      "user_1,user1,User,Uno,user@example.com,active",
+      "user_2,user2,User,Dos,user2@example.com,active"
+    )
+    process_csv_data_cleanly(
+      "student_id,observer_id,status",
+      "user_1,user_2,active",
+    )
+    process_csv_data_cleanly(
+      "course_id,user_id,role,section_id,status,associated_user_id,start_date,end_date",
+      "test_1,user_1,student,,active,,,",
+    )
+    course = @account.courses.where(sis_source_id: "test_1").first
+    observer_enrollment = course.observer_enrollments.first
+    expect(observer_enrollment).to be_active
+    expect(observer_enrollment.user.pseudonym.sis_user_id).to eq "user_2"
+
+    process_csv_data_cleanly(
+      "user_id,login_id,first_name,last_name,email,status",
+      "user_1,user1,User,Uno,user@example.com,deleted"
+    )
+    expect(observer_enrollment.reload).to be_deleted
+  end
+
   it 'should remove group_memberships when a user is deleted' do
     process_csv_data_cleanly(
       "course_id,short_name,long_name,account_id,term_id,status",
@@ -1222,7 +1283,6 @@ describe SIS::CSV::UserImporter do
   end
 
   it 'should create rollback data' do
-    @account.enable_feature!(:refactor_of_sis_imports)
     batch1 = @account.sis_batches.create! { |sb| sb.data = {} }
     process_csv_data_cleanly(
       "course_id,short_name,long_name,account_id,term_id,status",

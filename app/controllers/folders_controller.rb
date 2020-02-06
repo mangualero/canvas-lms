@@ -137,7 +137,7 @@ class FoldersController < ApplicationController
       can_view_hidden_files = can_view_hidden_files?(folder.context, @current_user, session)
       opts = {:can_view_hidden_files => can_view_hidden_files, :context => folder.context}
       if can_view_hidden_files && folder.context.is_a?(Course) &&
-          master_courses? && MasterCourses::ChildSubscription.is_child_course?(folder.context)
+          MasterCourses::ChildSubscription.is_child_course?(folder.context)
         opts[:master_course_restricted_folder_ids] = MasterCourses::FolderHelper.locked_folder_ids_for_course(folder.context)
       end
 
@@ -259,7 +259,7 @@ class FoldersController < ApplicationController
             @folder.visible_file_attachments.not_hidden.not_locked.by_position_then_display_name
           end
           files_options = {:permissions => {:user => @current_user}, :methods => [:currently_locked, :mime_class, :readable_size], :only => [:id, :comments, :content_type, :context_id, :context_type, :display_name, :folder_id, :position, :media_entry_id, :filename, :workflow_state]}
-          folders_options = {:permissions => {:user => @current_user}, :methods => [:currently_locked, :mime_class], :only => [:id, :context_id, :context_type, :lock_at, :last_lock_at, :last_unlock_at, :name, :parent_folder_id, :position, :unlock_at]}
+          folders_options = {:permissions => {:user => @current_user}, :methods => [:currently_locked, :mime_class], :only => [:id, :context_id, :context_type, :lock_at, :name, :parent_folder_id, :position, :unlock_at]}
           sub_folders_scope = @folder.active_sub_folders
           unless can_view_hidden_files
             sub_folders_scope = sub_folders_scope.not_hidden.not_locked
@@ -333,7 +333,7 @@ class FoldersController < ApplicationController
           return unless authorized_action(parent_folder, @current_user, :manage_contents)
           folder_params[:parent_folder] = parent_folder
         end
-        if @folder.update_attributes(folder_params)
+        if @folder.update(folder_params)
           if !@folder.parent_folder_id || !@context.folders.where(id: @folder).first
             @folder.parent_folder = Folder.root_folders(@context).first
             @folder.save
@@ -487,7 +487,7 @@ class FoldersController < ApplicationController
     if authorized_action(@folder, @current_user, :delete)
       if @folder.root_folder?
         render :json => {:message => t('no_deleting_root', "Can't delete the root folder")}, :status => 400
-      elsif @folder.context.is_a?(Course) && master_courses? &&
+      elsif @folder.context.is_a?(Course) &&
           MasterCourses::ChildSubscription.is_child_course?(@folder.context) &&
           MasterCourses::FolderHelper.locked_folder_ids_for_course(@folder.context).include?(@folder.id)
         render :json => {:message => "Can't delete folder containing files locked by Blueprint Course"}, :status => 400
@@ -622,6 +622,28 @@ class FoldersController < ApplicationController
           render :json => @folder.errors
         end
       end
+    end
+  end
+
+  # @API Get uploaded media folder for user
+  # @subtopic Folders
+  # Returns the details for a designated upload folder that the user has rights to
+  # upload to, and creates it if it doesn't exist.
+  #
+  # If the current user does not have the permissions to manage files
+  # in the course or group, the folder will belong to the current user directly.
+  #
+  # @example_request
+  #   curl 'https://<canvas>/api/v1/courses/1337/folders/media' \
+  #        -H 'Authorization: Bearer <token>'
+  #
+  # @returns Folder
+  def media_folder
+    require_context
+    if authorized_action(@context, @current_user, :read)
+      folder_context = @context.grants_right?(@current_user, session, :manage_files) ? @context : @current_user
+      @folder = Folder.media_folder(folder_context)
+      render :json => folder_json(@folder, @current_user, session)
     end
   end
 end

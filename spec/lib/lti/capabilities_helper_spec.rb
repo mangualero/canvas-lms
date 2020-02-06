@@ -99,13 +99,21 @@ module Lti
          vnd.Canvas.submission.url
          Context.title
          com.instructure.Assignment.lti.id
+         com.instructure.Person.name_sortable
          com.instructure.PostMessageToken
          com.instructure.Editor.contents
          com.instructure.Editor.selection
          com.instructure.Group.id
          com.instructure.Group.name
          Canvas.membership.roles
-         com.instructure.Course.groupIds)
+         com.instructure.Course.groupIds
+         com.Instructure.membership.roles
+         com.instructure.Assignment.anonymous_grading
+         com.instructure.Course.accept_canvas_resource_types
+         com.instructure.Course.canvas_resource_type
+         com.instructure.Course.allow_canvas_resource_selection
+         com.instructure.Course.available_canvas_resources
+         com.instructure.Person.pronouns)
     }
 
     describe '#supported_capabilities' do

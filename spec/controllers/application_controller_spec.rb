@@ -16,14 +16,24 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper')
+require_relative '../spec_helper'
+require_relative '../lti_1_3_spec_helper'
 
-describe ApplicationController do
-
+RSpec.describe ApplicationController do
   before :each do
-    allow(controller).to receive(:request).and_return(double(:host_with_port => "www.example.com",
-                                            :host => "www.example.com",
-                                            :headers => {}, :format => double(:html? => true)))
+    request_double = double(
+      host_with_port: "www.example.com",
+      host: "www.example.com",
+      url: "http://www.example.com",
+      method: "GET",
+      headers: {},
+      format: double(:html? => true),
+      user_agent: nil,
+      remote_ip: '0.0.0.0',
+      base_url: 'https://canvas.test',
+      referer: nil
+    )
+    allow(controller).to receive(:request).and_return(request_double)
   end
 
   describe "#google_drive_connection" do
@@ -45,7 +55,9 @@ describe ApplicationController do
 
       expect(GoogleDrive::Connection).to receive(:new).with("real_current_user_token", "real_current_user_secret", 30)
 
-      controller.send(:google_drive_connection)
+      Setting.skip_cache do
+        controller.send(:google_drive_connection)
+      end
     end
 
     it "uses @current_user second" do
@@ -58,7 +70,9 @@ describe ApplicationController do
       expect(Rails.cache).to receive(:fetch).with(['google_drive_tokens', mock_current_user].cache_key).and_return(["current_user_token", "current_user_secret"])
 
       expect(GoogleDrive::Connection).to receive(:new).with("current_user_token", "current_user_secret", 30)
-      controller.send(:google_drive_connection)
+      Setting.skip_cache do
+        controller.send(:google_drive_connection)
+      end
     end
 
     it "queries user services if token isn't in the cache" do
@@ -73,7 +87,9 @@ describe ApplicationController do
       expect(mock_user_services).to receive(:where).with(service: "google_drive").and_return(double(first: double(token: "user_service_token", secret: "user_service_secret")))
 
       expect(GoogleDrive::Connection).to receive(:new).with("user_service_token", "user_service_secret", 30)
-      controller.send(:google_drive_connection)
+      Setting.skip_cache do
+        controller.send(:google_drive_connection)
+      end
     end
 
     it "uses the session values if no users are set" do
@@ -110,6 +126,25 @@ describe ApplicationController do
       expect(@controller.js_env[:TIMEZONE]).to eq 'America/Juneau'
     end
 
+    describe "DIRECT_SHARE_ENABLED feature flag" do
+      it "sets the env var to true when FF is enabled" do
+        root_account = double(global_id: 1, open_registration?: true, settings: {})
+        allow(root_account).to receive(:feature_enabled?).and_return(false)
+        allow(root_account).to receive(:feature_enabled?).with(:direct_share).and_return(true)
+        allow(HostUrl).to receive_messages(file_host: 'files.example.com')
+        controller.instance_variable_set(:@domain_root_account, root_account)
+        expect(controller.js_env[:DIRECT_SHARE_ENABLED]).to be_truthy
+      end
+
+      it "sets the env var to false when FF is disabled" do
+        root_account = double(global_id: 1, open_registration?: true, settings: {})
+        allow(root_account).to receive(:feature_enabled?).and_return(false)
+        allow(HostUrl).to receive_messages(file_host: 'files.example.com')
+        controller.instance_variable_set(:@domain_root_account, root_account)
+        expect(controller.js_env[:DIRECT_SHARE_ENABLED]).to be_falsey
+      end
+    end
+
     it "sets the contextual timezone from the context" do
       Time.zone = "Mountain Time (US & Canada)"
       controller.instance_variable_set(:@context, double(time_zone: Time.zone, asset_string: "", class_name: nil))
@@ -142,10 +177,22 @@ describe ApplicationController do
     end
 
     it 'sets LTI_LAUNCH_FRAME_ALLOWANCES' do
-      expect(@controller.js_env[:LTI_LAUNCH_FRAME_ALLOWANCES]).to eq Lti::Launch::FRAME_ALLOWANCES
+      expect(@controller.js_env[:LTI_LAUNCH_FRAME_ALLOWANCES]).to match_array [
+        "geolocation *",
+        "microphone *",
+        "camera *",
+        "midi *",
+        "encrypted-media *",
+        "autoplay *"
+      ]
+    end
+
+    it 'sets DEEP_LINKING_POST_MESSAGE_ORIGIN' do
+      expect(@controller.js_env[:DEEP_LINKING_POST_MESSAGE_ORIGIN]).to eq @controller.request.base_url
     end
 
     context "sharding" do
+      require_relative '../sharding_spec_helper'
       specs_require_sharding
 
       it "should set the global id for the domain_root_account" do
@@ -179,6 +226,12 @@ describe ApplicationController do
 
     it "should reject disallowed paths" do
       expect(controller.send(:clean_return_to, "ftp://example.com/javascript:hai")).to be_nil
+    end
+
+    it "removes /download from the end of a file path" do
+      expect(controller.send(:clean_return_to, "/courses/1/files/1/download?wrap=1")).to eq "https://canvas.example.com/courses/1/files/1"
+      expect(controller.send(:clean_return_to, "/courses/1~1/files/1~1/download?wrap=1")).to eq "https://canvas.example.com/courses/1~1/files/1~1"
+      expect(controller.send(:clean_return_to, "/courses/1/pages/download?wrap=1")).to eq "https://canvas.example.com/courses/1/pages/download?wrap=1"
     end
   end
 
@@ -224,7 +277,7 @@ describe ApplicationController do
 
     before :each do
       # safe_domain_file_url wants to use request.protocol
-      allow(controller).to receive(:request).and_return(double(:protocol => '', :host_with_port => ''))
+      allow(controller).to receive(:request).and_return(double("request", :protocol => '', :host_with_port => '', :url => ''))
 
       @common_params = { :only_path => true }
     end
@@ -249,7 +302,7 @@ describe ApplicationController do
     it "should not include :download=>1 in download urls for relative contexts" do
       controller.instance_variable_set(:@context, @attachment.context)
       allow(controller).to receive(:named_context_url).and_return('')
-      url = controller.send(:safe_domain_file_url, @attachment, nil, nil, true)
+      url = controller.send(:safe_domain_file_url, @attachment, download: true)
       expect(url).not_to match(/[\?&]download=1(&|$)/)
     end
 
@@ -257,7 +310,16 @@ describe ApplicationController do
       expect(controller).to receive(:file_download_url).
         with(@attachment, @common_params.merge(:download_frd => 1)).
         and_return('')
-      controller.send(:safe_domain_file_url, @attachment, nil, nil, true)
+      controller.send(:safe_domain_file_url, @attachment, download: true)
+    end
+
+    it "prepends a unique file subdomain if configured" do
+      override_dynamic_settings(private: { canvas: { attachment_specific_file_domain: true } }) do
+        expect(controller).to receive(:file_download_url).
+          with(@attachment, @common_params.merge(:inline => 1)).
+          and_return("/files/#{@attachment.id}")
+        expect(controller.send(:safe_domain_file_url, @attachment, host_and_shard: ['canvasfiles.com', Shard.default])).to eq "a#{@attachment.shard.id}-#{@attachment.id}.canvasfiles.com/files/#{@attachment.id}"
+      end
     end
   end
 
@@ -298,12 +360,6 @@ describe ApplicationController do
       acct.default_locale = "es"
       acct.save!
       controller.instance_variable_set(:@domain_root_account, acct)
-      req = double()
-
-      allow(req).to receive(:host).and_return('www.example.com')
-      allow(req).to receive(:headers).and_return({})
-      allow(req).to receive(:format).and_return(double(:html? => true))
-      allow(controller).to receive(:request).and_return(req)
       controller.send(:assign_localizer)
       I18n.set_locale_with_localizer # this is what t() triggers
       expect(I18n.locale.to_s).to eq "es"
@@ -338,8 +394,41 @@ describe ApplicationController do
     end
   end
 
+  describe 'log_participation' do
+    before :once do
+      course_model
+      student_in_course
+      attachment_model(context: @course)
+    end
+
+    it "should find file's context instead of user" do
+      controller.instance_variable_set(:@domain_root_account, Account.default)
+      controller.instance_variable_set(:@context, @student)
+      controller.instance_variable_set(:@accessed_asset, {level: 'participate', code: @attachment.asset_string, category: 'files'})
+      allow(controller).to receive(:named_context_url).with(@attachment, :context_url).and_return("/files/#{@attachment.id}")
+      allow(controller).to receive(:params).and_return({file_id: @attachment.id, id: @attachment.id})
+      allow(controller.request).to receive(:path).and_return("/files/#{@attachment.id}")
+      controller.send(:log_participation, @student)
+      expect(AssetUserAccess.where(user: @student, asset_code: @attachment.asset_string).take.context).to eq @course
+    end
+
+    it 'should not error on non-standard context for file' do
+      controller.instance_variable_set(:@domain_root_account, Account.default)
+      controller.instance_variable_set(:@context, @student)
+      controller.instance_variable_set(:@accessed_asset, {level: 'participate', code: @attachment.asset_string, category: 'files'})
+      allow(controller).to receive(:named_context_url).with(@attachment, :context_url).and_return("/files/#{@attachment.id}")
+      allow(controller).to receive(:params).and_return({file_id: @attachment.id, id: @attachment.id})
+      allow(controller.request).to receive(:path).and_return("/files/#{@attachment.id}")
+      assignment_model(course: @course)
+      @attachment.context = @assignment
+      @attachment.save!
+      expect {controller.send(:log_participation, @student)}.not_to raise_error
+    end
+  end
+
   describe 'rescue_action_in_public' do
     context 'sharding' do
+      require_relative '../sharding_spec_helper'
       specs_require_sharding
 
       before do
@@ -443,6 +532,7 @@ describe ApplicationController do
     context 'ContextExternalTool' do
 
       let(:course){ course_model }
+      let_once(:dev_key) { DeveloperKey.create! }
 
       let(:tool) do
         tool = course.context_external_tools.new(
@@ -450,7 +540,8 @@ describe ApplicationController do
           consumer_key: "bob",
           shared_secret: "bob",
           tool_id: 'some_tool',
-          privacy_level: 'public'
+          privacy_level: 'public',
+          developer_key: dev_key
         )
         tool.url = "http://www.example.com/basic_lti"
         tool.resource_selection = {
@@ -475,7 +566,7 @@ describe ApplicationController do
           allow(content_tag).to receive(:id).and_return(42)
           allow(controller).to receive(:require_user) { user_model }
           allow(controller).to receive(:lti_launch_params) {{}}
-          content_tag.update_attributes!(context: assignment_model)
+          content_tag.update!(context: assignment_model)
         end
 
         context 'display_type == "full_width' do
@@ -525,9 +616,193 @@ describe ApplicationController do
         end
       end
 
+      context 'lti version' do
+        let_once(:user) { user_model }
+
+        before do
+          allow(controller).to receive(:named_context_url).and_return('wrong_url')
+          allow(controller).to receive(:lti_grade_passback_api_url).and_return('wrong_url')
+          allow(controller).to receive(:blti_legacy_grade_passback_api_url).and_return('wrong_url')
+          allow(controller).to receive(:lti_turnitin_outcomes_placement_url).and_return('wrong_url')
+
+          allow(controller).to receive(:render)
+          allow(controller).to receive_messages(js_env:[])
+          controller.instance_variable_set(:"@context", course)
+          allow(content_tag).to receive(:id).and_return(42)
+          allow(controller).to receive(:require_user) { user_model }
+          controller.instance_variable_set(:@current_user, user)
+          controller.instance_variable_set(:@domain_root_account, course.account)
+          content_tag.update!(context: assignment_model)
+        end
+
+        describe 'LTI 1.3' do
+          let_once(:developer_key) do
+            d = DeveloperKey.create!
+            enable_developer_key_account_binding! d
+            d
+          end
+          let_once(:account) { Account.default }
+
+          include_context 'lti_1_3_spec_helper'
+
+          before do
+            tool.developer_key = developer_key
+            tool.use_1_3 = true
+            tool.save!
+
+            assignment = assignment_model(submission_types: 'external_tool', external_tool_tag: content_tag)
+            content_tag.update!(context: assignment)
+          end
+
+          shared_examples_for 'a placement that caches the launch' do
+            let(:verifier) { "e5e774d015f42370dcca2893025467b414d39009dfe9a55250279cca16f5f3c2704f9c56fef4cea32825a8f72282fa139298cf846e0110238900567923f9d057" }
+            let(:redis_key) { "#{course.class.name}:#{Lti::RedisMessageClient::LTI_1_3_PREFIX}#{verifier}" }
+            let(:cached_launch) { JSON.parse(Canvas.redis.get(redis_key)) }
+
+            before do
+              allow(SecureRandom).to receive(:hex).and_return(verifier)
+              controller.send(:content_tag_redirect, course, content_tag, nil)
+            end
+
+            it 'caches the LTI 1.3 launch' do
+              expect(cached_launch["https://purl.imsglobal.org/spec/lti/claim/message_type"]).to eq "LtiResourceLinkRequest"
+            end
+
+            it 'creates a login message' do
+              expect(assigns[:lti_launch].params.keys).to match_array [
+                "iss",
+                "login_hint",
+                "target_link_uri",
+                "lti_message_hint",
+                "canvas_region",
+                "client_id"
+              ]
+            end
+
+            it 'sets the "login_hint" to the current user lti id' do
+              expect(assigns[:lti_launch].params['login_hint']).to eq Lti::Asset.opaque_identifier_for(user)
+            end
+
+            it 'does not use the oidc_initiation_url as the resource_url' do
+              expect(assigns[:lti_launch].resource_url).to eq tool.url
+            end
+
+            it 'sets the "canvas_domain" to the request domain' do
+              message_hint = JSON::JWT.decode(assigns[:lti_launch].params['lti_message_hint'], :skip_verification)
+              expect(message_hint['canvas_domain']).to eq 'localhost'
+            end
+
+            context 'when the developer key has an oidc_initiation_url' do
+              before do
+                tool.developer_key.update!(oidc_initiation_url: oidc_initiation_url)
+                controller.send(:content_tag_redirect, course, content_tag, nil)
+              end
+
+              let(:oidc_initiation_url) { 'https://www.test.com/oidc/login' }
+
+              it 'does use the oidc_initiation_url as the resource_url' do
+                expect(assigns[:lti_launch].resource_url).to eq oidc_initiation_url
+              end
+            end
+
+            context 'when the content tag has a custom url' do
+              let(:custom_url) { 'http://www.example.com/basic_lti?deep_linking=true' }
+
+              before do
+                content_tag.update!(url: custom_url)
+                controller.send(:content_tag_redirect, course, content_tag, nil)
+              end
+
+              it 'uses the custom url as the target_link_uri' do
+                expect(assigns[:lti_launch].params['target_link_uri']).to eq custom_url
+              end
+            end
+          end
+
+          context 'assignments' do
+            it_behaves_like 'a placement that caches the launch'
+          end
+
+          context 'module items' do
+            before { content_tag.update!(context: course.account) }
+
+            it_behaves_like 'a placement that caches the launch'
+          end
+          # rubocop:enable RSpec/NestedGroups
+        end
+
+        it 'creates a basic lti launch request when tool is not configured to use LTI 1.3' do
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:lti_launch].params["lti_message_type"]).to eq "basic-lti-launch-request"
+        end
+
+        it 'does not use the oidc_initiation_url as the resource_url' do
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:resource_url]).to eq tool.url
+        end
+      end
+
+      context 'return_url' do
+        before do
+          controller.instance_variable_set(:"@context", course)
+          content_tag.update!(context: assignment_model)
+          allow(content_tag.context).to receive(:quiz_lti?).and_return(true)
+          allow(controller).to receive(:render)
+          allow(controller).to receive(:lti_launch_params)
+          allow(controller).to receive(:require_user).and_return(true)
+          allow(controller).to receive(:named_context_url).and_return('named_context_url')
+          allow(controller).to receive(:polymorphic_url).and_return('host/quizzes')
+        end
+
+        it 'is set to quizzes page when launched from quizzes page' do
+          allow(controller.request).to receive(:referer).and_return('courses/1/quizzes')
+          controller.context.root_account.enable_feature! :newquizzes_on_quiz_page
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'host/quizzes'
+        end
+
+        it 'is set to quizzes page when launched from assignments/new' do
+          allow(controller.request).to receive(:referer).and_return('assignments/new')
+          controller.context.root_account.enable_feature! :newquizzes_on_quiz_page
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'host/quizzes'
+        end
+
+        it 'is not set to quizzes page when flag is disabled' do
+          allow(controller.request).to receive(:referer).and_return('assignments/new')
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'named_context_url'
+        end
+
+        it 'is not set to quizzes page when there is no referer' do
+          allow(controller.request).to receive(:referer).and_return(nil)
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'named_context_url'
+        end
+
+        it 'is set using named_context_url when not launched from quizzes page' do
+          allow(controller.request).to receive(:referer).and_return('assignments')
+          controller.context.root_account.enable_feature! :newquizzes_on_quiz_page
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'named_context_url'
+        end
+
+        it 'is set using named_context_url when not launched from quizzes page and referrer includes "quiz"' do
+          allow(controller.request).to receive(:referer).and_return('somequizzessub.com/assignments')
+          controller.context.root_account.enable_feature! :newquizzes_on_quiz_page
+          controller.send(:content_tag_redirect, course, content_tag, nil)
+          expect(assigns[:return_url]).to eq 'named_context_url'
+        end
+      end
+
       it 'returns the full path for the redirect url' do
         expect(controller).to receive(:named_context_url).with(course, :context_url, {:include_host => true})
-        expect(controller).to receive(:named_context_url).with(course, :context_external_content_success_url, 'external_tool_redirect', {:include_host => true}).and_return('wrong_url')
+        expect(controller).to receive(:named_context_url).with(
+          course,
+          :context_external_content_success_url,
+          'external_tool_redirect',
+          {:include_host => true}
+        ).and_return('wrong_url')
         allow(controller).to receive(:render)
         allow(controller).to receive_messages(js_env:[])
         controller.instance_variable_set(:"@context", course)
@@ -608,7 +883,20 @@ describe ApplicationController do
       allow(controller).to receive(:polymorphic_url).and_return("http://example.com")
       external_tools = controller.external_tools_display_hashes(:account_navigation, @course)
 
-      expect(external_tools).to eq([{:title=>"bob", :base_url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons'}])
+      expect(external_tools).to eq([{:id=>tool.id, :title=>"bob", :base_url=>"http://example.com", :icon_url=>"http://example.com", :canvas_icon_class => 'icon-commons'}])
+    end
+
+    it "doesn't return tools that are mapped to disabled feature flags" do
+      @course = course_model
+      tool = analytics_2_tool_factory(context: @course)
+
+      allow(controller).to receive(:polymorphic_url).and_return('http://example.com')
+      external_tools = controller.external_tools_display_hashes(:course_navigation, @course)
+      expect(external_tools).not_to include({title: 'Analytics 2', base_url: 'http://example.com', icon_url: nil, canvas_icon_class: 'icon-analytics', tool_id: ContextExternalTool::ANALYTICS_2})
+
+      @course.enable_feature!(:analytics_2)
+      external_tools = controller.external_tools_display_hashes(:course_navigation, @course)
+      expect(external_tools).to include({:id=>tool.id, title: 'Analytics 2', base_url: 'http://example.com', icon_url: nil, canvas_icon_class: 'icon-analytics', tool_id: ContextExternalTool::ANALYTICS_2})
     end
   end
 
@@ -650,7 +938,7 @@ describe ApplicationController do
 
     it 'returns a hash' do
       hash = controller.external_tool_display_hash(@tool, :account_navigation)
-      left_over_keys = hash.keys - [:base_url, :title, :icon_url, :canvas_icon_class]
+      left_over_keys = hash.keys - [:id, :base_url, :title, :icon_url, :canvas_icon_class]
       expect(left_over_keys).to eq []
     end
 
@@ -661,6 +949,14 @@ describe ApplicationController do
         expect(hash[:icon_url]).to eq "http://example.com/icon.png?#{setting.to_s}"
         expect(hash[:canvas_icon_class]).to be nil
       end
+    end
+
+    it "doesn't return an invalid icon_url" do
+      totallyavalidurl = %{');\"></i>nothing to see here</button><img src=x onerror="alert(document.cookie);alert(document.domain);" />}
+      @tool.settings[:editor_button][:icon_url] = totallyavalidurl
+      @tool.save!
+      hash = controller.external_tool_display_hash(@tool, :editor_button)
+      expect(hash[:icon_url]).to be_nil
     end
 
     it 'all settings return canvas_icon_class if set' do
@@ -776,6 +1072,7 @@ describe ApplicationController do
     end
 
     context "sharding" do
+      require_relative '../sharding_spec_helper'
       specs_require_sharding
 
       it "should not asplode with cross-shard groups" do
@@ -800,7 +1097,7 @@ describe ApplicationController do
         course_factory
         student_in_course(:user => @user, :course => @course)
         expect(@course).to_not be_available
-        expect(@user.cached_current_enrollments).to be_empty
+        expect(@user.cached_currentish_enrollments).to be_empty
         @other_group = group_model(:context => @course)
         group_model(:context => @course)
         @group.add_user(@user)
@@ -891,7 +1188,11 @@ describe ApplicationController do
       {
         hostname: 'test.host',
         user_agent: 'Rails Testing',
-        producer: 'canvas'
+        client_ip: '0.0.0.0',
+        producer: 'canvas',
+        url: 'http://test.host',
+        http_method: 'GET',
+        referrer: nil
       }
     end
 
@@ -900,12 +1201,27 @@ describe ApplicationController do
     end
 
     it 'stringifies the non-strings in the context attributes' do
-      current_user_attributes = { global_id: 12345 }
+      current_user_attributes = { global_id: 12345, time_zone: 'asdf' }
 
       current_user = double(current_user_attributes)
       controller.instance_variable_set(:@current_user, current_user)
       controller.send(:setup_live_events_context)
-      expect(LiveEvents.get_context).to eq({user_id: '12345'}.merge(non_conditional_values))
+      expect(LiveEvents.get_context).to eq({user_id: '12345', time_zone: 'asdf'}.merge(non_conditional_values))
+    end
+
+    it 'sets the "context_sis_source_id"' do
+      controller.instance_variable_set(:@context, course_model(sis_source_id: 'banana'))
+      controller.send(:setup_live_events_context)
+      expect(LiveEvents.get_context[:context_sis_source_id]).to eq 'banana'
+    end
+
+    context "when there is a HTTP referrer" do
+      it "includes the referer in 'referrer' (two 'r's)" do
+        url = 'http://example.com/some-referer-url'
+        controller.request.headers['HTTP_REFERER'] = url
+        controller.send(:setup_live_events_context)
+        expect(LiveEvents.get_context).to eq(non_conditional_values.merge(referrer: url))
+      end
     end
 
     context 'when a domain_root_account exists' do
@@ -913,7 +1229,8 @@ describe ApplicationController do
         {
           uuid: 'account_uuid1',
           global_id: 'account_global1',
-          lti_guid: 'lti1'
+          lti_guid: 'lti1',
+          feature_enabled?: false
         }
       end
 
@@ -936,13 +1253,15 @@ describe ApplicationController do
     context 'when a current_user exists' do
       let(:current_user_attributes) do
         {
-          global_id: 'user_global_id'
+          global_id: 'user_global_id',
+          time_zone: 'America/Denver'
         }
       end
 
       let(:expected_context_attributes) do
         {
-          user_id: 'user_global_id'
+          user_id: 'user_global_id',
+          time_zone: 'America/Denver'
         }.merge(non_conditional_values)
       end
 
@@ -970,6 +1289,27 @@ describe ApplicationController do
       it 'sets the correct attributes on the LiveEvent context' do
         real_current_user = double(real_current_user_attributes)
         controller.instance_variable_set(:@real_current_user, real_current_user)
+        controller.send(:setup_live_events_context)
+        expect(LiveEvents.get_context).to eq(expected_context_attributes)
+      end
+    end
+
+    context 'when an access_token exists' do
+      let(:real_access_token_attributes) do
+        {
+          developer_key: double(global_id: '1111')
+        }
+      end
+
+      let(:expected_context_attributes) do
+        {
+          developer_key_id: '1111'
+        }.merge(non_conditional_values)
+      end
+
+      it 'sets the correct attributes on the LiveEvent context' do
+        real_access_token = double(real_access_token_attributes)
+        controller.instance_variable_set(:@access_token, real_access_token)
         controller.send(:setup_live_events_context)
         expect(LiveEvents.get_context).to eq(expected_context_attributes)
       end
@@ -1011,7 +1351,8 @@ describe ApplicationController do
       let(:expected_context_attributes) do
         {
           context_type: 'Class',
-          context_id: 'context_global_id'
+          context_id: 'context_global_id',
+          context_account_id: nil
         }.merge(non_conditional_values)
       end
 
@@ -1020,6 +1361,24 @@ describe ApplicationController do
         controller.instance_variable_set(:@context, canvas_context)
         controller.send(:setup_live_events_context)
         expect(LiveEvents.get_context).to eq(expected_context_attributes)
+      end
+
+      context 'when a course' do
+        let(:course) { course_model }
+        let(:expected_context_attributes) do
+          {
+            context_type: 'Course',
+            context_id: course.global_id.to_s,
+            context_account_id: course.account.global_id.to_s,
+            context_sis_source_id: nil
+          }.merge(non_conditional_values)
+        end
+
+        it 'sets the correct attributes on the LiveEvent context' do
+          controller.instance_variable_set(:@context, course)
+          controller.send(:setup_live_events_context)
+          expect(LiveEvents.get_context).to eq(expected_context_attributes)
+        end
       end
     end
 
@@ -1125,7 +1484,6 @@ describe CoursesController do
 
   describe "set_master_course_js_env_data" do
     before :each do
-      Account.default.enable_feature!(:master_courses)
       controller.instance_variable_set(:@domain_root_account, Account.default)
       account_admin_user(:active_all => true)
       controller.instance_variable_set(:@current_user, @user)
@@ -1177,57 +1535,49 @@ describe CoursesController do
   end
 
   context 'validate_scopes' do
-    let(:account_with_feature_enabled) do
-      account = double()
-      allow(account).to receive(:feature_enabled?).with(:api_token_scoping).and_return(true)
-      account
+    let(:account) { double() }
+
+    before do
+      controller.instance_variable_set(:@domain_root_account, account)
     end
 
-    let(:account_with_feature_disabled) do
-      account = double()
-      allow(account).to receive(:feature_enabled?).with(:api_token_scoping).and_return(false)
-      account
+    it 'does not affect session based api requests' do
+      allow(controller).to receive(:request).and_return(double({
+        params: {}
+      }))
+      expect(controller.send(:validate_scopes)).to be_nil
     end
 
-    context 'api_token_scoping feature enabled' do
-      before do
-        controller.instance_variable_set(:@domain_root_account, account_with_feature_enabled)
-      end
+    it 'does not affect api requests that use an access token with an unscoped developer key' do
+      user = user_model
+      developer_key = DeveloperKey.create!
+      token = AccessToken.create!(user: user, developer_key: developer_key)
+      controller.instance_variable_set(:@access_token, token)
+      allow(controller).to receive(:request).and_return(double({
+        params: {},
+        method: 'GET'
+      }))
+      expect(controller.send(:validate_scopes)).to be_nil
+    end
 
-      it 'does not affect session based api requests' do
-        allow(controller).to receive(:request).and_return(double({
-          params: {}
-        }))
-        expect(controller.send(:validate_scopes)).to be_nil
-      end
+    it 'raises AccessTokenScopeError if scopes do not match' do
+      user = user_model
+      developer_key = DeveloperKey.create!(require_scopes: true)
+      token = AccessToken.create!(user: user, developer_key: developer_key)
+      controller.instance_variable_set(:@access_token, token)
+      allow(controller).to receive(:request).and_return(double({
+        params: {},
+        method: 'GET',
+        path: '/not_allowed_path'
+      }))
+      expect { controller.send(:validate_scopes) }.to raise_error(AuthenticationMethods::AccessTokenScopeError)
+    end
 
-      it 'does not affect api requests that use an access token with an unscoped developer key' do
-        user = user_model
-        developer_key = DeveloperKey.create!
-        token = AccessToken.create!(user: user, developer_key: developer_key)
-        controller.instance_variable_set(:@access_token, token)
-        allow(controller).to receive(:request).and_return(double({
-          params: {},
-          method: 'GET'
-        }))
-        expect(controller.send(:validate_scopes)).to be_nil
-      end
-
-      it 'raises AccessTokenScopeError if scopes do not match' do
-        user = user_model
-        developer_key = DeveloperKey.create!(require_scopes: true)
-        token = AccessToken.create!(user: user, developer_key: developer_key)
-        controller.instance_variable_set(:@access_token, token)
-        allow(controller).to receive(:request).and_return(double({
-          params: {},
-          method: 'GET'
-        }))
-        expect { controller.send(:validate_scopes) }.to raise_error(AuthenticationMethods::AccessTokenScopeError)
-      end
+    context 'with valid scopes on dev key' do
+      let(:developer_key) { DeveloperKey.create!(require_scopes: true, scopes: ['url:GET|/api/v1/accounts']) }
 
       it 'allows adequately scoped requests through' do
         user = user_model
-        developer_key = DeveloperKey.create!(require_scopes: true)
         token = AccessToken.create!(user: user, developer_key: developer_key, scopes: ['url:GET|/api/v1/accounts'])
         controller.instance_variable_set(:@access_token, token)
         allow(controller).to receive(:request).and_return(double({
@@ -1240,7 +1590,6 @@ describe CoursesController do
 
       it 'allows HEAD requests' do
         user = user_model
-        developer_key = DeveloperKey.create!(require_scopes: true)
         token = AccessToken.create!(user: user, developer_key: developer_key, scopes: ['url:GET|/api/v1/accounts'])
         controller.instance_variable_set(:@access_token, token)
         allow(controller).to receive(:request).and_return(double({
@@ -1253,34 +1602,131 @@ describe CoursesController do
 
       it 'strips includes for adequately scoped requests' do
         user = user_model
-        developer_key = DeveloperKey.create!(require_scopes: true)
         token = AccessToken.create!(user: user, developer_key: developer_key, scopes: ['url:GET|/api/v1/accounts'])
         controller.instance_variable_set(:@access_token, token)
         allow(controller).to receive(:request).and_return(double({
           method: 'GET',
           path: '/api/v1/accounts'
         }))
-        params = double()
-        expect(params).to receive(:delete).with(:include)
-        expect(params).to receive(:delete).with(:includes)
+        params = { include: ['a'], includes: ['uuid', 'b']}
         allow(controller).to receive(:params).and_return(params)
         controller.send(:validate_scopes)
+        expect(params).to eq(include: [], includes: ['uuid'])
       end
     end
 
-    context 'api_token_scoping feature disabled' do
-      before do
-        controller.instance_variable_set(:@domain_root_account, account_with_feature_disabled)
-      end
+    context 'with valid scopes and allow includes on dev key' do
+      let(:developer_key) { DeveloperKey.create!(require_scopes: true, allow_includes: true, scopes: ['url:GET|/api/v1/accounts']) }
 
-      after do
-        controller.instance_variable_set(:@domain_root_account, nil)
-      end
-
-      it "does nothing" do
-        expect(controller).not_to receive(:api_request?)
+      it 'keeps includes for adequately scoped requests' do
+        user = user_model
+        token = AccessToken.create!(user: user, developer_key: developer_key, scopes: ['url:GET|/api/v1/accounts'])
+        controller.instance_variable_set(:@access_token, token)
+        allow(controller).to receive(:request).and_return(double({
+          method: 'GET',
+          path: '/api/v1/accounts'
+        }))
+        params = { include: ['a'], includes: ['uuid', 'b']}
+        allow(controller).to receive(:params).and_return(params)
         controller.send(:validate_scopes)
+        expect(params).to eq(include: ['a'], includes: ['uuid', 'b'])
       end
     end
+  end
+end
+
+RSpec.describe ApplicationController, '#render_unauthorized_action' do
+  controller do
+    def index
+      render_unauthorized_action
+    end
+  end
+
+  before :once do
+    @teacher = course_with_teacher(active_all: true).user
+  end
+
+  before do
+    user_session(@teacher)
+    get :index, format: format
+  end
+
+  describe 'pdf format' do
+    let(:format) { :pdf }
+
+    specify { expect(response.headers.fetch('Content-Type')).to match(/\Atext\/html/) }
+    specify { expect(response).to have_http_status :unauthorized }
+    specify { expect(response).to render_template('shared/unauthorized') }
+  end
+
+  describe 'html format' do
+    let(:format) { :html }
+
+    specify { expect(response.headers.fetch('Content-Type')).to match(/\Atext\/html/) }
+    specify { expect(response).to have_http_status :unauthorized }
+    specify { expect(response).to render_template('shared/unauthorized') }
+  end
+
+  describe 'json format' do
+    let(:format) { :json }
+
+    specify { expect(response.headers['Content-Type']).to match(/\Aapplication\/json/) }
+    specify { expect(response).to have_http_status :unauthorized }
+    specify { expect(json_parse.fetch('status')).to eq 'unauthorized' }
+  end
+end
+
+RSpec.describe ApplicationController, '#redirect_to_login' do
+  controller do
+    def index
+      redirect_to_login
+    end
+  end
+
+  before do
+    get :index, format: format
+  end
+
+  context 'given an unauthenticated json request' do
+    let(:format) { :json }
+
+    specify { expect(response).to have_http_status :unauthorized }
+    specify { expect(json_parse.fetch('status')).to eq 'unauthenticated' }
+  end
+
+  shared_examples 'redirectable to html login page' do
+    specify { expect(flash[:warning]).to eq 'You must be logged in to access this page' }
+    specify { expect(session[:return_to]).to eq controller.clean_return_to(request.fullpath) }
+    specify { expect(response).to redirect_to login_url }
+    specify { expect(response).to have_http_status :found }
+    specify { expect(response.location).to eq login_url }
+  end
+
+  context 'given an unauthenticated html request' do
+    it_behaves_like 'redirectable to html login page' do
+      let(:format) { :html }
+    end
+  end
+
+  context 'given an unauthenticated pdf request' do
+    it_behaves_like 'redirectable to html login page' do
+      let(:format) { :pdf }
+    end
+  end
+end
+
+RSpec.describe ApplicationController, '#teardown_live_events_context' do
+  controller do
+    def index
+      render json: [{}]
+    end
+  end
+
+  it 'sets the context to nil after request' do
+    Thread.current[:live_events_ctx] = "something"
+
+    get :index, format: :html
+
+    expect(Thread.current[:live_events_ctx]).to be_nil
   end
 end

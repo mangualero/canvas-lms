@@ -1,4 +1,4 @@
-import returnValueOfUnpatchedDraggable from 'jqueryui/draggable-unpatched'
-import 'jquery-ui-touch-punch'
+import 'jqueryui/draggable-unpatched'
 
-export default returnValueOfUnpatchedDraggable
+import 'jqueryui/mouse'
+import 'jquery-ui-touch-punch'

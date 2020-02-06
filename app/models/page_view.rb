@@ -234,7 +234,10 @@ class PageView < ActiveRecord::Base
     result = case PageView.page_view_method
     when :log
       Rails.logger.info "PAGE VIEW: #{self.attributes.to_json}"
-    when :db, :cassandra
+    when :db
+      self.shard = user.shard if new_record?
+      self.save
+    when :cassandra
       self.save
     end
 
@@ -273,6 +276,7 @@ class PageView < ActiveRecord::Base
         self.id
       end
     end
+    changes_applied
   end
 
   def _update_record(*args)
@@ -283,6 +287,7 @@ class PageView < ActiveRecord::Base
         true
       end
     end
+    changes_applied
   end
 
   scope :for_context, proc { |ctx| where(:context_type => ctx.class.name, :context_id => ctx) }

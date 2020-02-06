@@ -20,9 +20,13 @@ module AttachmentHelper
   # returns a string of html attributes suitable for use with $.loadDocPreview
   def doc_preview_attributes(attachment, attrs={})
     url_opts = {
+      anonymous_instructor_annotations: attrs.delete(:anonymous_instructor_annotations),
+      enable_annotations: attrs.delete(:enable_annotations),
       moderated_grading_whitelist: attrs[:moderated_grading_whitelist],
-      enable_annotations: attrs.delete(:enable_annotations)
+      submission_id: attrs.delete(:submission_id)
     }
+    url_opts[:enrollment_type] = attrs.delete(:enrollment_type) if url_opts[:enable_annotations]
+
     if attachment.crocodoc_available?
       begin
         attrs[:crocodoc_session_url] = attachment.crocodoc_url(@current_user, url_opts)
@@ -64,14 +68,21 @@ module AttachmentHelper
   def render_or_redirect_to_stored_file(attachment:, verifier: nil, inline: false)
     set_cache_header(attachment, inline)
     if safer_domain_available?
-      redirect_to safe_domain_file_url(attachment, @safer_domain_host, verifier, !inline)
+      redirect_to safe_domain_file_url(attachment, host_and_shard: @safer_domain_host,
+        verifier: verifier, download: !inline)
     elsif attachment.stored_locally?
       @headers = false if @files_domain
       send_file(attachment.full_filename, :type => attachment.content_type_with_encoding, :disposition => (inline ? 'inline' : 'attachment'), :filename => attachment.display_name)
     elsif inline && attachment.can_be_proxied?
-      send_file_headers!( :length=> attachment.s3object.content_length, :filename=>attachment.filename, :disposition => 'inline', :type => attachment.content_type_with_encoding)
-      render body: attachment.s3object.get.body.read
+      body = attachment.open.read
+      add_csp_for_file if attachment.mime_class == 'html'
+      send_file_headers!(length: body.length, filename: attachment.filename, disposition: 'inline', type: attachment.content_type_with_encoding)
+      render body: body
     elsif inline
+      if attachment.mime_class == 'html' && csp_enforced?
+        return render 400, text: t("It's not allowed to redirect to HTML files that can't be proxied while Content-Security-Policy is being enforced")
+      end
+
       redirect_to authenticated_inline_url(attachment)
     else
       redirect_to authenticated_download_url(attachment)

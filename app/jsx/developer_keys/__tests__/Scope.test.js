@@ -17,14 +17,14 @@
  */
 
 import React from 'react'
-import { mount } from 'enzyme'
+import {mount} from 'enzyme'
 import DeveloperKeyScope from '../Scope'
 
 const scope = {
-  "resource":"account_domain_lookups",
-  "verb":"GET",
-  "path":"/api/v1/accounts/search",
-  "scope":"url:GET|/api/v1/accounts/search"
+  resource: 'account_domain_lookups',
+  verb: 'GET',
+  path: '/api/v1/accounts/search',
+  scope: 'url:GET|/api/v1/accounts/search'
 }
 
 it('checks the checkbox if the checked prop is true', () => {
@@ -38,7 +38,6 @@ it('checks the checkbox if the checked prop is true', () => {
   expect(wrapper.find('input[type="checkbox"]').props().checked).toBe(true)
 })
 
-
 it('does not check the checkbox if the checked prop is false', () => {
   const props = {
     onChange: jest.fn(),
@@ -50,7 +49,7 @@ it('does not check the checkbox if the checked prop is false', () => {
   expect(wrapper.find('input[type="checkbox"]').props().checked).toBe(false)
 })
 
-it('renders the scope scope', () => {
+it('renders Enable Scope if not checked', () => {
   const props = {
     onChange: jest.fn(),
     checked: false,
@@ -58,7 +57,34 @@ it('renders the scope scope', () => {
   }
 
   const wrapper = mount(<DeveloperKeyScope {...props} />)
-  expect(wrapper.find('.developer-key-scope').text()).toContain(scope.scope)
+  expect(wrapper.find('Checkbox').text()).toContain('Enable scope')
+})
+
+it('renders Disable Scope if checked', () => {
+  const props = {
+    onChange: jest.fn(),
+    checked: true,
+    scope
+  }
+
+  const wrapper = mount(<DeveloperKeyScope {...props} />)
+  expect(wrapper.find('Checkbox').text()).toContain('Disable scope')
+})
+
+it('renders scope', () => {
+  const props = {
+    onChange: jest.fn(),
+    checked: true,
+    scope
+  }
+
+  const wrapper = mount(<DeveloperKeyScope {...props} />)
+  expect(
+    wrapper
+      .find('FlexItem')
+      .at(1)
+      .text()
+  ).toContain(scope.scope)
 })
 
 it('renders the scope verb', () => {
@@ -69,5 +95,10 @@ it('renders the scope verb', () => {
   }
 
   const wrapper = mount(<DeveloperKeyScope {...props} />)
-  expect(wrapper.find('.developer-key-scope').text()).toContain(scope.verb)
+  expect(
+    wrapper
+      .find('FlexItem')
+      .at(2)
+      .text()
+  ).toContain(scope.verb)
 })

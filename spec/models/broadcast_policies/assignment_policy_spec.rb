@@ -24,6 +24,7 @@ module BroadcastPolicies
       ctx = double()
       allow(ctx).to receive(:available?).and_return(true)
       allow(ctx).to receive(:concluded?).and_return(false)
+      allow(ctx).to receive(:post_policies_enabled?).and_return(false)
       ctx
     }
     let(:assignment) do
@@ -125,6 +126,11 @@ module BroadcastPolicies
         expect(policy.should_dispatch_assignment_unmuted?).to be_truthy
       end
 
+      it "returns false when post policies are enabled" do
+        allow(context).to receive(:post_policies_enabled?).and_return true
+        expect(policy.should_dispatch_assignment_unmuted?).to be false
+      end
+
       def wont_send_when
         yield
         expect(policy.should_dispatch_assignment_unmuted?).to be_falsey
@@ -133,6 +139,29 @@ module BroadcastPolicies
       specify { wont_send_when { allow(context).to receive(:available?).and_return false } }
       specify { wont_send_when { allow(assignment).to receive(:recently_unmuted).and_return false } }
 
+    end
+
+    describe "#should_dispatch_submissions_posted" do
+      let(:posting_params) { { graded_only: false } }
+
+      before(:each) do
+        allow(context).to receive(:post_policies_enabled?).and_return true
+        allow(assignment).to receive(:posting_params_for_notifications).and_return posting_params
+      end
+
+      def wont_send_when
+        yield
+        expect(policy.should_dispatch_submissions_posted?).to be false
+      end
+
+      it "is true when the dependent inputs are true" do
+        expect(policy.should_dispatch_submissions_posted?).to be true
+      end
+
+      specify { wont_send_when { allow(context).to receive(:available?).and_return false } }
+      specify { wont_send_when { allow(context).to receive(:concluded?).and_return true } }
+      specify { wont_send_when { allow(context).to receive(:post_policies_enabled?).and_return false } }
+      specify { wont_send_when { allow(assignment).to receive(:posting_params_for_notifications).and_return nil } }
     end
   end
 end

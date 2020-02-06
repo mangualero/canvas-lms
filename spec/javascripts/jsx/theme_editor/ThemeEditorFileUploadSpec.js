@@ -26,7 +26,7 @@ QUnit.module('ThemeEditorFileUpload Component', {
   setup() {
     elem = document.createElement('div')
     props = {
-      onChange: this.spy()
+      onChange: sinon.spy()
     }
   }
 })
@@ -86,11 +86,11 @@ test('hasUserInput', () => {
   ok(component.hasUserInput(), 'non null input value')
 })
 
-test('handleFileChanged', function() {
-  var expected = {}
-  this.stub(window.URL, 'createObjectURL').returns(expected)
+test('handleFileChanged', () => {
+  const expected = {}
+  sandbox.stub(window.URL, 'createObjectURL').returns(expected)
   const component = ReactDOM.render(<ThemeEditorFileUpload {...props} />, elem)
-  this.spy(component, 'setState')
+  sandbox.spy(component, 'setState')
   const file = new Blob(['foo'], {type: 'text/plain'})
   file.name = 'foo.png'
   component.handleFileChanged({target: {files: [file]}})
@@ -102,15 +102,15 @@ test('handleFileChanged', function() {
   ok(props.onChange.calledWith(expected), 'calls onChange with object url')
 })
 
-test('handleResetClicked', function() {
+test('handleResetClicked', () => {
   const component = ReactDOM.render(<ThemeEditorFileUpload {...props} />, elem)
   const subject = component.fileInput
   subject.setAttribute('type', 'text')
   subject.value = 'foo'
-  this.spy(component, 'setState')
+  sandbox.spy(component, 'setState')
   const file = new Blob(['foo'], {type: 'text/plain'})
   file.name = 'foo.png'
-  this.stub(component, 'hasUserInput').returns(true)
+  sandbox.stub(component, 'hasUserInput').returns(true)
   component.handleResetClicked()
   equal(subject.value, '', 'cleared file input value')
   ok(
@@ -124,9 +124,9 @@ test('handleResetClicked', function() {
   ok(props.onChange.calledWith(''), 'calls onChange empty string')
 })
 
-test('displayValue', function() {
+test('displayValue', () => {
   let component = ReactDOM.render(<ThemeEditorFileUpload {...props} />, elem)
-  this.stub(component, 'hasUserInput').returns(false)
+  sandbox.stub(component, 'hasUserInput').returns(false)
   equal(component.displayValue(), '', 'no input or current value, returns empty string')
 
   props.userInput = {val: 'foo'}

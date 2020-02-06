@@ -1,0 +1,55 @@
+# it is intended that this be used exclusive of all other docker-compose.*yml files in CI
+version: "2.3"
+services:
+  web:
+    image: "${PATCHSET_TAG}"
+    links:
+      - postgres
+      - redis
+      - cassandra
+      - dynamodb
+    environment:
+      ENCRYPTION_KEY: facdd3a131ddd8988b14f6e4e01039c93cfa0160
+      RAILS_ENV: test
+      RAILS_DB_NAME_TEST: 'canvas_test'
+      RAILS_DB_HOST: postgres
+      RAILS_DB_PASSWORD: ''
+      DATABASE_URL: "postgres://postgres@postgres:5432/canvas_test"
+      RANDOMIZE_SEQUENCES: 1
+      RERUNS_RETRY:
+      MAX_FAIL:
+
+      # knapsack
+      CI_NODE_TOTAL:
+      CI_NODE_INDEX:
+      KNAPSACK_ENABLED:
+      KNAPSACK_TEST_FILE_PATTERN:
+      KNAPSACK_EXCLUDE_REGEX:
+      KNAPSACK_TEST_DIR:
+      KNAPSACK_GENERATE_REPORT:
+
+
+  redis:
+    image: starlord.inscloudgate.net/jenkins/redis:alpine
+
+  postgres:
+    image: canvas-lms:previous-postgres-image
+    build:
+      context: ./build/docker-compose/postgres/9.5/
+      dockerfile: ./Dockerfile
+    environment:
+      PGDATA: /data
+
+  cassandra:
+    image: canvas-lms:previous-cassandra-image
+    build:
+      context: ./build/docker-compose/cassandra/
+      dockerfile: ./Dockerfile.cachable
+    environment:
+      CASSANDRA_START_RPC: 'true'
+
+  dynamodb:
+    image: canvas-lms:previous-dynamodb-image
+    build:
+      context: ./build/docker-compose/dynamodb/
+      dockerfile: ./Dockerfile.cachable

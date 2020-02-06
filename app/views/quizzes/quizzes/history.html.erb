@@ -15,10 +15,19 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
+<%
+  hide_student_name = params[:hide_student_name]&.to_i&.nonzero?
+  user_name = if hide_student_name || @quiz.anonymous_survey?
+    t('Student')
+  else
+    context_user_name(@context, @user)
+  end
 
-<% user_name = ((params[:hide_student_name] && !params[:hide_student_name].to_i.zero?) || (@quiz.survey? && @quiz.anonymous_submissions) || @quiz.course.feature_enabled?(:anonymous_grading)) ? t(:anonymous_username, "Student") : context_user_name(@context, @user) %>
-<% user_name = t(:logged_out_user, "Logged Out User %{index}", :index => @logged_out_user_index) if !user_name && !@submission.user_id %>
-<% content_for :page_title, (@quiz.survey? ?
+  if !user_name && !@submission.user_id
+    user_name = t('Logged Out User %{index}', index: @logged_out_user_index)
+  end
+%>
+<% provide :page_title, (@quiz.survey? ?
      join_title(t(:page_title_survey, "%{user}'s Survey History", :user => user_name), @quiz.quiz_title || t(:default_survey_name, "Survey %{course_name}", :course_name => @context.name)) :
      join_title(t(:page_title_quiz, "%{user}'s Quiz History", :user => user_name), @quiz.quiz_title || t(:default_quiz_name, "Quiz %{course_name}", :course_name => @context.name)))
 %>
@@ -61,8 +70,10 @@
 <% end %>
 <% end %>
 
-<% unless params[:headless] %>
-  <% content_for :right_side do %>
+<% if params[:headless] %>
+  <% provide_blank :right_side %>
+<% else %>
+  <% provide :right_side do %>
     <% if @current_version && can_do(@quiz, @current_user, :grade) %>
       <p>
         <% if @quiz.survey? %>
@@ -176,4 +187,3 @@
   <div class="user_id"><%= @submission.user_id %></div>
 </div>
 
-<% js_bundle :quiz_history %>

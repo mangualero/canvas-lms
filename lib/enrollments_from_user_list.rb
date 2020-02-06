@@ -33,6 +33,7 @@ class EnrollmentsFromUserList
     @section = (opts[:course_section_id].present? ? @course.course_sections.active.where(id: opts[:course_section_id].to_i).first : nil) || @course.default_section
     @limit_privileges_to_course_section = opts[:limit_privileges_to_course_section]
     @enrolled_users = {}
+    @updating_user = opts[:updating_user]
   end
 
   def process(list)
@@ -55,10 +56,16 @@ class EnrollmentsFromUserList
         end
       end
     end
-    if !@enrollments.empty?
+    if @enrollments.present?
       @course.transaction do
         user_ids = @enrollments.map(&:user_id).uniq
-        DueDateCacher.recompute_users_for_course(user_ids, @course)
+        DueDateCacher.recompute_users_for_course(
+          user_ids,
+          @course,
+          nil,
+          executing_user: @updating_user,
+          update_grades: true
+        )
       end
     end
     @user_ids_to_touch.uniq.each_slice(100) do |user_ids|

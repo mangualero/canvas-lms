@@ -16,13 +16,12 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-define [
-  'i18n!gradezilla'
-  '../gradezilla/GradebookTranslations'
-  'jquery'
-  'jquery.keycodes'
-], (I18n, GRADEBOOK_TRANSLATIONS, $) ->
-  class GradebookKeyboardNav
+import I18n from 'i18n!gradezillaGradebookKeyboardNav'
+import GRADEBOOK_TRANSLATIONS from './GradebookTranslations'
+import $ from 'jquery'
+import 'jquery.keycodes'
+
+export default class GradebookKeyboardNav
     constructor: (@options) ->
       @gridSupport = @options.gridSupport
       @gradebookElements = [document.querySelector('#gradebook_grid')]
@@ -70,6 +69,8 @@ define [
         @prevActiveElement.focus()
       else
         @gridSupport.state.setActiveLocation(@prevActiveLocation.region, @prevActiveLocation)
+        # return to the cell, but do not engage the editor
+        # (exit any existing editor)
         @gridSupport.helper.commitCurrentEdit() if @currentColumnType() == 'assignment'
         @gridSupport.helper.focus()
 
@@ -111,7 +112,7 @@ define [
 
     gotoAssignment: =>
       return unless @currentColumnType() == 'assignment'
-      url = @getHeaderFromActiveCell().querySelector('.assignment-name a').href
+      url = @getHeaderFromActiveCell().querySelector('a .assignment-name').closest('a').href
       window.location = url
 
     showSubmissionTray: =>

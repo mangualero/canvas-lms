@@ -16,23 +16,21 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
 
-<%
-  content_for :page_title, @assignment.new_record? ? t(:new_assignment, "New Assignment") : @assignment.title
-  content_for :right_side, render(:partial => "assignment_sidebar")
-%>
+<style>
+  #right-side-wrapper {
+    height: 100%;
+  }
+</style>
 
-<% if @locked && !@locked[:can_view] %>
-  <% js_bundle :module_sequence_footer %>
+<% provide :page_title, @assignment.title %>
+<% provide :right_side, render(:partial => "assignment_sidebar") %>
+
+<% if @show_locked_page %>
 
   <h1><%= @assignment.title %></h1>
   <%= @locked.is_a?(Hash) ? lock_explanation(@locked, 'assignment', @context) : t(:assignment_locked, "This assignment is currently locked.") %>
 
 <% else %>
-
-<%
-  css_bundle :assignments
-  js_bundle :assignment_show
-%>
 
 <% if @assignment.omit_from_final_grade %>
   <div class="alert alert-info omit-from-final-warning">
@@ -57,7 +55,7 @@
           <a href="<%= edit_polymorphic_path([@context, @assignment]) %>" class='btn edit_assignment_link<%= ' disabled' unless can_do(@assignment, @current_user, :update) %>'>
             <i class='icon-edit'></i> <%= t('links.edit', 'Edit') %>
             <% unless can_do(@assignment, @current_user, :update) %>
-              <span class="screenreader-only">You are not the selected moderator for this assignment</span>
+              <span class="screenreader-only">You do not have permissions to edit this moderated assignment</span>
             <% end %>
           </a>
         <% end %>
@@ -73,17 +71,26 @@
           </a>
         <% end %>
 
-        <% if @assignment_menu_tools.present? %>
+        <% if @assignment_menu_tools.present? || @can_direct_share %>
           <a class="al-trigger btn" role="button" aria-haspopup="true" aria-owns="toolbar-1" href="#">
             <i class="icon-more" aria-hidden="true"></i>
             <span class="screenreader-only"><%= t('manage', 'Manage') %></span>
           </a>
           <ul id="toolbar-1" class="al-options" role="menu" tabindex="0" aria-hidden="true" aria-expanded="false">
+            <% if @can_direct_share %>
+              <li role="presentation">
+                <a href="#" class="icon-user direct-share-send-to-menu-item"><%= t("Send To...") %></a>
+              </li>
+              <li role="presentation">
+                <a href="#" class="icon-duplicate direct-share-copy-to-menu-item"><%= t("Copy To...") %></a>
+              </li>
+            <% end %>
             <%= external_tools_menu_items(@assignment_menu_tools, {link_class: "menu_tool_link", settings_key: :assignment_menu, in_list: true, url_params: {:assignments => [@assignment.id]}}) %>
           </ul>
         <% end %>
       </div>
     </div>
+    <div id="direct-share-mount-point"></div>
   <% else %>
     <!--Student View-->
     <div class='assignment-title'>
@@ -132,6 +139,16 @@
           </li>
         <% end %>
       <% end %>
+      <% if @assignment.allowed_attempts&.> 0 %>
+        <li>
+          <span class='title'><%= t :attempts, 'Attempts' %></span>
+          <span class='value'><%= @current_user_submission&.attempt || 0 %></span>
+        </li>
+        <li>
+          <span class='title'><%= t :allowed_attempts, 'Allowed Attempts' %></span>
+          <span class='value'><%= @assignment.allowed_attempts + (@current_user_submission&.extra_attempts || 0) %></span>
+        </li>
+      <% end %>
       <%= render :partial => "shared/available_dates", :locals => {:association => @assignment} %>
       <div class="clear"></div>
     </ul>
@@ -170,6 +187,14 @@
             <div class="control-label"><%= t :submission_types, 'File Types' %></div>
             <div class="controls">
               <span class="value"><%= @assignment.allowed_extensions.to_sentence %></span>
+            </div>
+          </div>
+        <% end -%>
+        <% if @assignment.allowed_attempts&.> 0 %>
+          <div class="control-group">
+            <div class="control-label"><%= t :allowed_attempts, 'Allowed Attempts' %></div>
+            <div class="controls">
+              <span class="value"><%= @assignment.allowed_attempts %></span>
             </div>
           </div>
         <% end -%>

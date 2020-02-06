@@ -15,15 +15,9 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 %>
+<% provide :page_title do %><%= join_title context_user_name(@context, @user), @context.name %><% end %>
 
-<%
-  add_crumb(t('#crumbs.people', "People"), context_url(@context, :context_users_url))
-  add_crumb(context_user_name(@context, @user), context_url(@context, :context_user_url, @user))
-  @active_tab="people"
-%>
-<% content_for :page_title do %><%= join_title context_user_name(@context, @user), @context.name %><% end %>
-
-<% content_for :right_side do %>
+<% provide :right_side do %>
   <div id="right_nav">
     <% if can_do(@membership, @current_user, :read_grades) && @membership.is_a?(StudentEnrollment) %>
       <a class="btn button-sidebar-wide" href="<%= context_url(@context, :controller => :gradebooks, :action => :grade_summary, :id => @user.id) %>">
@@ -38,12 +32,12 @@
       </a>
     <% end %>
     <% if @context.is_a?(Course)%>
-      <% if @context.user_is_instructor?(@user) && can_do(@user, @current_user, :read_reports) %>
+      <% if @context.user_is_instructor?(@user) && can_do(@user, @current_user, :read_reports) && can_do(@context, @current_user, :view_all_grades) %>
         <a href="<%= user_course_teacher_activity_url(@user, @context) %>" class="btn button-sidebar-wide">
           <i class="icon-chat" aria-hidden="true"></i>
           <%= t 'Student Interactions Report' %>
         </a>
-      <% elsif @context.user_has_been_student?(@user) && @context.user_is_instructor?(@current_user) && can_do(@context, @current_user, :read_reports) %>
+      <% elsif @context.user_has_been_student?(@user) && @context.user_is_instructor?(@current_user) && can_do(@context, @current_user, :read_reports) && can_do(@context, @current_user, :view_all_grades) %>
         <a href="<%= user_student_teacher_activity_url(@current_user, @user) %>" class="btn button-sidebar-wide">
           <i class="icon-chat" aria-hidden="true"></i>
           <%= t 'Interactions Report' %>
@@ -74,12 +68,14 @@
         <%= link[:text] %>
       </a>
     <% end %>
+    <% if @user.grants_right?(@current_user, :generate_observer_pairing_code) &&
+          @user.has_student_enrollment? &&
+          @domain_root_account.self_registration? %>
+      <div id="pairing-code"></div>
+    <% end %>
   </div>
   <a href="<%= user_profile_path(@current_user) %>" class="profile_url" style="display: none;">&nbsp;</a>
 <% end %>
-
-<% js_bundle :user_name %>
-<% css_bundle :roster_user %>
 
 <%= render :partial => 'shared/profile' %>
 
@@ -128,7 +124,7 @@
             </td>
             <td style="width: 70px;">
               <div>
-                <% if enrollment.defined_by_sis? %>
+                <% if enrollment.defined_by_sis? && !@context.grants_any_right?(@current_user, session, :manage_account_settings, :manage_sis) %>
                   <a href="#" title="<%= t('links.title.enrollment_sis_defined', %{This enrollment was defined by the university, and can't be deleted}) %>"><%= t('links.cant_delete', %{Can't Delete}) %></a>
                 <% else %>
                   <a class="delete_enrollment_link" href="<%= context_url(@context, :context_unenroll_url, enrollment.id) %>"><%= t('links.delete_enrollment', %{Delete}) %></a>
@@ -156,6 +152,9 @@
           </tr>
         <% end %>
       </table>
+      <% if @context.is_a?(Course) && can_do(@context, @current_user, :manage_admin_users) %>
+        <div id="student_last_attended__component"></div>
+      <% end %>
     </fieldset>
     <%= render :partial => 'courses/link_enrollment' %>
   <% end %>
@@ -163,4 +162,3 @@
 </div>
 <% end %>
 
-<% js_bundle 'legacy/context_roster_user' %>

@@ -87,7 +87,6 @@ describe RoleOverride do
     ro.save!
 
     AdheresToPolicy::Cache.clear
-    RoleOverride.clear_cached_contexts
     c2 = Course.find(c2.id)
 
     expect(c2.grants_right?(u2, :moderate_forum)).to be_truthy
@@ -101,9 +100,23 @@ describe RoleOverride do
     }.to_not raise_error
   end
 
+  it "should update the roles updated_at timestamp on save" do
+    account = account_model(:parent_account => Account.default)
+    role = teacher_role
+    role_override = RoleOverride.create!(:context => account, :permission => 'moderate_forum',
+                                         :role => role, :enabled => false)
+    role.update!(updated_at: 1.day.ago)
+    old_updated_at = role.updated_at
+
+    role_override.update!(enabled: true)
+    new_updated_at = role.updated_at
+
+    expect(old_updated_at).not_to eq(new_updated_at)
+  end
+
   describe "student view permissions" do
     it "should mirror student permissions" do
-      permission = 'comment_on_others_submissions'
+      permission = 'moderate_forum'
 
       course_with_teacher(:active_all => true)
       student_in_course(:active_all => true)
@@ -113,7 +126,6 @@ describe RoleOverride do
       expect(@fake_student.enrollments.first.has_permission_to?(permission.to_sym)).to be_falsey
 
       RoleOverride.manage_role_override(Account.default, student_role, permission, :override => true)
-      RoleOverride.clear_cached_contexts
 
       expect(@student.enrollments.first.has_permission_to?(permission.to_sym)).to be_truthy
       expect(@fake_student.enrollments.first.has_permission_to?(permission.to_sym)).to be_truthy
@@ -384,6 +396,13 @@ describe RoleOverride do
         expect(Account.site_admin.grants_right?(@site_admin, :manage_site_settings)).to be_truthy
       end
 
+      it "should grant permissions on root accounts to custom site admins" do
+        custom_role = custom_account_role("somerole", :account => Account.site_admin)
+        Account.site_admin.role_overrides.create!(role: custom_role, enabled: true, permission: :manage_site_settings)
+        custom_site_admin = account_admin_user(account: Account.site_admin, role: custom_role)
+        expect(Account.default.grants_right?(@site_admin, :manage_site_settings)).to be_truthy
+      end
+
       it "should not grant root only permissions to sub account admins" do
         expect(Account.default.grants_right?(@root_admin, :become_user)).to be_truthy
         expect(@sub_account.grants_right?(@sub_admin, :become_user)).to be_falsey
@@ -523,38 +542,92 @@ describe RoleOverride do
       it 'is available to account admins, account memberships, teachers, and TAs' do
         expect(permission[:available_to]).to match_array %w(AccountAdmin AccountMembership TeacherEnrollment TaEnrollment)
       end
-
-      it 'is allowed when Anonymous Moderated Marking is enabled for the account' do
-        @account.root_account.enable_feature!(:anonymous_moderated_marking)
-        expect(permission[:account_allows].call(@account)).to be true
-      end
-
-      it 'is not allowed when Anonymous Moderated Marking is disabled for the account' do
-        @account.root_account.disable_feature!(:anonymous_moderated_marking)
-        expect(permission[:account_allows].call(@account)).to be false
-      end
     end
 
     describe 'view_audit_trail' do
       let(:permission) { RoleOverride.permissions[:view_audit_trail] }
 
       it 'is enabled by default for teachers, TAs and admins' do
-        expect(permission[:true_for]).to match_array %w(TeacherEnrollment AccountAdmin)
+        expect(permission[:true_for]).to match_array %w(AccountAdmin)
       end
 
       it 'is available to teachers, TAs, admins and account memberships' do
         expect(permission[:available_to]).to match_array %w(TeacherEnrollment AccountAdmin AccountMembership)
       end
+    end
+  end
 
-      it 'is allowed when Anonymous Moderated Marking is enabled for the account' do
-        @account.root_account.enable_feature!(:anonymous_moderated_marking)
-        expect(permission[:account_allows].call(@account)).to be true
-      end
+  describe "caching" do
+    specs_require_cache(:redis_cache_store)
 
-      it 'is not allowed when Anonymous Moderated Marking is disabled for the account' do
-        @account.root_account.disable_feature!(:anonymous_moderated_marking)
-        expect(permission[:account_allows].call(@account)).to be false
+    it "should only calculate role overrides once for all courses across an account" do
+      enrollment1 = student_in_course(:active_all => true)
+      enrollment2 = student_in_course(:active_all => true)
+
+      expect(RoleOverride).to receive(:uncached_permission_for).once.and_call_original
+      [enrollment1, enrollment2].each do |e|
+        expect(Course.find(e.course_id).grants_right?(e.user, :read_forum)).to eq true
       end
+    end
+
+    it "should only calculate role overrides once for multiple users with the same role in the same course" do
+      enrollment1 = student_in_course(:active_all => true)
+      enrollment2 = student_in_course(:active_all => true, :course => enrollment1.course)
+
+      expect(RoleOverride).to receive(:uncached_permission_for).once.and_call_original
+      [enrollment1, enrollment2].each do |e|
+        expect(Course.find(e.course_id).grants_right?(e.user, :read_forum)).to eq true
+      end
+    end
+
+    it "should cache correctly across separate roles" do
+      enrollment1 = student_in_course(:active_all => true)
+      enrollment2 = teacher_in_course(:active_all => true)
+
+      expect(RoleOverride).to receive(:uncached_permission_for).twice.and_call_original
+      [enrollment1, enrollment2].each do |e|
+        expect(Course.find(e.course_id).grants_right?(e.user, :read_forum)).to eq true
+      end
+    end
+
+    it "should cache correctly across separate accounts" do
+      enrollment1 = student_in_course(:active_all => true)
+      @account2 = Account.default.sub_accounts.create!
+      @account2.role_overrides.create!(:role => student_role, :permission => :read_forum, :enabled => false)
+      course2 = course_factory(:active_all => true, :account => @account2)
+      enrollment2 = student_in_course(:active_all => true, :course => course2)
+
+      expect(RoleOverride).to receive(:uncached_permission_for).twice.and_call_original
+      expect(enrollment1.course.grants_right?(enrollment1.user, :read_forum)).to eq true
+      expect(enrollment2.course.grants_right?(enrollment2.user, :read_forum)).to eq false
+    end
+
+    it "should uncache correctly when role overrides change upstream" do
+      expect(RoleOverride).to receive(:uncached_permission_for).twice.and_call_original
+      @sub_account = Account.default.sub_accounts.create!
+      course = course_factory(:active_all => true, :account => @sub_account)
+      student_in_course(:active_all => true, :course => course)
+
+      expect(course.grants_right?(@student, :read_forum)).to eq true
+      Account.default.role_overrides.create!(:role => student_role, :permission => :read_forum, :enabled => false)
+
+      @student.touch # clear the existing permissions cache
+      expect(Course.find(course.id).grants_right?(@student, :read_forum)).to eq false
+    end
+
+    it "should uncache correctly when the account chain changes" do
+      expect(RoleOverride).to receive(:uncached_permission_for).twice.and_call_original
+      @sub_account1 = Account.default.sub_accounts.create!
+      course = course_factory(:active_all => true, :account => @sub_account1)
+      student_in_course(:active_all => true, :course => course)
+      @sub_account2 = Account.default.sub_accounts.create!
+      @sub_account2.role_overrides.create!(:role => student_role, :permission => :read_forum, :enabled => false)
+
+      expect(course.grants_right?(@student, :read_forum)).to eq true
+
+      @sub_account1.update_attribute(:parent_account, @sub_account2)
+      @student.touch
+      expect(Course.find(course.id).grants_right?(@student, :read_forum)).to eq false
     end
   end
 end

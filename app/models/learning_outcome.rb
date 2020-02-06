@@ -47,6 +47,7 @@ class LearningOutcome < ActiveRecord::Base
 
   validates :description, length: { maximum: maximum_text_length, allow_nil: true, allow_blank: true }
   validates :short_description, length: { maximum: maximum_string_length }
+  validates :vendor_guid, length: { maximum: maximum_string_length, allow_nil: true }
   validates :display_name, length: { maximum: maximum_string_length, allow_nil: true, allow_blank: true }
   validates :calculation_method, inclusion: { in: CALCULATION_METHODS.keys,
     message: -> { t(
@@ -125,27 +126,27 @@ class LearningOutcome < ActiveRecord::Base
 
   def infer_default_calculation_method
     # If we are a new record, or are not changing our calculation_method (such as on a pre-existing
-    # record or an import), then assume the default of highest
+    # record or an import), then assume the default of decaying average
     if new_record? || !calculation_method_changed?
       self.calculation_method ||= default_calculation_method
+      self.calculation_int ||= default_calculation_int
     end
   end
 
   def adjust_calculation_int
-    # If we are setting calculation_method to latest or highest,
-    # set calculation_int nil unless it is a new record (meaning it was set explicitly)
-    if %w[highest latest].include?(calculation_method) && calculation_method_changed?
-      self.calculation_int = nil unless new_record?
+    # If we are changing calculation_method, set default calculation_int
+    if calculation_method_changed? && (!calculation_int_changed? || %w[highest latest].include?(calculation_method))
+      self.calculation_int = default_calculation_int unless new_record?
     end
   end
 
   def default_calculation_method
-    "highest"
+    "decaying_average"
   end
 
   def default_calculation_int(method=self.calculation_method)
     case method
-    when 'decaying_average' then 75
+    when 'decaying_average' then 65
     when 'n_mastery' then 5
     else nil
     end
@@ -154,27 +155,14 @@ class LearningOutcome < ActiveRecord::Base
   def align(asset, context, opts={})
     tag = find_or_create_tag(asset, context)
     tag.tag = determine_tag_type(opts[:mastery_type])
-    tag.position = (self.alignments.map(&:position).compact.max || 1) + 1
     tag.mastery_score = opts[:mastery_score] if opts[:mastery_score]
     tag.save
 
-    create_missing_outcome_link(context) if context.is_a? Course
-    tag
-  end
-
-  def reorder_alignments(context, order)
-    order_hash = {}
-    order.each_with_index{|o, i| order_hash[o.to_i] = i; order_hash[o] = i }
-    tags = self.alignments.where(context_id: context, context_type: context.class.to_s, tag_type: 'learning_outcome')
-    tags = tags.sort_by{|t| order_hash[t.id] || order_hash[t.content_asset_string] || CanvasSort::Last }
-    updates = []
-    tags.each_with_index do |tag, idx|
-      tag.position = idx + 1
-      updates << "WHEN id=#{tag.id} THEN #{idx + 1}"
+    if context.is_a? Course
+      create_missing_outcome_link(context)
+      self.touch if MasterCourses::MasterTemplate.is_master_course?(context)
     end
-    ContentTag.where(:id => tags).update_all("position=CASE #{updates.join(" ")} ELSE position END")
-    self.touch
-    tags
+    tag
   end
 
   def remove_alignment(alignment_id, context)
@@ -228,8 +216,31 @@ class LearningOutcome < ActiveRecord::Base
     end
   end
 
+  def self.default_rubric_criterion
+    {
+      description: t('No Description'),
+      ratings: [
+        {
+          description: I18n.t('Exceeds Expectations'),
+          points: 5
+        },
+        {
+          description: I18n.t('Meets Expectations'),
+          points: 3
+        },
+        {
+          description: I18n.t('Does Not Meet Expectations'),
+          points: 0
+        }
+      ],
+      mastery_points: 3,
+      points_possible: 5
+    }
+  end
+
   def rubric_criterion
-    data && data[:rubric_criterion]
+    self.data ||= {}
+    data[:rubric_criterion] ||= self.class.default_rubric_criterion
   end
 
   def rubric_criterion=(hash)
@@ -250,7 +261,7 @@ class LearningOutcome < ActiveRecord::Base
       criterion[:mastery_points] = (hash[:mastery_points] || criterion[:ratings][0][:points]).to_f
       criterion[:points_possible] = criterion[:ratings][0][:points] rescue 0
     else
-      criterion = nil
+      criterion = self.class.default_rubric_criterion
     end
 
     self.data[:rubric_criterion] = criterion
@@ -292,13 +303,11 @@ class LearningOutcome < ActiveRecord::Base
   end
 
   def mastery_points
-    return unless self.rubric_criterion
-    self.data[:rubric_criterion][:mastery_points]
+    self.rubric_criterion[:mastery_points]
   end
 
   def points_possible
-    return unless self.rubric_criterion
-    self.data[:rubric_criterion][:points_possible]
+    self.rubric_criterion[:points_possible]
   end
 
   def mastery_percent
@@ -327,8 +336,17 @@ class LearningOutcome < ActiveRecord::Base
     LearningOutcome.where(:id => to_delete).update_all(:workflow_state => 'deleted', :updated_at => Time.now.utc)
   end
 
+  def self.ensure_presence_in_context(outcome_ids, context)
+    return unless outcome_ids && context
+    missing_outcomes = LearningOutcome.where(id: outcome_ids)
+                        .where.not(id: context.linked_learning_outcomes.select(:id))
+                        .active
+    missing_outcomes.each{ |o| context.root_outcome_group.add_outcome(o) }
+  end
+
   scope(:for_context_codes, ->(codes) { where(:context_code => codes) })
   scope(:active, -> { where("learning_outcomes.workflow_state<>'deleted'") })
+  scope(:active_first, -> { order(Arel.sql("CASE WHEN workflow_state = 'active' THEN 0 ELSE 1 END")) })
   scope(:has_result_for_user,
     lambda do |user|
       joins(:learning_outcome_results)

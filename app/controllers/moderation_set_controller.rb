@@ -18,7 +18,6 @@
 
 # @API Moderated Grading
 # @subtopic Moderation Set
-# @beta
 #
 # API for viewing and adding students to the list of people in moderation
 # for an assignment
@@ -34,17 +33,16 @@ class ModerationSetController < ApplicationController
   #
   # @returns [User]
   def index
-    if authorized_action(@context, @current_user, :moderate_grades)
+    render_unauthorized_action and return unless @assignment.permits_moderation?(@current_user)
 
-      scope = @assignment.shard.activate {
-         User.where(
-          id: @assignment.moderated_grading_selections.select(:student_id)
-        ).order(:id)
-      }
+    scope = @assignment.shard.activate {
+       User.where(
+        id: @assignment.moderated_grading_selections.select(:student_id)
+      ).order(:id)
+    }
 
-      users = Api.paginate(scope, self, api_v1_moderated_students_url(@context, @assignment))
-      render json: users_json(users, @current_user, session)
-    end
+    users = Api.paginate(scope, self, api_v1_moderated_students_url(@context, @assignment))
+    render json: users_json(users, @current_user, session)
   end
 
   # @API Select students for moderation
@@ -56,19 +54,18 @@ class ModerationSetController < ApplicationController
   #
   # @returns [User]
   def create
-    if authorized_action(@context, @current_user, :moderate_grades)
-      unless params[:student_ids].present?
-        render json: [], status: :bad_request
-        return
-      end
+    render_unauthorized_action and return unless @assignment.permits_moderation?(@current_user)
 
-      all_student_ids = params[:student_ids].map(&:to_i)
-      all_students = visible_students.where(id: all_student_ids)
-
-      incremental_create(all_student_ids)
-
-      render json: all_students.map { |u| user_json(u, @current_user, session) }
+    if params[:student_ids].blank?
+      return render json: [], status: :bad_request
     end
+
+    all_student_ids = params[:student_ids].map(&:to_i)
+    all_students = visible_students.where(id: all_student_ids)
+
+    incremental_create(all_student_ids)
+
+    render json: all_students.map { |u| user_json(u, @current_user, session) }
   end
 
   private
@@ -90,6 +87,6 @@ class ModerationSetController < ApplicationController
 
   def load_assignment
     @context = api_find(Course, params[:course_id])
-    @assignment = @context.assignments.find(params[:assignment_id])
+    @assignment = api_find(@context.assignments, params[:assignment_id])
   end
 end

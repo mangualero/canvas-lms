@@ -155,7 +155,7 @@ describe ContextController do
         user_session(admin)
 
         get 'roster_user', params: {:course_id => course1.id, :id => @user2.id}
-        expect(response).to be_success
+        expect(response).to be_successful
       end
     end
 
@@ -170,7 +170,7 @@ describe ContextController do
       it 'prevents section-limited users from seeing users in other sections' do
         user_session(@student)
         get 'roster_user', params: {:course_id => @course.id, :id => @other_student.id}
-        expect(response).to be_success
+        expect(response).to be_successful
 
         user_session(@other_student)
         get 'roster_user', params: {:course_id => @course.id, :id => @student.id}
@@ -181,14 +181,14 @@ describe ContextController do
       it 'limits enrollments by visibility for course default section' do
         user_session(@student)
         get 'roster_user', params: {:course_id => @course.id, :id => @teacher.id}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(assigns[:enrollments].map(&:course_section_id)).to match_array([@course.default_section.id, @other_section.id])
       end
 
       it 'limits enrollments by visibility for other section' do
         user_session(@other_student)
         get 'roster_user', params: {:course_id => @course.id, :id => @teacher.id}
-        expect(response).to be_success
+        expect(response).to be_successful
         expect(assigns[:enrollments].map(&:course_section_id)).to match_array([@other_section.id])
       end
 
@@ -196,14 +196,14 @@ describe ContextController do
         user_session(@teacher)
         @student.enrollments.first.complete!
         get 'roster_user', params: {:course_id => @course.id, :id => @student.id}
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "lets admins see inactive students" do
         user_session(@teacher)
         @student.enrollments.first.deactivate
         get 'roster_user', params: {:course_id => @course.id, :id => @student.id}
-        expect(response).to be_success
+        expect(response).to be_successful
       end
 
       it "does not let students see inactive students" do
@@ -214,7 +214,7 @@ describe ContextController do
         @student.enrollments.first.deactivate
 
         get 'roster_user', params: {:course_id => @course.id, :id => @student.id}
-        expect(response).to_not be_success
+        expect(response).to_not be_successful
       end
     end
   end
@@ -234,7 +234,7 @@ describe ContextController do
 
     it "should render given a correct HMAC" do
       post 'object_snippet', params: {:object_data => @data, :s => @hmac}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(response['X-XSS-Protection']).to eq '0'
     end
   end
@@ -312,6 +312,16 @@ describe ContextController do
       expect(@media_object.title.size).to be <= 255
       expect(@media_object.user_entered_title.size).to be <= 255
     end
+
+    it "should return the embedded_ifram_url" do
+      post :create_media_object,
+        params: {:context_code => "user_#{@user.id}",
+        :id => "new_object",
+        :type => "audio",
+        :title => "title"}
+      @media_object = @user.reload.media_objects.last
+      expect(JSON.parse(response.body)["embedded_iframe_url"]).to eq media_object_iframe_url(@media_object.media_id)
+    end
   end
 
   describe "GET 'prior_users" do
@@ -323,7 +333,7 @@ describe ContextController do
 
     it "should paginate" do
       get :prior_users, params: {:course_id => @course.id}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:prior_users].size).to eql 20
     end
   end
@@ -335,7 +345,7 @@ describe ContextController do
       @assignment.destroy
 
       get :undelete_index, params: {course_id: @course.id}
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:deleted_items]).to include(@assignment)
     end
   end
@@ -394,7 +404,7 @@ describe ContextController do
 
       get :roster_user_usage, params: {course_id: @course.id, user_id: @student.id}
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(assigns[:accesses].length).to eq 1
     end
 
@@ -403,7 +413,7 @@ describe ContextController do
 
       get :roster_user_usage, params: {course_id: @course.id, user_id: @student.id}, format: :json
 
-      expect(response).to be_success
+      expect(response).to be_successful
       expect(json_parse(response.body).length).to eq 1
     end
   end

@@ -116,6 +116,10 @@ class AssignmentOverrideStudent < ActiveRecord::Base
   end
 
   def update_cached_due_dates
-    DueDateCacher.recompute(assignment) if assignment.present?
+    if assignment.present?
+      assignment.clear_cache_key(:availability)
+      DueDateCacher.recompute_users_for_course(user_id, assignment.context, [assignment])
+    end
+    self.quiz.clear_cache_key(:availability) if self.quiz
   end
 end

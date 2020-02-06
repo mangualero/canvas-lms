@@ -16,9 +16,27 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 
 module SectionTabHelper
-  def available_section_tabs(context)
-    AvailableSectionTabs.new(
-      context, @current_user, @domain_root_account, session
+  PERMISSIONS_TO_PRECALCULATE = [
+    :create_conferences,
+    :create_forum,
+    :manage_admin_users,
+    :manage_assignments,
+    :manage_content,
+    :manage_files,
+    :manage_grades,
+    :manage_students,
+    :moderate_forum,
+    :post_to_forum,
+    :read_announcements,
+    :read_course_content,
+    :read_forum,
+    :read_roster,
+    :view_all_grades
+  ].freeze
+
+  def available_section_tabs
+    @available_section_tabs ||= AvailableSectionTabs.new(
+      @context, @current_user, @domain_root_account, session
     ).to_a
   end
 
@@ -38,14 +56,14 @@ module SectionTabHelper
 
   def section_tabs
     @section_tabs ||= begin
-      if @context && available_section_tabs(@context).any?
+      if @context && available_section_tabs.any?
         content_tag(:nav, {
           :role => 'navigation',
           :'aria-label' => nav_name
         }) do
           concat(content_tag(:ul, id: 'section-tabs') do
-            available_section_tabs(@context).map do |tab|
-              section_tab_tag(tab, @context, @active_tab)
+            available_section_tabs.map do |tab|
+              section_tab_tag(tab, @context, get_active_tab)
             end
           end)
         end
@@ -59,11 +77,12 @@ module SectionTabHelper
   end
 
   class AvailableSectionTabs
-    def initialize(context, current_user, domain_root_account, session)
+    def initialize(context, current_user, domain_root_account, session, precalculated_permissions=nil)
       @context = context
       @current_user = current_user
       @domain_root_account = domain_root_account
       @session = session
+      @precalculated_permissions = precalculated_permissions
     end
     attr_reader :context, :current_user, :domain_root_account, :session
 
@@ -75,7 +94,8 @@ module SectionTabHelper
 
         context.tabs_available(current_user, {
           session: session,
-          root_account: domain_root_account
+          root_account: domain_root_account,
+          precalculated_permissions: @precalculated_permissions
         }).select { |tab|
           tab_has_required_attributes?(tab)
         }.reject { |tab|
@@ -125,39 +145,56 @@ module SectionTabHelper
       end
     end
 
+    def a_title
+      if @tab.hide?
+        I18n.t('Disabled. Not visible to students')
+      elsif @tab.unused?
+        I18n.t('No content. Not visible to students')
+      else
+        @tab.label
+      end
+    end
+
+    def a_aria_label
+      return unless @tab.hide? || @tab.unused?
+      if @tab.hide?
+        I18n.t('%{label}. Disabled. Not visible to students', {label: @tab.label})
+      else
+        I18n.t('%{label}. No content. Not visible to students', {label: @tab.label})
+      end
+    end
+
+    def a_aria_current_page
+      'page' if @tab.active?(@active_tab)
+    end
+
     def a_attributes
       { href: @tab.path,
-        title: @tab.label,
+        title: a_title,
+        'aria-label': a_aria_label,
+        'aria-current': a_aria_current_page,
         class: a_classes }.tap do |h|
-        h[:target] = @tab.target if @tab.target?
+          h[:target] = @tab.target if @tab.target?
+          h['data-tooltip'] = '' if @tab.hide? || @tab.unused?
       end
     end
 
     def a_tag
       content_tag(:a, a_attributes) do
         concat(@tab.label)
-        concat(span_tag)
+        concat(indicate_hidden)
       end
     end
 
     def li_classes
       [ 'section' ].tap do |a|
-        a << 'section-tab-hidden' if @tab.hide? || @tab.unused?
+        a << 'section-hidden' if @tab.hide? || @tab.unused?
       end
     end
 
-    def span_tag
-      if @tab.hide? || @tab.unused?
-        if @tab.hide?
-          text = I18n.t('* Disabled in Course Settings')
-        else
-          text = I18n.t('* No content has been added')
-        end
-        content_tag(:span, text, {
-          id: 'inactive_nav_link',
-          class: 'screenreader-only'
-        })
-      end
+    def indicate_hidden
+      return unless @tab.hide? || @tab.unused?
+      "<i class='nav-icon icon-off' aria-hidden='true' role='presentation'></i>".html_safe
     end
 
     def to_html

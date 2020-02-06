@@ -16,15 +16,38 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require File.expand_path(File.dirname(__FILE__) + '/../sharding_spec_helper.rb')
 require 'rotp'
 
-describe User do
+require_relative '../sharding_spec_helper'
 
+describe User do
   context "validation" do
     it "should create a new instance given valid attributes" do
       expect(user_model).to be_valid
     end
+
+    context 'on update' do
+      let(:user) { user_model }
+
+      it 'fails validation if lti_id changes' do
+        user.short_name = "chewie"
+        user.lti_id = "changedToThis"
+        expect(user).to_not be_valid
+      end
+
+      it 'passes validation if lti_id is not changed' do
+        user
+        user.short_name = "chewie"
+        expect(user).to be_valid
+      end
+    end
+  end
+
+  it 'adds an lti_id on creation' do
+    user = User.new
+    expect(user.lti_id).to be_blank
+    user.save!
+    expect(user.lti_id).to_not be_blank
   end
 
   it "should get the first email from communication_channel" do
@@ -501,53 +524,130 @@ describe User do
     @assignment = @course.assignments.create :title => "Test Assignment", :points_possible => 10
   end
 
-  it "should not include recent feedback for muted assignments" do
-    create_course_with_student_and_assignment
-    @assignment.mute!
-    @assignment.grade_student @student, grade: 9, grader: @teacher
-    expect(@user.recent_feedback).to be_empty
-  end
+  describe "#recent_feedback" do
+    let_once(:post_policies_course) do
+      course = Course.create!(workflow_state: :available)
+      course.enable_feature!(:new_gradebook)
+      PostPolicy.enable_feature!
+      course
+    end
+    let_once(:auto_posted_assignment) { post_policies_course.assignments.create!(points_possible: 10) }
+    let_once(:manual_posted_assignment) do
+      assignment = post_policies_course.assignments.create!(points_possible: 10)
+      assignment.post_policy.update!(post_manually: true)
+      assignment
+    end
 
-  it "should include recent feedback for unmuted assignments" do
-    create_course_with_student_and_assignment
-    @assignment.grade_student @user, grade: 9, grader: @teacher
-    expect(@user.recent_feedback(:contexts => [@course])).not_to be_empty
-  end
+    let_once(:old_course) { Course.create!(workflow_state: :available) }
+    let_once(:unmuted_assignment) { old_course.assignments.create!(points_possible: 10) }
+    let_once(:muted_assignment) do
+      assignment = old_course.assignments.create!(points_possible: 10)
+      assignment.mute!
+      assignment
+    end
 
-  it "should include recent feedback for student view users" do
-    @course = course_model
-    @course.offer!
-    @assignment = @course.assignments.create :title => "Test Assignment", :points_possible => 10
-    test_student = @course.student_view_student
-    @assignment.grade_student test_student, grade: 9, grader: @teacher
-    expect(test_student.recent_feedback).not_to be_empty
-  end
+    let_once(:student) { User.create! }
+    let_once(:teacher) { User.create! }
 
-  it "should not include recent feedback for unpublished assignments" do
-    create_course_with_student_and_assignment
-    @assignment.grade_student @user, grade: 9, grader: @teacher
-    @assignment.unpublish
-    expect(@user.recent_feedback(:contexts => [@course])).to be_empty
-  end
+    before(:once) do
+      [post_policies_course, old_course].each do |course|
+        course.enroll_student(student, enrollment_state: :active)
+        course.enroll_teacher(teacher, enrollment_state: :active)
+      end
+    end
 
-  it "should not include recent feedback for other students in admin feedback" do
-    create_course_with_student_and_assignment
-    other_teacher = @teacher
-    teacher = teacher_in_course(:active_all => true).user
-    student = student_in_course(:active_all => true).user
-    sub = @assignment.grade_student(student, grade: 9, grader: @teacher).first
-    sub.submission_comments.create!(:comment => 'c1', :author => other_teacher)
-    sub.save!
-    expect(teacher.recent_feedback(:contexts => [@course])).to be_empty
-  end
+    context "for a non-Post Policies course" do
+      it "does not include recent feedback for muted assignments" do
+        muted_assignment.grade_student(student, grader: teacher, score: 10)
+        expect(student.recent_feedback).to be_empty
+      end
 
-  it "should not include non-recent feedback via old submission comments" do
-    create_course_with_student_and_assignment
-    sub = @assignment.grade_student(@user, grade: 9, grader: @teacher).first
-    sub.submission_comments.create!(:author => @teacher, :comment => 'good jorb')
-    expect(@user.recent_feedback(:contexts => [@course])).to include sub
-    Timecop.travel(1.year.from_now) do
-      expect(@user.recent_feedback(:contexts => [@course])).not_to include sub
+      it "includes recent feedback for unmuted assignments" do
+        unmuted_assignment.grade_student(student, grader: teacher, score: 10)
+        expect(student.recent_feedback).to contain_exactly(unmuted_assignment.submission_for_student(student))
+      end
+    end
+
+    context "for a course with Post Policies enabled" do
+      it "does not include assignments for which there is no feedback" do
+        expect(student.recent_feedback).to be_empty
+      end
+
+      it "includes recent posted feedback" do
+        auto_posted_assignment.grade_student(student, grader: teacher, score: 10)
+        expect(student.recent_feedback).to contain_exactly(auto_posted_assignment.submission_for_student(student))
+      end
+
+      it "includes feedback that was posted after being initially hidden" do
+        manual_posted_assignment.grade_student(student, grader: teacher, score: 10)
+        manual_posted_assignment.post_submissions
+
+        expect(student.recent_feedback).to contain_exactly(manual_posted_assignment.submission_for_student(student))
+      end
+
+      it "does not include recent unposted feedback" do
+        manual_posted_assignment.grade_student(student, grader: teacher, score: 10)
+        expect(student.recent_feedback).to be_empty
+      end
+
+      it "does not include recent feedback that was posted but subsequently hidden" do
+        auto_posted_assignment.grade_student(student, grader: teacher, score: 10)
+        auto_posted_assignment.hide_submissions
+
+        expect(student.recent_feedback).to be_empty
+      end
+    end
+
+    context "when considering both types of courses simultaneously" do
+      it "only returns feedback for posted submissions and unmuted assignments" do
+        muted_assignment.grade_student(student, grader: teacher, score: 10)
+        unmuted_assignment.grade_student(student, grader: teacher, score: 10)
+        auto_posted_assignment.grade_student(student, grader: teacher, score: 10)
+        manual_posted_assignment.grade_student(student, grader: teacher, score: 10)
+
+        expect(student.recent_feedback).to contain_exactly(
+          unmuted_assignment.submission_for_student(student),
+          auto_posted_assignment.submission_for_student(student)
+        )
+      end
+
+      it "only returns feedback for specific courses if specified" do
+        unmuted_assignment.grade_student(student, grader: teacher, score: 10)
+        auto_posted_assignment.grade_student(student, grader: teacher, score: 10)
+
+        expect(student.recent_feedback(contexts: [post_policies_course])).to contain_exactly(
+          auto_posted_assignment.submission_for_student(student)
+        )
+      end
+    end
+
+    it "includes recent feedback for student view users" do
+      test_student = post_policies_course.student_view_student
+      auto_posted_assignment.grade_student(test_student, grade: 9, grader: teacher)
+      expect(test_student.recent_feedback).not_to be_empty
+    end
+
+    it "does not include recent feedback for unpublished assignments" do
+      auto_posted_assignment.grade_student(student, grade: 9, grader: teacher)
+      auto_posted_assignment.unpublish
+      expect(student.recent_feedback(contexts: [post_policies_course])).to be_empty
+    end
+
+    it "does not include recent feedback for other students in admin feedback" do
+      other_teacher = post_policies_course.enroll_teacher(User.create!, enrollment_state: :active).user
+      submission = auto_posted_assignment.grade_student(student, grade: 9, grader: teacher).first
+      submission.add_comment(author: other_teacher, comment: "hi :)")
+
+      expect(teacher.recent_feedback(contexts: [post_policies_course])).to be_empty
+    end
+
+    it "does not include non-recent feedback via old submission comments" do
+      submission = auto_posted_assignment.grade_student(student, grade: 9, grader: teacher).first
+      submission.add_comment(author: teacher, comment: "hooray")
+
+      Timecop.travel(1.year.from_now) do
+        expect(student.recent_feedback(contexts: [post_policies_course])).not_to include submission
+      end
     end
   end
 
@@ -708,6 +808,22 @@ describe User do
     expect(@user.workflow_state).to eq "deleted"
   end
 
+  it "destroys associated active eportfolios upon soft-deletion" do
+    user = User.create
+    user.eportfolios.create!
+    expect { user.destroy }.to change {
+      user.reload.eportfolios.active.count
+    }.from(1).to(0)
+  end
+
+  it "destroys associated active eportfolios when removed from root account" do
+    user = User.create
+    user.eportfolios.create!
+    expect { user.remove_from_root_account(Account.default) }.to change {
+      user.reload.eportfolios.active.count
+    }.from(1).to(0)
+  end
+
   it "should record deleted_at" do
     user = User.create
     user.destroy
@@ -803,46 +919,50 @@ describe User do
     end
 
     it 'is true if there are no account users for this root account' do
-      account = double(:root_account? => true, :all_account_users_for => [])
+      account = double(:root_account? => true, :cached_all_account_users_for => [])
       expect(user.has_subset_of_account_permissions?(other_user, account)).to be_truthy
     end
 
     it 'is true when all account_users for current user are subsets of target user' do
-      account = double(:root_account? => true, :all_account_users_for => [double(:is_subset_of? => true)])
+      account = double(:root_account? => true, :cached_all_account_users_for => [double(:is_subset_of? => true)])
       expect(user.has_subset_of_account_permissions?(other_user, account)).to be_truthy
     end
 
     it 'is false when any account_user for current user is not a subset of target user' do
-      account = double(:root_account? => true, :all_account_users_for => [double(:is_subset_of? => false)])
+      account = double(:root_account? => true, :cached_all_account_users_for => [double(:is_subset_of? => false)])
       expect(user.has_subset_of_account_permissions?(other_user, account)).to be_falsey
     end
   end
 
   context "check_courses_right?" do
     before :once do
-      course_with_teacher(:active_all => true)
-      @student = user_model
-    end
+      course_with_teacher(active_all: true)
+      course_with_student(course: @course, active_all: true)
+      @teacher1 = @teacher
+      @student1 = @student
+      @active_course = @course
 
-    before :each do
-      allow(@course).to receive(:grants_right?).and_return(true)
+      course_with_teacher(active_all: true)
+      course_with_student(course: @course, active_all: true)
+      @teacher2 = @teacher
+      @student2 = @student
+      @concluded_course = @course
+      @concluded_course.complete!
     end
 
     it "should require parameters" do
-      expect(@student.check_courses_right?(nil, :some_right)).to be_falsey
-      expect(@student.check_courses_right?(@teacher, nil)).to be_falsey
+      expect(@student1.check_courses_right?(nil, :some_right)).to be_falsey
+      expect(@student1.check_courses_right?(@teacher1, nil)).to be_falsey
     end
 
-    it "should check current courses" do
-      expect(@student).to receive(:courses).once.and_return([@course])
-      expect(@student).to receive(:concluded_courses).never
-      expect(@student.check_courses_right?(@teacher, :some_right)).to be_truthy
+    it "should check both active and concluded courses" do
+      expect(@student1.check_courses_right?(@teacher1, :manage_wiki)).to be_truthy
+      expect(@student2.check_courses_right?(@teacher2, :read_forum)).to be_truthy
+      @concluded_course.grants_right?(@teacher2, :manage_wiki)
     end
 
-    it "should check concluded courses" do
-      expect(@student).to receive(:courses).once.and_return([])
-      expect(@student).to receive(:concluded_courses).once.and_return([@course])
-      expect(@student.check_courses_right?(@teacher, :some_right)).to be_truthy
+    it "allows for narrowing courses by enrollments" do
+      expect(@student2.check_courses_right?(@teacher2, :manage_account_memberships, @student2.enrollments.concluded)).to be_falsey
     end
   end
 
@@ -1106,29 +1226,16 @@ describe User do
         expect(@student.count_messageable_users_in_course(@course)).to eql 2
       end
 
-      it "should return concluded enrollments in the group if they are still members" do
+      it "users with concluded enrollments should not be messageable" do
         @course.enroll_user(@student, 'StudentEnrollment', :enrollment_state => 'active')
-        @this_section_user_enrollment.conclude
-
-        expect(search_messageable_users(@this_section_user, :context => "group_#{@group.id}").map(&:id)).to eql [@this_section_user.id]
-        expect(@this_section_user.count_messageable_users_in_group(@group)).to eql 1
         expect(search_messageable_users(@student, :context => "group_#{@group.id}").map(&:id)).to eql [@this_section_user.id]
         expect(@student.count_messageable_users_in_group(@group)).to eql 1
-      end
-
-      it "should return concluded enrollments in the group and section if they are still members" do
-        enrollment = @course.enroll_user(@student, 'StudentEnrollment', :enrollment_state => 'active', :limit_privileges_to_course_section => true)
-        # we currently force limit_privileges_to_course_section to be false for students; override it in the db
-        Enrollment.where(:id => enrollment).update_all(:limit_privileges_to_course_section => true)
-
-        @group.users << @other_section_user
         @this_section_user_enrollment.conclude
 
-        expect(search_messageable_users(@this_section_user, :context => "group_#{@group.id}").map(&:id).sort).to eql [@this_section_user.id, @other_section_user.id]
-        expect(@this_section_user.count_messageable_users_in_group(@group)).to eql 2
-        # student can only see people in his section
-        expect(search_messageable_users(@student, :context => "group_#{@group.id}").map(&:id)).to eql [@this_section_user.id]
-        expect(@student.count_messageable_users_in_group(@group)).to eql 1
+        expect(search_messageable_users(@this_section_user, :context => "group_#{@group.id}").map(&:id)).to eql []
+        expect(@this_section_user.count_messageable_users_in_group(@group)).to eql 0
+        expect(search_messageable_users(@student, :context => "group_#{@group.id}").map(&:id)).to eql []
+        expect(@student.count_messageable_users_in_group(@group)).to eql 0
       end
     end
 
@@ -1479,8 +1586,14 @@ describe User do
       end
 
       it "should include cross shard favorite courses" do
-        @user.favorites.by("Course").where("id % 2 = 0").destroy_all
-        expect(@user.menu_courses.size).to eql(@courses.length / 2)
+        expect(@user.menu_courses).to match_array(@courses)
+      end
+
+      it 'works for shadow records' do
+        @shard1.activate do
+          @shadow = User.create!(:id => @user.global_id)
+        end
+        expect(@shadow.favorites.exists?).to be_truthy
       end
     end
   end
@@ -1502,7 +1615,7 @@ describe User do
     end
   end
 
-  describe "cached_current_enrollments" do
+  describe "cached_currentish_enrollments" do
     it "should include temporary invitations" do
       user_with_pseudonym(:active_all => 1)
       @user1 = @user
@@ -1513,7 +1626,7 @@ describe User do
       course_factory(active_all: true)
       @enrollment = @course.enroll_user(@user2)
 
-      expect(@user1.cached_current_enrollments).to eq [@enrollment]
+      expect(@user1.cached_currentish_enrollments).to eq [@enrollment]
     end
 
     context "sharding" do
@@ -1530,7 +1643,23 @@ describe User do
           course2.offer!
           course2.enroll_student(user)
         end
-        expect(user.cached_current_enrollments).to eq [e1, e2]
+        expect(user.cached_currentish_enrollments).to eq [e1, e2]
+      end
+
+      it "should properly update when using new redis cache keys" do
+        skip("requires redis") unless Canvas.redis_enabled?
+        enable_cache(:redis_cache_store) do
+          user = User.create!
+          course1 = Account.default.courses.create!(:workflow_state => "available")
+          e1 = course1.enroll_student(user, :enrollment_state => "active")
+          expect(user.cached_currentish_enrollments).to eq [e1]
+          e2 = @shard1.activate do
+            account2 = Account.create!
+            course2 = account2.courses.create!(:workflow_state => "available")
+            course2.enroll_student(user, :enrollment_state => "active")
+          end
+          expect(user.cached_currentish_enrollments).to eq [e1, e2]
+        end
       end
     end
   end
@@ -1680,44 +1809,18 @@ describe User do
       expect(-> {@user.email = ''}).to raise_error("Validation failed: Path can't be blank, Email is invalid")
       expect(@user.communication_channels.any?).to be_falsey
     end
+
+    it "restores retired channels" do
+      @user = User.create!
+      path = 'john@example.com'
+      @user.communication_channels.create!(:path => path, :workflow_state => "retired")
+      @user.email = path
+      expect(@user.communication_channels.first).to be_unconfirmed
+      expect(@user.email).to eq 'john@example.com'
+    end
   end
 
   describe "event methods" do
-    describe "calendar_events_for_calendar" do
-      before(:once) { course_with_student(:active_all => true) }
-      it "should include own scheduled appointments" do
-        ag = AppointmentGroup.create!(:title => 'test appointment', :contexts => [@course], :new_appointments => [[Time.now, Time.now + 1.hour], [Time.now + 1.hour, Time.now + 2.hour]])
-        ag.appointments.first.reserve_for(@user, @user)
-        events = @user.calendar_events_for_calendar
-        expect(events.size).to eql 1
-        expect(events.first.title).to eql 'test appointment'
-      end
-
-      it "should include manageable appointments" do
-        @user = @course.instructors.first
-        ag = AppointmentGroup.create!(:title => 'test appointment', :contexts => [@course], :new_appointments => [[Time.now, Time.now + 1.hour]])
-        events = @user.calendar_events_for_calendar
-        expect(events.size).to eql 1
-        expect(events.first.title).to eql 'test appointment'
-      end
-
-      it "should not include unpublished assignments" do
-        as = @course.assignments.create!({:title => "Published", :due_at => 2.days.from_now})
-        as.publish
-        as2 = @course.assignments.create!({:title => "Unpublished", :due_at => 2.days.from_now})
-        as2.unpublish
-        events = @user.calendar_events_for_calendar(:contexts => [@course])
-        expect(events.size).to eql 1
-        expect(events.first.title).to eql 'Published'
-      end
-
-      it "should not include events for the user if the user asset string is not included" do
-        user_event = @user.calendar_events.create!(context: @user, start_at: 1.minute.from_now, end_at: 5.minutes.from_now)
-        events = @user.calendar_events_for_calendar(contexts: [@course])
-        expect(events).not_to include user_event
-      end
-    end
-
     describe "upcoming_events" do
       before(:once) { course_with_teacher(:active_all => true) }
       it "handles assignments where the applied due_at is nil" do
@@ -1808,25 +1911,29 @@ describe User do
   describe "select_upcoming_assignments" do
     it "filters based on assignment date for asignments the user cannot delete" do
       time = Time.now + 1.day
+      context = double
       assignments = [double, double, double]
       user = User.new
+      allow(context).to receive(:grants_right?).with(user, :manage_assignments).and_return false
       assignments.each do |assignment|
         allow(assignment).to receive_messages(:due_at => time)
-        expect(assignment).to receive(:grants_right?).with(user, :delete).and_return false
+        allow(assignment).to receive(:context).and_return(context)
       end
       expect(user.select_upcoming_assignments(assignments,{:end_at => time})).to eq assignments
     end
 
     it "returns assignments that have an override between now and end_at opt" do
       assignments = [double, double, double, double]
+      context = double
       Timecop.freeze(Time.utc(2013,3,13,0,0)) do
         user = User.new
+        allow(context).to receive(:grants_right?).with(user, :manage_assignments).and_return true
         due_date1 = {:due_at => Time.now + 1.day}
         due_date2 = {:due_at => Time.now + 1.week}
         due_date3 = {:due_at => 2.weeks.from_now }
         due_date4 = {:due_at => nil }
         assignments.each do |assignment|
-          expect(assignment).to receive(:grants_right?).with(user, :delete).and_return true
+          allow(assignment).to receive(:context).and_return(context)
         end
         expect(assignments.first).to receive(:dates_hash_visible_to).with(user).
           and_return [due_date1]
@@ -1886,43 +1993,29 @@ describe User do
       ids << User.create!(:name => "john john")
     end
 
-    let_once :has_pg_collkey do
-      status = if User.connection.extension_installed?(:pg_collkey)
-        begin
-          Bundler.require 'icu'
-          true
-        rescue LoadError
-          skip 'requires icu locally SD-2747'
-          false
-        end
-      end
-
-      status || false
-    end
-
-    context 'when pg_collkey is installed' do
+    context 'given pg_collkey extension is present' do
       before do
-        skip 'requires pg_collkey installed SD-2747' unless has_pg_collkey
+        skip_unless_pg_collkey_present
       end
 
-      it "should sort lexicographically" do
+      it "sorts lexicographically" do
         ascending_sortable_names = User.order_by_sortable_name.where(id: ids).map(&:sortable_name)
         expect(ascending_sortable_names).to eq(["john, john", "John, John", "Johnson, John"])
       end
 
-      it "should sort support direction toggle" do
+      it "sorts support direction toggle" do
         descending_sortable_names = User.order_by_sortable_name(:direction => :descending).
           where(id: ids).map(&:sortable_name)
         expect(descending_sortable_names).to eq(["Johnson, John", "John, John", "john, john"])
       end
 
-      it "should sort support direction toggle with a prior select" do
+      it "sorts support direction toggle with a prior select" do
         descending_sortable_names = User.select([:id, :sortable_name]).order_by_sortable_name(:direction => :descending).
           where(id: ids).map(&:sortable_name)
         expect(descending_sortable_names).to eq ["Johnson, John", "John, John", "john, john"]
       end
 
-      it "should sort by the current locale with pg_collkey if possible" do
+      it "sorts by the current locale" do
         I18n.locale = :es
         expect(User.sortable_name_order_by_clause).to match(/'es'/)
         expect(User.sortable_name_order_by_clause).not_to match(/'root'/)
@@ -1930,29 +2023,6 @@ describe User do
         I18n.locale = :en
         expect(User.sortable_name_order_by_clause).not_to match(/'es'/)
         expect(User.sortable_name_order_by_clause).to match(/'root'/)
-      end
-    end
-
-    context 'when pg_collkey is not installed' do
-      before do
-        skip 'requires pg_collkey to not be installed SD-2747' if has_pg_collkey
-      end
-
-      it "should sort lexicographically" do
-        ascending_sortable_names = User.order_by_sortable_name.where(id: ids).map(&:sortable_name)
-        expect(ascending_sortable_names).to eq(["John, John", "john, john", "Johnson, John"])
-      end
-
-      it "should sort support direction toggle" do
-        descending_sortable_names = User.order_by_sortable_name(:direction => :descending).
-          where(id: ids).map(&:sortable_name)
-        expect(descending_sortable_names).to eq(["Johnson, John", "john, john", "John, John"])
-      end
-
-      it "should sort support direction toggle with a prior select" do
-        descending_sortable_names = User.select([:id, :sortable_name]).order_by_sortable_name(:direction => :descending).
-          where(id: ids).map(&:sortable_name)
-        expect(descending_sortable_names).to eq ["Johnson, John", "john, john", "John, John"]
       end
     end
 
@@ -2489,10 +2559,83 @@ describe User do
         expect(@student.grants_right?(@sub_admin, :manage_user_details)).to eq false
       end
 
+      it "is not granted to custom sub-account admins with inherited roles" do
+        custom_role = custom_account_role("somerole", :account => @root_account)
+        @root_account.role_overrides.create!(role: custom_role, enabled: true, permission: :manage_user_logins)
+        @custom_sub_admin = account_admin_user(account: @sub_account, role: custom_role)
+        expect(@student.grants_right?(@custom_sub_admin, :manage_user_details)).to eq false
+      end
+
       it "is not granted to root account admins on other root account admins who are invited as students" do
         other_admin = account_admin_user account: Account.create!
         course_with_student account: @root_account, user: other_admin, enrollment_state: 'invited'
         expect(@root_admin.grants_right?(other_admin, :manage_user_details)).to eq false
+      end
+    end
+
+    describe ":generate_observer_pairing_code" do
+      before :once do
+        @root_account = Account.default
+        @root_admin = account_admin_user(account: @root_account)
+        @sub_account = Account.create! root_account: @root_account
+        @sub_admin = account_admin_user(account: @sub_account)
+        @student = course_with_student(account: @sub_account, active_all: true).user
+      end
+
+      it "is granted to self" do
+        expect(@student.grants_right?(@student, :generate_observer_pairing_code)).to eq true
+      end
+
+      it "is granted to root account admins" do
+        expect(@student.grants_right?(@root_admin, :generate_observer_pairing_code)).to eq true
+      end
+
+      it "is not granted to root account w/o :generate_observer_pairing_code" do
+        @root_account.role_overrides.create!(role: admin_role, enabled: false, permission: :generate_observer_pairing_code)
+        expect(@student.grants_right?(@root_admin, :generate_observer_pairing_code)).to eq false
+      end
+
+      it "is granted to sub-account admins" do
+        expect(@student.grants_right?(@sub_admin, :generate_observer_pairing_code)).to eq true
+      end
+
+      it "is not granted to sub-account admins w/o :generate_observer_pairing_code" do
+        @root_account.role_overrides.create!(role: admin_role, enabled: false, permission: :generate_observer_pairing_code)
+        expect(@student.grants_right?(@sub_admin, :generate_observer_pairing_code)).to eq false
+      end
+    end
+
+    describe ":moderate_user_content" do
+      before(:once) do
+        root_account = Account.default
+        @root_admin = account_admin_user(account: root_account)
+        sub_account = Account.create!(root_account: root_account)
+        @sub_admin = account_admin_user(account: sub_account)
+        @student = course_with_student(account: sub_account, active_all: true).user
+      end
+
+      it "cannot moderate your own content" do
+        expect(@student.grants_right?(@student, :moderate_user_content)).to be false
+      end
+
+      it "cannot moderate content if you are an admin without permission to moderate user content" do
+        Account.default.role_overrides.create!(role: admin_role, enabled: false, permission: :moderate_user_content)
+        expect(@student.grants_right?(@root_admin, :moderate_user_content)).to be false
+      end
+
+      it "cannot moderate content if you are a subadmin without permission to moderate user content" do
+        Account.default.role_overrides.create!(role: admin_role, enabled: false, permission: :moderate_user_content)
+        expect(@student.grants_right?(@sub_admin, :moderate_user_content)).to be false
+      end
+
+      it "can moderate content if you are an admin with permission to moderate user content" do
+        Account.default.role_overrides.create!(role: admin_role, enabled: true, permission: :moderate_user_content)
+        expect(@student.grants_right?(@root_admin, :moderate_user_content)).to be true
+      end
+
+      it "can moderate content if you are a subadmin with permission to moderate user content" do
+        Account.default.role_overrides.create!(role: admin_role, enabled: true, permission: :moderate_user_content)
+        expect(@student.grants_right?(@sub_admin, :moderate_user_content)).to be true
       end
     end
   end
@@ -2635,7 +2778,7 @@ describe User do
   describe "otp remember me cookie" do
     before do
       @user = User.new
-      @user.otp_secret_key = ROTP::Base32.random_base32
+      @user.otp_secret_key = ROTP::Base32.random
     end
 
     it "should add an ip to an existing cookie" do
@@ -2677,6 +2820,19 @@ describe User do
 
     it 'should show if user has group_membership' do
       expect(@student.current_active_groups?).to eq true
+    end
+
+    it "excludes groups in concluded courses with current_group_memberships_by_date" do
+      ag = Account.default.groups.create! name: "ag"
+      ag.users << @student
+      ag.save!
+      expect(@student.cached_current_group_memberships_by_date.map(&:group)).to match_array([@group, ag])
+
+      @course.start_at = 1.year.ago
+      @course.conclude_at = 1.hour.ago
+      @course.restrict_enrollments_to_course_dates = true
+      @course.save!
+      expect(User.find(@student.id).cached_current_group_memberships_by_date.map(&:group)).to match_array([ag])
     end
 
   end
@@ -2772,11 +2928,13 @@ describe User do
     end
 
     it 'caches results' do
-      sub_account = @account.sub_accounts.create!
-      sub_account.account_users.create!(:user => @user, :role => admin_role)
-      result = @user.roles(@account)
-      sub_account.destroy!
-      expect(@user.roles(@account)).to eq result
+      enable_cache do
+        sub_account = @account.sub_accounts.create!
+        sub_account.account_users.create!(:user => @user, :role => admin_role)
+        result = @user.roles(@account)
+        sub_account.destroy!
+        expect(@user.roles(@account)).to eq result
+      end
     end
 
     context 'exclude_deleted_accounts' do
@@ -2844,13 +3002,6 @@ describe User do
       f.submission_context_code = @course.asset_string
       f.save!
       expect(@user.submissions_folder(@course)).to eq f
-    end
-  end
-
-  describe "after_create" do
-    it "sets the new_user_tutorial_on_off feature flag to true" do
-      u = User.create!
-      expect(u.feature_enabled?(:new_user_tutorial_on_off)).to be true
     end
   end
 
@@ -3038,6 +3189,19 @@ describe User do
         @user.pseudonyms.where(account_id: @other_account).first.destroy
         expect(@user.user_can_edit_name?).to eq false
       end
+    end
+  end
+
+  describe 'generate_observer_pairing_code' do
+    before(:once) do
+      course_with_student
+    end
+
+    it 'doesnt create overlapping active codes' do
+      allow(SecureRandom).to receive(:base64).and_return('abc123', 'abc123', '123abc')
+      @student.generate_observer_pairing_code
+      pairing_code = @student.generate_observer_pairing_code
+      expect(pairing_code.code).to eq '123abc'
     end
   end
 end

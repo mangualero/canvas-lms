@@ -19,12 +19,10 @@
 import React from 'react'
 import PropTypes from 'prop-types'
 import I18n from 'i18n!custom_help_link'
-import PopoverMenu from '@instructure/ui-core/lib/components/PopoverMenu'
-import MenuItem from '@instructure/ui-core/lib/components/Menu/MenuItem'
-import MenuItemGroup from '@instructure/ui-core/lib/components/Menu/MenuItemGroup'
-import Button from '@instructure/ui-buttons/lib/components/Button'
-import AccessibleContent from '@instructure/ui-a11y/lib/components/AccessibleContent'
-import IconPlusLine from '@instructure/ui-icons/lib/Line/IconPlus'
+import {Menu} from '@instructure/ui-menu'
+import {Button} from '@instructure/ui-buttons'
+import {AccessibleContent} from '@instructure/ui-a11y'
+import {IconPlusLine} from '@instructure/ui-icons'
 import CustomHelpLinkPropTypes from './CustomHelpLinkPropTypes'
 import CustomHelpLinkConstants from './CustomHelpLinkConstants'
 
@@ -67,7 +65,7 @@ export default class CustomHelpLinkMenu extends React.Component {
   render() {
     return (
       <div className="HelpMenuOptions__Container">
-        <PopoverMenu
+        <Menu
           trigger={
             <Button
               ref={c => {
@@ -81,20 +79,17 @@ export default class CustomHelpLinkMenu extends React.Component {
             </Button>
           }
         >
-          <MenuItemGroup
-            label={I18n.t('Add help menu links')}
-            onSelect={this.handleAddLinkSelection}
-          >
-            <MenuItem key="add_custom_link" value="add_custom_link">
+          <Menu.Group label={I18n.t('Add help menu links')} onSelect={this.handleAddLinkSelection}>
+            <Menu.Item key="add_custom_link" value="add_custom_link">
               {I18n.t('Add Custom Link')}
-            </MenuItem>
+            </Menu.Item>
             {this.props.links.map(link => (
-              <MenuItem key={link.text} value={link.text} disabled={link.is_disabled}>
+              <Menu.Item key={link.text} value={link.text} disabled={link.is_disabled}>
                 {link.text}
-              </MenuItem>
+              </Menu.Item>
             ))}
-          </MenuItemGroup>
-        </PopoverMenu>
+          </Menu.Group>
+        </Menu>
       </div>
     )
   }

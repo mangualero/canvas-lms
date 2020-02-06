@@ -103,9 +103,9 @@ test('present includes the context information', () => {
   equal(json.contextId, 31, 'contextId')
 })
 
-test('publish convenience method', 3, function() {
+test('publish convenience method', 3, () => {
   const wikiPage = new WikiPage(wikiPageObj())
-  this.stub(wikiPage, 'save').callsFake((attributes, options) => {
+  sandbox.stub(wikiPage, 'save').callsFake((attributes, options) => {
     ok(attributes, 'attributes present')
     ok(attributes.wiki_page, 'wiki_page present')
     strictEqual(attributes.wiki_page.published, true, 'published provided correctly')
@@ -113,9 +113,9 @@ test('publish convenience method', 3, function() {
   wikiPage.publish()
 })
 
-test('unpublish convenience method', 3, function() {
+test('unpublish convenience method', 3, () => {
   const wikiPage = new WikiPage(wikiPageObj())
-  this.stub(wikiPage, 'save').callsFake((attributes, options) => {
+  sandbox.stub(wikiPage, 'save').callsFake((attributes, options) => {
     ok(attributes, 'attributes present')
     ok(attributes.wiki_page, 'wiki_page present')
     strictEqual(attributes.wiki_page.published, false, 'published provided correctly')
@@ -123,9 +123,9 @@ test('unpublish convenience method', 3, function() {
   return wikiPage.unpublish()
 })
 
-test('setFrontPage convenience method', 3, function() {
+test('setFrontPage convenience method', 3, () => {
   const wikiPage = new WikiPage(wikiPageObj())
-  this.stub(wikiPage, 'save').callsFake((attributes, options) => {
+  sandbox.stub(wikiPage, 'save').callsFake((attributes, options) => {
     ok(attributes, 'attributes present')
     ok(attributes.wiki_page, 'wiki_page present')
     strictEqual(attributes.wiki_page.front_page, true, 'front_page provided correctly')
@@ -133,9 +133,9 @@ test('setFrontPage convenience method', 3, function() {
   wikiPage.setFrontPage()
 })
 
-test('unsetFrontPage convenience method', 3, function() {
+test('unsetFrontPage convenience method', 3, () => {
   const wikiPage = new WikiPage(wikiPageObj())
-  this.stub(wikiPage, 'save').callsFake((attributes, options) => {
+  sandbox.stub(wikiPage, 'save').callsFake((attributes, options) => {
     ok(attributes, 'attributes present')
     ok(attributes.wiki_page, 'wiki_page present')
     strictEqual(attributes.wiki_page.front_page, false, 'front_page provided correctly')

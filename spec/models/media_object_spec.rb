@@ -196,4 +196,91 @@ describe MediaObject do
       expect(MediaObject.add_media_files(attachments, wait_for_completion)).to eq :retval
     end
   end
+
+  describe ".process_retrieved_details" do
+    before :once do
+      @mock_entry = {
+        name: "Kaltura Title",
+        duration: 30,
+        plays: 0,
+        download_url: "https://google.com"
+      }
+      @media_type = "video"
+      @assets = []
+    end
+
+    before :each do
+      @mock_kaltura = double('CanvasKaltura::ClientV3')
+      allow(CanvasKaltura::ClientV3).to receive(:new).and_return(@mock_kaltura)
+      allow(@mock_kaltura).to receive(:startSession).and_return(nil)
+      allow(@mock_kaltura).to receive(:media_sources).and_return(
+        [{:height => "240", :bitrate => "382", :isOriginal => "0", :width => "336", :content_type => "video/mp4",
+          :containerFormat => "isom", :url => "https://kaltura.example.com/some/url", :size =>"204", :fileExt=>"mp4"}]
+      )
+      allow(@mock_kaltura).to receive(:mediaGet).and_return(media_object)
+      allow(@mock_kaltura).to receive(:mediaTypeToSymbol).and_return("video")
+      allow(@mock_kaltura).to receive(:flavorAssetGetByEntryId).and_return([])
+    end
+
+    it "keeps the current title if already set" do
+        mo = media_object
+        mo.title = "Canvas Title"
+        mo.save!
+
+        mo.process_retrieved_details(@mock_entry, @media_type, @assets)
+        expect(mo.title).to eq "Canvas Title"
+    end
+
+    it "uses the kaltura title if no current title" do
+        mo = media_object
+        mo.title = ""
+        mo.save!
+
+        mo.process_retrieved_details(@mock_entry, @media_type, @assets)
+        expect(mo.title).to eq "Kaltura Title"
+    end
+
+    it "ensures retrieve_details adds '/' to media_type " do
+      mo = media_object
+      mo.retrieve_details
+      expect(mo.media_type).to eql "video/*"
+    end
+
+    it "doesn't add '/' to media_type if blank" do
+      allow(@mock_kaltura).to receive(:mediaTypeToSymbol).and_return("")
+      mo = media_object
+      mo.retrieve_details
+      expect(mo.media_type).to eql("")
+    end
+
+    it "doesn't create the attachment until media_sources exist" do
+      allow(@mock_kaltura).to receive(:media_sources).and_return([])
+      mo = media_object
+      mo.process_retrieved_details(@mock_entry, @media_type, @assets)
+      att = Attachment.where(:media_entry_id => mo[:media_id])
+      expect(att).to be_empty
+    end
+  end
+
+  describe ".guaranteed_title" do
+    before :once do
+      @mo = media_object
+      @mo.title = nil
+      @mo.user_entered_title = nil
+    end
+
+    it "returns 'Untitled' if there is no title" do
+      expect(@mo.guaranteed_title).to eq "Untitled"
+    end
+
+    it "returns the title if available" do
+      @mo.title = "The title"
+      expect(@mo.guaranteed_title).to eq "The title"
+    end
+
+    it "returns the user_entered_title if available" do
+      @mo.user_entered_title = "User title"
+      expect(@mo.guaranteed_title).to eq "User title"
+    end
+  end
 end

@@ -29,24 +29,45 @@ import store from './store/store'
  */
 // ctx is context
 function renderShowDeveloperKeys(ctx) {
-  store.dispatch(
-    actions.getDeveloperKeys(`/api/v1/accounts/${ctx.params.contextId}/developer_keys`, true)
-  )
-
-  store.dispatch(actions.listDeveloperKeyScopes(ctx.params.contextId))
-
-  const view = () => {
-    const state = store.getState()
-    ReactDOM.render(
-      <DeveloperKeysApp applicationState={state} actions={actions} store={store} ctx={ctx} />,
-      document.getElementById('reactContent')
-    )
+  if (ctx.hash === 'api_key_modal_opened') {
+    store.dispatch(actions.developerKeysModalOpen('api'))
+  } else if (ctx.hash === 'lti_key_modal_opened') {
+    store.dispatch(actions.developerKeysModalOpen('lti'))
+    store.dispatch(actions.ltiKeysSetLtiKey(true))
+  } else {
+    store.dispatch(actions.developerKeysModalClose())
+    store.dispatch(actions.editDeveloperKey())
+    store.dispatch(actions.ltiKeysSetLtiKey(false))
   }
-  // returns A function that unsubscribes the change listener.
-  store.subscribe(view)
 
-  // renders the page
-  view()
+  const state = store.getState()
+
+  if (!state.listDeveloperKeys.listDeveloperKeysSuccessful) {
+    store.dispatch(
+      actions.getDeveloperKeys(`/api/v1/accounts/${ctx.params.contextId}/developer_keys`, true)
+    )
+
+    if (!state.listDeveloperKeyScopes.listDeveloperKeyScopesSuccessful) {
+      store.dispatch(actions.listDeveloperKeyScopes(ctx.params.contextId))
+    }
+
+    const view = () => {
+      const currentState = store.getState()
+      ReactDOM.render(
+        <DeveloperKeysApp
+          applicationState={currentState}
+          actions={actions}
+          store={store}
+          ctx={ctx}
+        />,
+        document.getElementById('reactContent')
+      )
+    }
+    // returns A function that unsubscribes the change listener.
+    store.subscribe(view)
+    // renders the page
+    view()
+  }
 }
 
 /**

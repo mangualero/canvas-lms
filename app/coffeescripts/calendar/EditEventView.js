@@ -36,7 +36,6 @@ RichContentEditor.preloadRemoteModule()
 // #
 // View for editing a calendar event on it's own page
 export default class EditCalendarEventView extends Backbone.View {
-
   initialize() {
     this.render = this.render.bind(this)
     this.attachKeyboardShortcuts = this.attachKeyboardShortcuts.bind(this)
@@ -51,7 +50,7 @@ export default class EditCalendarEventView extends Backbone.View {
     super.initialize(...arguments)
     this.model.fetch().done(() => {
       const picked_params = _.pick(
-        Object.assign({}, this.model.attributes, deparam()),
+        {...this.model.attributes, ...deparam()},
         'start_at',
         'start_date',
         'start_time',
@@ -84,7 +83,7 @@ export default class EditCalendarEventView extends Backbone.View {
 
       // populate inputs with params passed through the url
       if (picked_params.duplicate) {
-        _.each(_.keys(picked_params.duplicate), key => {
+        Object.keys(picked_params.duplicate).forEach(key => {
           const oldKey = key
           if (key !== 'append_iterator') {
             key = `duplicate_${key}`
@@ -96,7 +95,7 @@ export default class EditCalendarEventView extends Backbone.View {
         picked_params.duplicate = !!picked_params.duplicate
       }
 
-      return _.each(_.keys(picked_params), key => {
+      return Object.keys(picked_params).forEach(key => {
         const $e = this.$el.find(`input[name='${key}'], select[name='${key}']`)
         const value = $e.prop('type') === 'checkbox' ? [picked_params[key]] : picked_params[key]
         $e.val(value)
@@ -133,9 +132,11 @@ export default class EditCalendarEventView extends Backbone.View {
   }
 
   attachKeyboardShortcuts() {
-    return $('.switch_event_description_view')
-      .first()
-      .before(new KeyboardShortcuts().render().$el)
+    if (!ENV.use_rce_enhancements) {
+      return $('.switch_event_description_view')
+        .first()
+        .before(new KeyboardShortcuts().render().$el)
+    }
   }
 
   toggleDuplicateOptions() {
@@ -150,7 +151,8 @@ export default class EditCalendarEventView extends Backbone.View {
     if (confirm(msg)) {
       return this.$el.disableWhileLoading(
         this.model.destroy({
-          success: () => this.redirectWithMessage(
+          success: () =>
+            this.redirectWithMessage(
               I18n.t('event_deleted', '%{event_title} deleted successfully', {
                 event_title: this.model.get('title')
               })
@@ -168,10 +170,12 @@ export default class EditCalendarEventView extends Backbone.View {
     )
     return $('.show_if_using_sections input').prop('disabled', !this.model.get('use_section_dates'))
   }
+
   toggleUseSectionDates(e) {
     this.model.set('use_section_dates', !this.model.get('use_section_dates'))
     return this.updateRemoveChildEvents(e)
   }
+
   toggleHtmlView(event) {
     if (event != null) event.preventDefault()
 
@@ -228,7 +232,8 @@ export default class EditCalendarEventView extends Backbone.View {
           $dialog.dialog('close')
           this.$el.disableWhileLoading(
             this.model.save(eventData, {
-              success: () => this.redirectWithMessage(I18n.t('event_saved', 'Event Saved Successfully'))
+              success: () =>
+                this.redirectWithMessage(I18n.t('event_saved', 'Event Saved Successfully'))
             })
           )
           return $dialog.remove()
@@ -256,6 +261,7 @@ export default class EditCalendarEventView extends Backbone.View {
 
   toJSON() {
     const result = super.toJSON(...arguments)
+    result.use_rce_enhancements = ENV.use_rce_enhancements
     result.recurringEventLimit = 200
     return result
   }
@@ -264,8 +270,8 @@ export default class EditCalendarEventView extends Backbone.View {
     let data = this.$el.getFormData()
 
     // pull the true, parsed dates from the inputs to calculate start_at and end_at correctly
-    const keys = _.filter(_.keys(data), key => /start_date/.test(key))
-    _.each(keys, start_date_key => {
+    const keys = Object.keys(data).filter(key => /start_date/.test(key))
+    keys.forEach(start_date_key => {
       const start_time_key = start_date_key.replace(/start_date/, 'start_time')
       const end_time_key = start_date_key.replace(/start_date/, 'end_time')
       const start_at_key = start_date_key.replace(/start_date/, 'start_at')
@@ -302,6 +308,7 @@ export default class EditCalendarEventView extends Backbone.View {
 
     return data
   }
+
   static title() {
     return super.title('event', 'Event')
   }

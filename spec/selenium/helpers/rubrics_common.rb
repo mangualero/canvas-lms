@@ -30,6 +30,19 @@ module RubricsCommon
     wait_for_ajaximations
   end
 
+  def create_assignment_with_points(points)
+    assignment_name = 'first test assignment'
+    due_date = Time.now.utc + 2.days
+    @group = @course.assignment_groups.create!(name: "default")
+    @assignment = @course.assignments.create(
+      name: assignment_name,
+      due_at: due_date,
+      points_possible: points,
+      assignment_group: @group
+    )
+    @assignment
+  end
+
   def assignment_with_rubric(points, title = 'new rubric')
     @assignment = create_assignment_with_points(points)
     rubric_model(title: title, data:
@@ -60,7 +73,7 @@ module RubricsCommon
               :description => "Amazing",
             },
             "1" => {
-                :points => 3,
+                :points => points*0.30,
                 :description => "Reduced Marks",
             },
             "2" => {
@@ -78,7 +91,6 @@ module RubricsCommon
 
   def edit_rubric_after_updating
     fj(".rubric .edit_rubric_link:visible").click
-    driver.find_element(:tag_name, "body").click
   end
 
   # should be in editing mode before calling
@@ -129,8 +141,13 @@ module RubricsCommon
     create_rubric_with_criterion_points "5.5"
     edit_rubric_after_updating
 
-    split_ratings(1)
-
+    wait_for_ajaximations
+    fj('.add_rating_link_after:visible').click
+    expect(f('#edit_rating_form input')).to have_value('3')
+    set_value(f('#rating_form_title'), 'three')
+    fj("span:contains('Update Rating')").click
+    wait_for_ajaximations
+    expect(ffj(".rubric .criterion:visible .rating .points").count).to eq 3
     expect(ffj(".rubric .criterion:visible .rating .points")[1].text).to eq '3'
   end
 
@@ -140,6 +157,7 @@ module RubricsCommon
 
     split_ratings(1)
     wait_for_ajaximations
+    wait_for_dom_ready
     expect(ffj(".rubric .criterion:visible .rating .points").count).to eq 3
     expect(ffj(".rubric .criterion:visible .rating .points")[1].text).to eq '0'
   end
@@ -154,7 +172,6 @@ module RubricsCommon
     f('.outcome-link').click
     wait_for_ajaximations
     f('.ui-dialog .btn-primary').click
-    accept_alert
     wait_for_ajaximations
   end
 end

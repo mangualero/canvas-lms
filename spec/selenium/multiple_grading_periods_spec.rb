@@ -144,7 +144,7 @@ describe "interaction with grading periods" do
       end
 
       it 'should list an assignment from a current grading period when due date is updated', priority: "2", test_course: 576764 do
-        assignment.update_attributes(due_at: 3.days.from_now(now))
+        assignment.update(due_at: 3.days.from_now(now))
         user_session(teacher)
         get "/courses/#{test_course.id}/assignments"
         expect(f("#assignment_#{assignment.id} a.ig-title")).to include_text('Assignment 1')
@@ -185,7 +185,7 @@ describe "interaction with grading periods" do
     end
 
     it 'should display the current grading period and assignments in grades page', priority: "1", test_id: 202326 do
-      expect(f("#grading_period_select_menu option[selected]")).to include_text('Course Grading Period 1')
+      expect(fj("#grading_period_select_menu option:selected")).to include_text('Course Grading Period 1')
       expect(f("#submission_#{assignment1.id} th a")).to include_text('Assignment 1')
     end
 

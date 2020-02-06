@@ -76,8 +76,8 @@ test('renders', () => {
   ok(view)
 })
 
-test('delete calls screenreader', function() {
-  this.stub(window, 'confirm').returns(true)
+test('delete calls screenreader', () => {
+  sandbox.stub(window, 'confirm').returns(true)
   ENV.context_asset_string = 'course_1'
   const server = sinon.fakeServer.create()
   server.respondWith('DELETE', '/api/v1/courses/1/conferences/1', [
@@ -91,7 +91,7 @@ test('delete calls screenreader', function() {
       join_url: 'www.blah.com'
     })
   ])
-  this.spy($, 'screenReaderFlashMessage')
+  sandbox.spy($, 'screenReaderFlashMessage')
   const view = conferenceView()
   view.delete($.Event('click'))
   server.respond()
@@ -99,60 +99,62 @@ test('delete calls screenreader', function() {
   server.restore()
 })
 
-test('deleteRecordings calls screenreader', function() {
-  this.stub(window, 'confirm').returns(true)
+test('deleteRecordings calls screenreader', () => {
+  sandbox.stub(window, 'confirm').returns(true)
   ENV.context_asset_string = 'course_1'
   const server = sinon.fakeServer.create()
   server.respondWith('POST', '/recording', [
     200,
     {'Content-Type': 'application/json'},
     JSON.stringify({
-      deleted: true,
+      deleted: true
     })
   ])
   const big_blue_button_conference = {
     id: 1,
     recordings: [
       {
-        recording_id: "954cc3",
-        title: "Conference",
+        recording_id: '954cc3',
+        title: 'Conference',
         duration_minutes: 0,
         playback_url: null,
         playback_formats: [
           {
-            type: "statistics",
-            url: "www.blah.com",
+            type: 'statistics',
+            url: 'www.blah.com',
             length: null
           },
           {
-            type: "presentation",
-            url: "www.blah.com",
+            type: 'presentation',
+            url: 'www.blah.com',
             length: 0
           }
         ],
-        created_at: 1518554650000,
+        created_at: 1518554650000
       }
     ],
     user_settings: {
       record: true
     }
   }
-  this.spy($, 'screenReaderFlashMessage')
+  sandbox.spy($, 'screenReaderFlashMessage')
   const view = conferenceView(big_blue_button_conference)
-  $('div.ig-button[data-id="954cc3"]').children('a').trigger($.Event( "click" ))
+  $('div.ig-button[data-id="954cc3"]')
+    .children('a')
+    .trigger($.Event('click'))
   server.respond()
   equal($.screenReaderFlashMessage.callCount, 1)
   server.restore()
   ok(view)
 })
 
-test('renders adobe connect link', function() {
+test('renders adobe connect link', () => {
   ENV.context_asset_string = 'course_1'
   ENV.conference_type_details = [
     {
-      name:"Adobe Connect",
-      type:"AdobeConnect",
-      settings:[]
+      name: 'Adobe Connect',
+      type: 'AdobeConnect',
+      settings: []
     }
   ]
   const adobe_connect_conference = {
@@ -165,23 +167,23 @@ test('renders adobe connect link', function() {
     join_url: 'www.blah.com',
     recordings: [
       {
-        recording_id: "954cc3",
-        title: "Conference",
+        recording_id: '954cc3',
+        title: 'Conference',
         playback_url: 'www.blah.com',
         duration_minutes: 0,
         playback_formats: [
           {
-            type: "statistics",
-            url: "www.blah.com",
+            type: 'statistics',
+            url: 'www.blah.com',
             length: null
           },
           {
-            type: "presentation",
-            url: "www.blah.com",
+            type: 'presentation',
+            url: 'www.blah.com',
             length: 0
           }
         ],
-        created_at: 1518554650000,
+        created_at: 1518554650000
       }
     ],
     user_settings: {

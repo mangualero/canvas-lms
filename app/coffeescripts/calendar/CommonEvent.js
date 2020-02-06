@@ -21,6 +21,7 @@ import $ from 'jquery'
 import fcUtil from '../util/fcUtil'
 import 'jquery.ajaxJSON'
 import 'vendor/jquery.ba-tinypubsub'
+import splitAssetString from 'compiled/str/splitAssetString'
 
 export default function CommonEvent(data, contextInfo, actualContextInfo) {
   this.eventType = 'generic'
@@ -39,7 +40,9 @@ Object.assign(CommonEvent.prototype, {
     discussion: I18n.t('Discussion'),
     event: I18n.t('Event'),
     quiz: I18n.t('Quiz'),
-    note: I18n.t('To Do')
+    note: I18n.t('To Do'),
+    wiki_page: I18n.t('Page'),
+    discussion_topic: I18n.t('Discussion')
   },
 
   isNewEvent() {
@@ -47,11 +50,7 @@ Object.assign(CommonEvent.prototype, {
   },
 
   isAppointmentGroupFilledEvent() {
-    return (
-      this.object &&
-      this.object.child_events &&
-      this.object.child_events.length > 0
-    )
+    return this.object && this.object.child_events && this.object.child_events.length > 0
   },
 
   isAppointmentGroupEvent() {
@@ -64,6 +63,11 @@ Object.assign(CommonEvent.prototype, {
       (this.object && this.object.context_code) ||
       (this.contextInfo && this.contextInfo.asset_string)
     )
+  },
+
+  contextApiPrefix() {
+    const context = splitAssetString(this.contextCode())
+    return `/api/v1/${encodeURIComponent(context[0])}/${encodeURIComponent(context[1])}`
   },
 
   isUndated() {
@@ -133,6 +137,15 @@ Object.assign(CommonEvent.prototype, {
     )
   },
 
+  isDueStrictlyAtMidnight() {
+    return (
+      this.start &&
+      (this.midnightFudged ||
+        (this.start.hours() === 23 && this.start.minutes() > 59) ||
+        (this.start.hours() === 0 && this.start.minutes() === 0))
+    )
+  },
+
   isPast() {
     return this.start && this.start < fcUtil.now()
   },
@@ -190,10 +203,7 @@ Object.assign(CommonEvent.prototype, {
 
   assignmentType() {
     if (!this.assignment) return
-    if (
-      this.assignment.submission_types &&
-      this.assignment.submission_types.length
-    ) {
+    if (this.assignment.submission_types && this.assignment.submission_types.length) {
       const type = this.assignment.submission_types[0]
       if (type === 'online_quiz') return 'quiz'
       if (type === 'discussion_topic') return 'discussion'
@@ -202,7 +212,7 @@ Object.assign(CommonEvent.prototype, {
   },
 
   plannerObjectType() {
-    switch(this.object.plannable_type) {
+    switch (this.object.plannable_type) {
       case 'discussion_topic':
         return 'discussion'
       case 'wiki_page':
