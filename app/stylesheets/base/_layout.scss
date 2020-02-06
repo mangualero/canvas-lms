@@ -25,13 +25,8 @@ body {
   min-height: 100vh;
   background: $ic-color-light;
   font-weight: 300;
-<<<<<<< Updated upstream
 
   @if not $use_responsive_layout {
-    &:not(.is-inside-submission-frame):not(.embedded):not(.dashboard-is-planner) {
-      min-width: 768px;
-    }
-=======
 /*
   &:not(.is-inside-submission-frame):not(.embedded):not(.dashboard-is-planner) {
     min-width: 768px;
@@ -39,7 +34,6 @@ body {
 */
   &.dashboard-is-planner {
     min-width: 470px; /* or the dashboard header starts to wrap */
->>>>>>> Stashed changes
   }
 
   &.no-headers, &.embedded {
